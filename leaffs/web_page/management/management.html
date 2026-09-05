@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>服务管理</title>
+<link rel="stylesheet" href="/static/style.css">
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <h1><span class="ht">服务管理</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">连接中...</span></span></h1>
+        <div class="info">
+            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">亮色</span></button>
+        </div>
+    </div>
+
+    <div class="nav-bar">
+        <a href="/browse/">浏览</a>
+        <a href="/gallery">预览</a>
+        <a href="/url-download">下载器</a>
+        <a href="/admin" class="active">管理</a>
+        <a href="/me">我的</a>
+        <span style="flex:1"></span>
+    </div>
+
+    <div class="admin-grid" id="adminGrid">
+        <!-- 服务器状态 -->
+        <div class="admin-card">
+            <h3>服务器状态</h3>
+            <div class="info-row"><span class="info-label">HTTP 端口</span><span class="info-value" id="httpPort">-</span></div>
+            <div class="info-row"><span class="info-label">WebSocket</span><span class="info-value" id="wsPortInfo">-</span></div>
+            <div class="info-row"><span class="info-label">服务状态</span><span class="info-value"><span class="status-dot green"></span> 运行中</span></div>
+            <div class="info-row"><span class="info-label">本机 IP</span><span class="info-value" id="localIp">-</span></div>
+            <div class="info-row"><span class="info-label">运行时间</span><span class="info-value" id="startTime">-</span></div>
+            <div class="info-row"><span class="info-label">连接用户</span><span class="info-value" id="connCount">-</span></div>
+        </div>
+
+        <!-- 资源统计 -->
+        <div class="admin-card">
+            <h3>资源统计</h3>
+            <div class="info-row"><span class="info-label">文件总数</span><span class="info-value" id="fileTotal">-</span></div>
+            <div class="info-row"><span class="info-label">总大小</span><span class="info-value" id="shareTotalSize">-</span></div>
+            <div class="info-row"><span class="info-label">用户空间</span><span class="info-value" id="userQuotaInfo">-</span></div>
+            <div class="info-row"><span class="info-label">公共空间</span><span class="info-value" id="publicQuotaInfo">-</span></div>
+            <div class="info-row"><span class="info-label">系统总空间</span><span class="info-value" id="totalQuotaInfo">-</span></div>
+            <div class="info-row"><span class="info-label">ffmpeg</span><span class="info-value" id="ffmpegStatus">-</span></div>
+            <div class="info-row"><span class="info-label">aria2c</span><span class="info-value" id="aria2cStatus">-</span></div>
+        </div>
+
+        <!-- 游客模式 -->
+        <div class="admin-card" style="padding:16px 20px">
+            <h3>游客模式</h3>
+            <div style="display:flex;gap:20px;align-items:stretch;min-height:100px">
+                <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+                    <div class="config-row">
+                        <span class="auth-state" id="authState">-</span>
+                        <button class="btn-admin" id="authToggleBtn" onclick="toggleAuth()">切换</button>
+                    </div>
+                    <div class="config-hint">开启后无需登录即可浏览和下载公共文件夹文件。登录用户不受该设置影响</div>
+                </div>
+                <div style="width:1px;background:var(--border);flex-shrink:0"></div>
+                <div style="width:50%;display:flex;align-items:center;justify-content:center">
+                    <div style="width:115px;height:115px;display:flex;align-items:center;justify-content:center;border:2px solid #d0d5dd;border-radius:8px;background:var(--card-bg)">
+                        <div id="qrContainer" style="width:105px;height:105px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted)">加载中...</div>
+                    </div>
+                </div>
+            </div>
+            <div id="qrUrl" style="font-size:14px;color:var(--primary);word-break:break-all;margin-top:14px;line-height:1.5;text-align:center;font-weight:600"></div>
+            <div id="qrCaption" style="font-size:11px;color:var(--text-light);margin-top:6px;text-align:center;line-height:1.5">手机扫码访问文件服务</div>
+        </div>
+
+        <!-- 功能入口：用户管理 / 高级配置 / 深度配置（与其它卡片同处 .admin-grid，随窗口一致换行） -->
+        <div class="admin-card" style="cursor:pointer" onclick="window.location.href='/admin/users'">
+            <h3>用户管理</h3>
+            <div style="font-size:12px;color:var(--text-light);margin:4px 0">新增、删除、修改密码、权限管理</div>
+            <div class="btn btn-sm btn-primary" style="margin-top:6px">点击进入</div>
+        </div>
+        <div class="admin-card" style="cursor:pointer" onclick="window.location.href='/admin/advanced'">
+            <h3>高级配置</h3>
+            <div style="font-size:12px;color:var(--text-light);margin:4px 0">缓冲区大小、缓存策略、上传防抖、API大小限制等</div>
+            <div class="btn btn-sm btn-primary" style="margin-top:6px">点击进入</div>
+        </div>
+        <div class="admin-card" style="cursor:pointer" onclick="window.location.href='/admin/deep'">
+            <h3>深度配置</h3>
+            <div style="font-size:12px;color:var(--text-light);margin:4px 0">密码加密参数、缩略图清理策略、输入长度限制等</div>
+            <div class="btn btn-sm btn-primary" style="margin-top:6px">点击进入</div>
+        </div>
+
+        <!-- 限速设置 -->
+        <div class="admin-card">
+            <h3>限速设置</h3>
+            <div class="config-group">
+                <label>全局默认限速（KB/s，0 为不限速）</label>
+                <div class="config-row">
+                    <input type="number" id="speedInput" min="0" value="0" placeholder="0 = 不限速">
+                    <button class="btn-admin primary" onclick="applySpeed()">应用</button>
+                </div>
+                <div class="config-hint">所有用户默认使用此限速。可在用户管理中为每个用户单独设置</div>
+            </div>
+        </div>
+
+        <!-- 配额设置 -->
+        <div class="admin-card">
+            <h3>配额设置</h3>
+            <div style="display:flex;gap:16px;margin-bottom:6px">
+                <div class="config-group" style="margin-bottom:0;flex:1">
+                    <label>用户空间大小</label>
+                    <div class="config-row">
+                        <input type="number" id="userQuotaInput" min="0" value="5" style="width:80px">
+                        <span style="font-size:11px;color:var(--text-light)">GB</span>
+                    </div>
+                </div>
+                <div class="config-group" style="margin-bottom:0;flex:1">
+                    <label>公共空间大小</label>
+                    <div class="config-row">
+                        <input type="number" id="publicQuotaInput" min="0" value="5" style="width:80px">
+                        <span style="font-size:11px;color:var(--text-light)">GB</span>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex;gap:16px">
+                <div class="config-group" style="margin-bottom:0;flex:1">
+                    <label>系统空间大小</label>
+                    <div class="config-row">
+                        <input type="number" id="totalQuotaInput" min="0" value="50" style="width:80px">
+                        <span style="font-size:11px;color:var(--text-light)">GB</span>
+                    </div>
+                </div>
+                <div class="config-group" style="margin-bottom:0;flex:1;display:flex;flex-direction:column;justify-content:flex-end">
+                    <div style="display:flex;align-items:center;min-height:32px">
+                        <button class="btn-admin primary" onclick="applyQuotas()">应用</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 连接用户列表 -->
+        <div class="admin-card">
+            <h3>连接用户</h3>
+            <div id="connTableWrap" style="max-height:180px;overflow-y:auto"><div style="color:var(--text-light);font-size:11px">加载中...</div></div>
+        </div>
+
+        <!-- 连接数上限（整机同时处理的连接数；管理首页直接调整，立即生效） -->
+        <div class="admin-card" id="connConfigCard">
+            <h3>连接数上限</h3>
+            <div class="config-group">
+                <label>整台机器同一时间最多同时服务的连接数（浏览器、下载、手机 App 连上来都算一个）</label>
+                <div class="config-row">
+                    <input type="number" id="connLimitInput" min="1" max="20000" step="1" value="256" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">默认 256（1~20000）</span>
+                    <button class="btn-admin primary" onclick="applyConnLimit()">保存</button>
+                </div>
+                <div class="config-hint">保存后立即生效，无需重启；超过上限的新连接会被<strong>立即拒绝</strong>而不是排队</div>
+            </div>
+            <div class="config-group" style="border-top:1px solid var(--border);padding-top:10px">
+                <label>每台设备（同一 IP）同时活跃的连接数上限，防止一台机器占满服务</label>
+                <div class="config-row">
+                    <input type="number" id="connPerIpInput" min="1" max="1000" step="1" value="20" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">默认 20（1~1000）</span>
+                    <button class="btn-admin primary" onclick="applyConnPerIp()">保存</button>
+                </div>
+                <div class="config-hint">保存后立即生效；设太小可能影响同一路由器/代理后面多台设备同时使用</div>
+            </div>
+            <div class="config-group" style="border-top:1px solid var(--border);padding-top:10px">
+                <label>每台设备同时保持的实时通道（WebSocket）连接数上限：每多开一个页面/多端登录都会占一条</label>
+                <div class="config-row">
+                    <input type="number" id="wsConnPerIpInput" min="1" max="256" step="1" value="8" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">默认 8（1~256）</span>
+                    <button class="btn-admin primary" onclick="applyWsConnPerIp()">保存</button>
+                </div>
+                <div class="config-hint">保存后立即生效；改小可防止单台设备占用过多实时通道</div>
+            </div>
+        </div>
+
+        <!-- 服务器日志预览（完整日志见 /log） -->
+        <div class="admin-card" id="logCard" style="display:flex;flex-direction:column">
+            <h3 style="display:flex;align-items:center;justify-content:space-between">服务器日志<a href="/log" style="font-size:12px;font-weight:400;text-decoration:none">查看全部日志 →</a></h3>
+            <div id="logArea" class="log-area" style="flex:1 1 auto;min-height:0"><div style="color:var(--text-light);font-size:11px">加载中...</div></div>
+        </div>
+    </div>
+</div>
+
+<script>var myRole = '__MY_ROLE__';</script>
+<script src="/static/app.js"></script>
+<script src="/static/qrcode.min.js"></script>
+<script src="/static/management/admin-config.js"></script>
+<script src="/static/management/admin-core.js"></script>
+<style>
+.admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.admin-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.admin-card h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.info-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 12px; }
+.info-label { color: var(--text-light); }
+.info-value { color: var(--text); font-weight: 500; }
+.config-group { margin-bottom: 10px; }
+.config-group label { display: block; font-size: 11px; color: var(--text-light); margin-bottom: 4px; }
+.config-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.config-row input[type=number] { padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; background: var(--card-bg); color: var(--text); width: 80px; }
+.config-row input:focus { border-color: var(--primary); }
+.config-hint { font-size: 11px; color: var(--text-light); margin-top: 4px; line-height: 1.4; }
+/* 按钮样式已统一在全局 style.css 通用按钮，不再在本页定义 */
+.auth-state { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 4px; }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+.status-dot.green { background: var(--success); }
+.log-area { overflow-y: auto; font-size: 11px; line-height: 1.6; }
+.log-area .lv { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border); align-items: baseline; }
+.log-area .lv:last-child { border-bottom: none; }
+.log-area .lv .t { color: var(--text-light); white-space: nowrap; font-family: monospace; flex-shrink: 0; }
+.log-area .lv .m { flex: 1; word-break: break-all; color: var(--text); }
+.log-area .lv .m.ok { color: var(--success); }
+.log-area .lv .m.err { color: var(--danger); }
+.log-area .lv .m.warn { color: var(--warn); }
+</style>
+</body>
+</html>

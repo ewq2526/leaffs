@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Sign In</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+/* English login page (AI-translated copy of login.html) */
+body { padding: 0; }
+
+.login-app {
+    max-width: 1100px;
+    margin: 0 auto;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 0 16px;
+}
+
+.login-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    padding: 32px 0 28px;
+}
+
+.login-card {
+    width: 100%;
+    max-width: 380px;
+    background-color: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-hover);
+    padding: 28px 26px 24px;
+}
+
+.login-title {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 4px;
+}
+
+.login-sub {
+    font-size: 12px;
+    color: var(--text-light);
+    margin-bottom: 20px;
+}
+
+.field { margin-bottom: 14px; }
+
+.field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-light);
+    margin-bottom: 6px;
+}
+
+.field input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    outline: none;
+    background: var(--bg);
+    color: var(--text);
+    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.field input:focus {
+    border-color: var(--primary);
+    background: var(--card-bg);
+    box-shadow: 0 0 0 3px var(--ring-soft);
+}
+
+.field input::placeholder { color: var(--text-light); }
+
+.btn-block {
+    width: 100%;
+    justify-content: center;
+    margin-top: 8px;
+    padding: 10px;
+    font-size: 14px;
+    border-radius: var(--radius-sm);
+}
+
+.login-status {
+    min-height: 20px;
+    margin-top: 12px;
+    text-align: center;
+    font-size: 13px;
+}
+
+.login-status.error { color: var(--danger); }
+.login-status.ok { color: var(--success); }
+
+.login-footer {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-light);
+    padding-bottom: 20px;
+}
+</style>
+</head>
+<body>
+<div class="app login-app">
+    <div class="header">
+        <h1>LeafFS File Transfer</h1>
+        <div class="info">
+            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">Dark</span></button>
+        </div>
+    </div>
+
+    <div class="login-body">
+        <div class="login-card">
+            <div class="login-title">Account Sign In</div>
+            <div class="login-sub">Enter your username and password to sign in.</div>
+            <div class="field">
+                <label for="username">Username</label>
+                <input id="username" maxlength="20" placeholder="Enter username" autocomplete="username">
+            </div>
+            <div class="field">
+                <label for="password">Password</label>
+                <input id="password" type="password" maxlength="50" placeholder="Enter password" autocomplete="current-password">
+            </div>
+            <button class="btn btn-primary btn-block" id="loginBtn" onclick="doLogin()">Sign In</button>
+            <button class="btn btn-guest btn-block" id="guestBtn" style="display:__GUEST_DISPLAY__" onclick="doGuest()">Continue as Guest</button>
+            <div class="login-status" id="status"></div>
+        </div>
+        <div class="login-footer">LeafFS File Transfer Service</div>
+    </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+var statusBox = document.getElementById('status');
+
+function showStatus(msg, type) {
+    statusBox.textContent = msg;
+    statusBox.className = 'login-status' + (type ? ' ' + type : '');
+}
+
+function setBusy(btn, busy, text) {
+    if (busy) { btn.disabled = true; btn.textContent = text; }
+    else { btn.disabled = false; btn.textContent = text; }
+}
+
+function doLogin() {
+    var user = document.getElementById('username').value.trim();
+    var pass = document.getElementById('password').value.trim();
+    var btn = document.getElementById('loginBtn');
+    if (!user || !pass) { showStatus('Please enter username and password', 'error'); return; }
+    setBusy(btn, true, 'Signing in…');
+    showStatus('', '');
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/auth/login', true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.onload = function () {
+        try { var d = JSON.parse(xhr.responseText); } catch (e) { d = {}; }
+        if (xhr.status === 200 && d.success) {
+            showStatus('Signed in. Redirecting…', 'ok');
+            setTimeout(function () { window.location.href = '/browse/'; }, 500);
+        } else {
+            setBusy(btn, false, 'Sign In');
+            showStatus(d.error || 'Sign in failed. Please try again.', 'error');
+        }
+    };
+    xhr.onerror = function () {
+        setBusy(btn, false, 'Sign In');
+        showStatus('Network error. Please try again later.', 'error');
+    };
+    xhr.send(JSON.stringify({ username: user, password: pass }));
+}
+
+function doGuest() {
+    var btn = document.getElementById('guestBtn');
+    if (btn.disabled) return;
+    setBusy(btn, true, 'Entering…');
+    showStatus('', '');
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/guest/login', true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.onload = function () {
+        try { var d = JSON.parse(xhr.responseText); } catch (e) { d = {}; }
+        if (xhr.status === 200 && d.success) {
+            window.location.href = '/browse/public';
+        } else {
+            setBusy(btn, false, 'Continue as Guest');
+            showStatus(d.error || 'Failed. Please try again.', 'error');
+        }
+    };
+    xhr.onerror = function () {
+        setBusy(btn, false, 'Continue as Guest');
+        showStatus('Network error. Please try again later.', 'error');
+    };
+    xhr.send('{}');
+}
+
+document.getElementById('username').addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
+document.getElementById('password').addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
+document.getElementById('username').focus();
+</script>
+</body>
+</html>

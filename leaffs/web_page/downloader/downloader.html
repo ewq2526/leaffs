@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>下载器</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.dl-page { margin-top: 14px; }
+.dl-input-area {
+    background-color: var(--card-bg); border-radius: var(--radius); padding: 20px;
+    border: 1px solid var(--border); margin-bottom: 14px;
+}
+.dl-input-area h3 { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: var(--text); }
+.dl-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.dl-row input[type=text] { flex: 1; min-width: 240px; padding: 10px 14px; border: 2px solid var(--border); border-radius: 8px; font-size: 14px; outline: none; background: var(--card-bg); color: var(--text); }
+.dl-row input:focus { border-color: var(--primary); }
+.dl-dir-selector {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; border: 2px solid var(--border); border-radius: 8px;
+    font-size: 13px; cursor: pointer; color: var(--text); background: var(--card-bg);
+    max-width: 320px; overflow: hidden;
+}
+.dl-dir-selector:hover { border-color: var(--primary); }
+.dl-dir-selector .path-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-btn-start:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.dl-settings {
+    background-color: var(--card-bg); border-radius: var(--radius); padding: 14px 20px;
+    border: 1px solid var(--border); margin-bottom: 14px;
+    display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
+}
+.dl-settings label { font-size: 13px; color: var(--text-light); }
+.dl-settings input[type=number] {
+    width: 80px; padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px;
+    font-size: 13px; outline: none; background: var(--card-bg); color: var(--text); text-align: center;
+}
+.dl-settings input:focus { border-color: var(--primary); }
+.dl-settings .unit { font-size: 12px; color: var(--text-light); margin-right: 4px; }
+
+.dl-task-card {
+    background-color: var(--card-bg); border-radius: var(--radius); padding: 14px 18px;
+    border: 1px solid var(--border); margin-bottom: 10px;
+}
+.dl-task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
+.dl-task-header > div:last-child { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
+.dl-task-name { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.dl-task-status { font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
+.dl-task-status.waiting { background: var(--chip-bg); color: var(--muted); }
+.dl-task-status.downloading { background: var(--tint-info); color: var(--primary); }
+.dl-task-status.completed { background: var(--tint-ok); color: var(--success); }
+.dl-task-status.partial { background: var(--tint-warn); color: var(--warn); }
+.dl-task-status.error { background: var(--tint-err); color: var(--danger); }
+.dl-task-status.cancelled { background: var(--chip-bg); color: var(--muted); }
+.dl-task-status.paused { background: var(--chip-bg); color: var(--muted); }
+.dl-task-bar { height: 6px; background: var(--border); border-radius: 3px; margin: 6px 0; overflow: hidden; }
+.dl-task-progress { height: 100%; background: var(--primary); border-radius: 3px; transition: width 0.3s; }
+.dl-task-meta { display: flex; gap: 12px; font-size: 11px; color: var(--text-light); flex-wrap: wrap; align-items: center; }
+.dl-task-meta > span { white-space: nowrap; }
+.dl-task-type { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--border); color: var(--text-light); margin-right: 4px; flex-shrink: 0; }
+/* 任务操作按钮样式统一在全局 style.css（.dl-cancel-btn 语义 success/warn/danger） */
+
+/* 未知大小时流动进度条 */
+.dl-bar-flow { position: relative; overflow: hidden; }
+.dl-progress-flow {
+    width: 30% !important;
+    background: linear-gradient(90deg, var(--primary) 0%, #7eb8ff 50%, var(--primary) 100%);
+    background-size: 200% 100%;
+    animation: flowBar 1.5s ease-in-out infinite;
+}
+@keyframes flowBar {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* 元数据下载进度条 - 橙色表示 */
+.dl-progress-metadata {
+    background: var(--warn) !important;
+}
+
+.dir-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 99999;
+    background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
+}
+.dir-card {
+    background-color: var(--card-bg); border-radius: 12px; padding: 24px; max-width: 500px;
+    width: 90%; box-shadow: 0 8px 40px rgba(0,0,0,0.2); max-height: 85vh; display: flex; flex-direction: column;
+}
+.dir-card h3 { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+.dir-breadcrumb { font-size: 11px; color: var(--text-light); margin-bottom: 10px; padding: 6px 10px; background: var(--bg); border-radius: 6px; word-break: break-all; border: 1px solid var(--border); }
+.dir-list { flex: 1; overflow-y: auto; min-height: 120px; }
+.dir-item {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+    border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text);
+}
+.dir-item:hover { background: var(--hover-bg); }
+.dir-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
+.empty { text-align: center; padding: 40px 20px; color: var(--text-light); font-size: 13px; }
+</style>
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <h1><span class="ht">下载器</span><span class="ws-status" style="margin-right:8px"><span class="dot" id="dlWsDot"></span><span id="dlWsLabel" style="font-size:11px">连接中...</span></span><span class="ws-status" style="margin-right:8px"><span class="dot" id="dlAriaDot" style="background:var(--warn)"></span><span id="dlAriaLabel" style="font-size:11px">aria2c 启动中…</span></span></h1>
+        <div class="info">
+            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">亮色</span></button>
+        </div>
+    </div>
+
+    <div class="nav-bar">
+        <a href="/browse/">浏览</a>
+        <a href="/gallery">预览</a>
+        <a href="/url-download" class="active">下载器</a>
+        <a href="/admin">管理</a>
+        <a href="/me">我的</a>
+        <span style="flex:1"></span>
+    </div>
+
+    <div class="dl-page">
+        <div id="dlDaemonTip" style="display:none;background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;font-size:12px;margin-bottom:12px;color:var(--text)"></div>
+        <div class="dl-input-area">
+            <h3>粘贴下载链接</h3>
+            <div class="dl-row">
+                <input type="text" id="urlInput" placeholder="HTTP/HTTPS 直链 / 磁力链接 / .m3u8 流视频（不支持 ed2k 电驴协议）" onkeydown="if(event.key==='Enter')startDownload()">
+                <div class="dl-dir-selector" id="dirSelector" onclick="openDirPicker()">
+                    <span class="path-text" id="selectedDir">点击选择保存目录</span>
+                    <span>&#9662;</span>
+                </div>
+                <button class="dl-btn-start" id="startBtn" onclick="startDownload()">下载</button>
+            </div>
+            <div style="font-size:11px;color:var(--text-light);margin-top:6px">支持 HTTP/HTTPS 直链、磁力链接、m3u8 流视频、.torrent 种子链接 &nbsp;|&nbsp; <span style="color:var(--danger);font-weight:600">不支持 ed2k（电驴）协议</span></div>
+        </div>
+
+        <div class="dl-input-area" style="padding:12px 16px">
+            <h3>上传种子文件</h3>
+            <div class="dl-row">
+                <input type="file" id="torrentFileInput" accept=".torrent" style="display:none" onchange="uploadTorrent()">
+                <div class="dl-dir-selector" id="uploadDirSelector" onclick="openDirPicker()" style="flex:1">
+                    <span class="path-text" id="uploadSelectedDir">选择保存目录</span>
+                    <span>&#9662;</span>
+                </div>
+                <button class="dl-btn-start" id="uploadTorrentBtn" onclick="document.getElementById('torrentFileInput').click()" style="padding:6px 16px;font-size:12px">选择种子</button>
+            </div>
+            <div style="font-size:11px;color:var(--text-light);margin-top:6px">先选择保存目录，再选择本地的 .torrent 种子文件，自动解析后选择要下载的文件</div>
+        </div>
+
+        <div class="dl-settings">
+            <div>
+                <label>并发数</label>
+                <input type="number" id="concurrentInput" min="1" max="10" value="3">
+            </div>
+            <div>
+                <label>限速</label>
+                <input type="number" id="speedInput" min="0" max="999999" value="0" step="100">
+                <span class="unit">KB/s</span>
+                <span style="font-size:11px;color:var(--text-light)">（0=不限速）</span>
+            </div>
+            <button class="btn btn-sm btn-outline" onclick="applySettings()" style="padding:4px 14px">应用</button>
+        </div>
+
+        <div id="taskList"></div>
+    </div>
+</div>
+
+<script>
+// ========== 工具函数 ==========
+function esc(str) {
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+}
+function formatSize(b) {
+    if (!b || b === 0) return '0 B';
+    var u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var i = Math.floor(Math.log(b) / Math.log(1024));
+    if (i >= u.length) i = u.length - 1;
+    var val = b / Math.pow(1024, i);
+    return (i === 0 ? val : val.toFixed(1)) + ' ' + u[i];
+}
+
+var _toastTimer = null, _toastQueue = [];
+function toast(msg, type) {
+    var container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    var el = document.createElement('div');
+    el.className = 'toast ' + (type || 'info');
+    el.textContent = msg;
+    container.appendChild(el);
+    setTimeout(function () { el.remove(); }, 2800);
+}
+function batchToast(msg, type) {
+    _toastQueue.push({ msg: msg, type: type || 'info' });
+    if (_toastTimer) return;
+    _toastTimer = setTimeout(function () {
+        var last = _toastQueue[_toastQueue.length - 1];
+        var count = _toastQueue.length;
+        var text = count > 1 ? last.msg + ' (+' + (count - 1) + ')' : last.msg;
+        toast(text, last.type);
+        _toastQueue = [];
+        _toastTimer = null;
+    }, 500);
+}
+
+var _selectedDir = '';
+
+// ========== 主题切换 ==========
+function toggleDark() {
+    var html = document.documentElement;
+    var isDark = html.getAttribute('data-theme') === 'dark';
+    var btn = document.getElementById('darkToggle');
+    if (isDark) {
+        html.removeAttribute('data-theme');
+        localStorage.setItem('theme', 'light');
+        if (btn) { btn.querySelector('#darkIcon').textContent = '☀'; btn.querySelector('#darkLabel').textContent = '亮色'; }
+    } else {
+        html.setAttribute('data-theme', 'dark');
+        localStorage.setItem('theme', 'dark');
+        if (btn) { btn.querySelector('#darkIcon').textContent = '☾'; btn.querySelector('#darkLabel').textContent = '暗色'; }
+    }
+}
+(function() {
+    if (localStorage.getItem('theme') === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        setTimeout(function() {
+            var btn = document.getElementById('darkToggle');
+            if (btn) { btn.querySelector('#darkIcon').textContent = '☾'; btn.querySelector('#darkLabel').textContent = '暗色'; }
+        }, 0);
+    }
+})();
+
+var API = '/api/url-download';
+var _currentUser = '';
+var _tasks = [];
+
+function getUser() { return _currentUser; }
+
+(function() {
+    fetch('/api/auth/check')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            _currentUser = d.username || '游客';
+            loadTasks();
+        })
+        .catch(function() { _currentUser = '游客'; loadTasks(); });
+})();
+
+// ========== WebSocket ==========
+var _dlWs = null;
+var _dlWsPing = null;
+
+function updateWSStatus(connected) {
+    var dot = document.getElementById('dlWsDot');
+    var lbl = document.getElementById('dlWsLabel');
+    if (dot) dot.className = 'dot' + (connected ? ' connected' : '');
+    if (lbl) lbl.textContent = connected ? '已连接' : '连接中...';
+}
+
+// ========== aria2c 守护进程状态（常驻显示 + 服务器 WS 推送 daemon_status） ==========
+function applyDaemonStatus(st) {
+    var dot = document.getElementById('dlAriaDot');
+    var lbl = document.getElementById('dlAriaLabel');
+    var tip = document.getElementById('dlDaemonTip');
+    if (st === 'ready') {
+        if (dot) dot.style.background = 'var(--success)';
+        if (lbl) lbl.textContent = 'aria2c 就绪';
+        if (tip) tip.style.display = 'none';
+        return;
+    }
+    var warn = st === 'starting';
+    var color = warn ? 'var(--warn)' : 'var(--danger)';
+    if (dot) dot.style.background = color;
+    if (lbl) lbl.textContent = st === 'unavailable' ? 'aria2c 不可用' : (st === 'error' ? 'aria2c 异常' : 'aria2c 启动中…');
+    if (tip) {
+        var detail = st === 'unavailable'
+            ? 'aria2c 不可用：磁力/种子下载不可用（普通直链不受影响）'
+            : (st === 'error' ? 'aria2c 启动失败，请查看服务端日志' : 'aria2c 正在启动，磁力/种子下载即将就绪…');
+        tip.style.color = color;
+        tip.textContent = detail;
+        tip.style.display = 'block';
+    }
+}
+
+function connectDLWS() {
+    var url = (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + window.location.hostname + ':' + (window.__WS_PORT__ || 8081) + '/ws';
+    if (_dlWs) { try { _dlWs.close(); } catch(e) {} }
+    _dlWs = new WebSocket(url);
+
+    _dlWs.onopen = function() {
+        updateWSStatus(true);
+        fetch('/api/session/sid').then(function(r) { return r.json(); }).then(function(d) {
+            if (d.sid) _dlWs.send(JSON.stringify({ type: 'auth', sid: d.sid }));
+            else _dlWs.send(JSON.stringify({ type: 'sub-download' }));
+        }).catch(function() { _dlWs.send(JSON.stringify({ type: 'sub-download' })); });
+        if (_dlWsPing) clearInterval(_dlWsPing);
+        _dlWsPing = setInterval(function () {
+            if (_dlWs && _dlWs.readyState === WebSocket.OPEN)
+                _dlWs.send(JSON.stringify({ type: 'ping' }));
+        }, 25000);
+    };
+
+    _dlWs.onmessage = function(e) {
+        try {
+            var msg = JSON.parse(e.data);
+            if (msg.type === 'auth' && msg.success)
+                _dlWs.send(JSON.stringify({ type: 'sub-download' }));
+            else if (msg.type === 'download_list')
+                applyTaskList(msg.tasks || []);
+            else if (msg.type === 'download_update')
+                applyTaskUpdate(msg.task);
+            else if (msg.type === 'daemon_status')
+                applyDaemonStatus(msg.status);
+        } catch(err) {}
+    };
+
+    _dlWs.onclose = function() {
+        updateWSStatus(false);
+        if (_dlWsPing) { clearInterval(_dlWsPing); _dlWsPing = null; }
+        setTimeout(connectDLWS, 3000);
+    };
+    _dlWs.onerror = function() { _dlWs.close(); };
+}
+
+function loadTasks() {
+    if (!_currentUser) return;
+    fetch(API + '/list').then(function(r) { return r.json(); }).then(function(d) { renderTasks(d.tasks || []); });
+}
+
+// ========== WS 推送驱动任务列表 ==========
+// download_list：服务器全量列表 → 直接整表渲染
+function applyTaskList(tasks) {
+    _tasks = tasks || [];
+    renderTasks(_tasks);
+}
+// download_update：服务器推送单任务变化 → 合并进本地缓存后增量渲染（renderTasks 内部做 DOM 差异）
+function applyTaskUpdate(task) {
+    if (!task) return;
+    if (!Array.isArray(_tasks)) _tasks = [];
+    for (var i = 0; i < _tasks.length; i++) {
+        if (_tasks[i].id === task.id) { _tasks[i] = task; renderTasks(_tasks); return; }
+    }
+    _tasks.unshift(task);
+    renderTasks(_tasks);
+}
+
+// ========== 配置 ==========
+function loadSettings() {
+    fetch(API + '/config').then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success && d.config) {
+            document.getElementById('concurrentInput').value = d.config.max_concurrent || 3;
+            document.getElementById('speedInput').value = Math.round((d.config.speed_limit || 0) / 1024);
+        }
+    });
+}
+function applySettings() {
+    var c = parseInt(document.getElementById('concurrentInput').value) || 3;
+    var s = parseInt(document.getElementById('speedInput').value) || 0;
+    c = Math.max(1, Math.min(10, c)); s = Math.max(0, s);
+    fetch(API + '/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ max_concurrent: c, speed_limit: s * 1024 }) })
+    .then(function(r) { return r.json(); }).then(function(d) { batchToast(d.success ? '设置已更新' : '设置失败', d.success ? 'success' : 'error'); });
+}
+
+// ========== 目录选择 ==========
+function openDirPicker() { showDirPicker('public', 'public'); }
+function showDirPicker(startPath, rootPath) {
+    var _curPath = startPath;
+    var overlay = document.createElement('div'); overlay.className = 'dir-overlay';
+    var card = document.createElement('div'); card.className = 'dir-card';
+    var title = document.createElement('h3'); title.textContent = '选择保存目录';
+    var bc = document.createElement('div'); bc.className = 'dir-breadcrumb'; bc.id = 'dirBreadcrumb';
+    var list = document.createElement('div'); list.className = 'dir-list'; list.id = 'dirList';
+    var actions = document.createElement('div'); actions.className = 'dir-actions';
+    var mkdirBtn = document.createElement('button'); mkdirBtn.className = 'dir-btn outline'; mkdirBtn.textContent = '新建文件夹';
+    mkdirBtn.onclick = function() {
+        var name = prompt('文件夹名称：'); if (!name) return;
+        fetch('/api/mkdir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: _curPath, name: name }) })
+        .then(function(r) { return r.json(); }).then(function(d) {
+            if (d.success) { batchToast('已创建: ' + name, 'success'); loadDirList(_curPath, rootPath, list, bc); }
+            else { batchToast(d.error || '创建失败', 'error'); }
+        });
+    };
+    var cancelBtn = document.createElement('button'); cancelBtn.className = 'dir-btn outline'; cancelBtn.textContent = '取消';
+    cancelBtn.onclick = function() { document.body.removeChild(overlay); };
+    var confirmBtn = document.createElement('button'); confirmBtn.className = 'dir-btn primary'; confirmBtn.textContent = '保存到此目录';
+    confirmBtn.onclick = function() { _selectedDir = _curPath; document.getElementById('selectedDir').textContent = _curPath || '点击选择保存目录'; document.body.removeChild(overlay); };
+    actions.appendChild(mkdirBtn); actions.appendChild(cancelBtn); actions.appendChild(confirmBtn);
+    card.appendChild(title); card.appendChild(bc); card.appendChild(list); card.appendChild(actions);
+    overlay.appendChild(card); document.body.appendChild(overlay);
+    loadDirList(startPath, rootPath, list, bc);
+}
+function loadDirList(path, rootPath, listEl, bcEl) {
+    fetch('/api/files?path=' + encodeURIComponent(path)).then(function(r) { return r.json(); }).then(function(d) {
+        var items = d.files || []; bcEl.textContent = '当前位置: ' + (path || '根目录'); var html = '';
+        var safeStr = function(s) { return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); };
+        if (path && path !== rootPath) {
+            var parent = path.indexOf('/') >= 0 ? path.substring(0, path.lastIndexOf('/')) : '';
+            if (!parent || parent === rootPath) parent = rootPath;
+            html += '<div class="dir-item" onclick="loadDirList(\'' + safeStr(parent) + '\', \'' + safeStr(rootPath) + '\', document.getElementById(\'dirList\'), document.getElementById(\'dirBreadcrumb\'))">.. (返回上级)</div>';
+        }
+        var folders = items.filter(function(f) { return f.type === 'folder'; });
+        if (folders.length === 0) html += '<div class="empty"><p>此目录下没有子文件夹</p></div>';
+        else { for (var i = 0; i < folders.length; i++) { html += '<div class="dir-item" onclick="loadDirList(\'' + safeStr(folders[i].path) + '\', \'' + safeStr(rootPath) + '\', document.getElementById(\'dirList\'), document.getElementById(\'dirBreadcrumb\'))">' + esc(folders[i].name) + '</div>'; } }
+        listEl.innerHTML = html;
+    }).catch(function() { listEl.innerHTML = '<div class="empty"><p>加载失败</p></div>'; });
+}
+
+// ========== 开始下载 ==========
+function startDownload() {
+    var url = document.getElementById('urlInput').value.trim();
+    if (!url) { batchToast('请输入下载链接', 'info'); return; }
+    if (!_selectedDir) { batchToast('请选择保存目录', 'info'); return; }
+
+    doStartDownload(url, _selectedDir, null);
+}
+
+function doStartDownload(url, saveDir, selectedFiles) {
+    var btn = document.getElementById('startBtn'); btn.disabled = true; btn.textContent = '提交中...';
+    var body = { url: url, save_dir: saveDir };
+    if (selectedFiles) body.selected_files = selectedFiles;
+    fetch(API + '/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) { batchToast('已添加下载任务', 'success'); document.getElementById('urlInput').value = ''; loadTasks(); }
+        else { batchToast(d.error || '添加失败', 'error'); }
+    }).catch(function() { batchToast('请求失败', 'error'); })
+    .finally(function() { btn.disabled = false; btn.textContent = '下载'; });
+}
+
+// ========== 上传种子 ==========
+function uploadTorrent() {
+    var fileInput = document.getElementById('torrentFileInput');
+    var file = fileInput.files[0];
+    if (!file) { batchToast('请先选择 .torrent 文件', 'info'); return; }
+    var btn = document.getElementById('uploadTorrentBtn'); btn.disabled = true; btn.textContent = '上传并解析中...';
+    var fd = new FormData(); fd.append('file', file);
+    fetch('/api/url-download/upload-torrent', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); }).then(function(d) {
+        if (!d.success || !d.files || !d.files.length) { batchToast(d.error || '解析失败', 'error'); btn.disabled = false; btn.textContent = '选择并上传种子'; return; }
+        showTorrentFilePicker(d.files, d.torrent_path, _selectedDir || 'public');
+        fileInput.value = ''; btn.disabled = false; btn.textContent = '选择并上传种子';
+    }).catch(function() { batchToast('上传失败', 'error'); btn.disabled = false; btn.textContent = '选择并上传种子'; fileInput.value = ''; });
+}
+
+// ========== 种子文件选择弹窗 ==========
+function showTorrentFilePicker(files, torrentUrl, initialDir) {
+    var selected = {};
+    for (var i = 0; i < files.length; i++) selected[files[i].index] = true;
+    var pickerDir = initialDir || 'public';
+    var overlay = document.createElement('div'); overlay.className = 'dir-overlay';
+    var card = document.createElement('div'); card.className = 'dir-card'; card.style.maxWidth = '520px';
+    var title = document.createElement('h3'); title.textContent = '选择要下载的文件（共 ' + files.length + ' 个）';
+    var dirRow = document.createElement('div'); dirRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px';
+    dirRow.innerHTML = '<span style="font-size:13px;font-weight:500;white-space:nowrap;color:var(--text)">保存到:</span>';
+    var dirPathSpan = document.createElement('span');
+    dirPathSpan.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--primary);cursor:pointer;font-weight:500';
+    dirPathSpan.textContent = pickerDir;
+    dirRow.appendChild(dirPathSpan);
+    dirPathSpan.onclick = function() { openInlineDirPicker(function(chosenDir) { pickerDir = chosenDir; dirPathSpan.textContent = chosenDir || '根目录'; }); };
+    var selectBar = document.createElement('div'); selectBar.style.cssText = 'display:flex;gap:8px;margin-bottom:6px;align-items:center';
+    var sa = document.createElement('button'); sa.textContent = '全选'; sa.style.cssText = 'padding:3px 10px;border:1px solid var(--border);border-radius:6px;font-size:11px;cursor:pointer;background:var(--card-bg);color:var(--text)';
+    sa.onclick = function() { for (var k in selected) selected[k] = true; list.querySelectorAll('input[type=checkbox]').forEach(function(cb) { cb.checked = true; }); confirmBtn.textContent = '下载选中 (' + Object.keys(selected).length + ' 个)'; };
+    var ua = document.createElement('button'); ua.textContent = '取消全选'; ua.style.cssText = 'padding:3px 10px;border:1px solid var(--border);border-radius:6px;font-size:11px;cursor:pointer;background:var(--card-bg);color:var(--text)';
+    ua.onclick = function() { for (var k in selected) selected[k] = false; list.querySelectorAll('input[type=checkbox]').forEach(function(cb) { cb.checked = false; }); confirmBtn.textContent = '下载选中 (0 个)'; };
+    selectBar.appendChild(sa); selectBar.appendChild(ua);
+    var info = document.createElement('div'); info.style.cssText = 'font-size:11px;color:var(--text-light);margin-bottom:6px'; info.textContent = '取消勾选的文件将不会下载';
+    var list = document.createElement('div'); list.className = 'dir-list'; var html = '';
+    for (var i = 0; i < files.length; i++) {
+        html += '<div class="dir-item" onclick="toggleTorrentItem(' + files[i].index + ', this)" data-idx="' + files[i].index + '" style="font-size:12px">';
+        html += '<input type="checkbox" checked onclick="event.stopPropagation()" style="pointer-events:none">';
+        html += '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(files[i].path) + '</span>';
+        html += '<span style="color:var(--text-light);flex-shrink:0;margin-left:8px">' + files[i].size_display + '</span></div>';
+    }
+    list.innerHTML = html;
+    var actions = document.createElement('div'); actions.className = 'dir-actions';
+    var cancelBtn = document.createElement('button'); cancelBtn.className = 'dir-btn outline'; cancelBtn.textContent = '取消';
+    cancelBtn.onclick = function() { document.body.removeChild(overlay); };
+    var confirmBtn = document.createElement('button'); confirmBtn.className = 'dir-btn primary'; confirmBtn.textContent = '下载选中 (' + files.length + ' 个)';
+    confirmBtn.onclick = function() {
+        if (!pickerDir) { batchToast('请先选择保存目录', 'info'); return; }
+        var sel = []; for (var i = 0; i < files.length; i++) { if (selected[files[i].index]) sel.push(files[i].index); }
+        if (!sel.length) { batchToast('请至少选择一个文件', 'info'); return; }
+        document.body.removeChild(overlay); doStartDownload(torrentUrl, pickerDir, sel.join(','));
+    };
+    window.toggleTorrentItem = function(idx, el) {
+        selected[idx] = !selected[idx]; var cb = el.querySelector('input[type=checkbox]'); if (cb) cb.checked = selected[idx];
+        var count = 0; for (var k in selected) { if (selected[k]) count++; } confirmBtn.textContent = '下载选中 (' + count + ' 个)';
+    };
+    actions.appendChild(cancelBtn); actions.appendChild(confirmBtn);
+    card.appendChild(title); card.appendChild(dirRow); card.appendChild(selectBar); card.appendChild(info); card.appendChild(list); card.appendChild(actions);
+    overlay.appendChild(card); document.body.appendChild(overlay);
+}
+
+var _inlineCurrentDir = 'public', _inlineCallback = null;
+function openInlineDirPicker(callback) {
+    _inlineCallback = callback;
+    var overlay = document.createElement('div'); overlay.className = 'dir-overlay'; overlay.style.zIndex = '100000';
+    var card = document.createElement('div'); card.className = 'dir-card';
+    var title = document.createElement('h3'); title.textContent = '选择保存目录';
+    var bc = document.createElement('div'); bc.className = 'dir-breadcrumb'; bc.id = 'inlineDirBreadcrumb';
+    var list = document.createElement('div'); list.className = 'dir-list'; list.id = 'inlineDirList';
+    var actions = document.createElement('div'); actions.className = 'dir-actions';
+    var cancelBtn = document.createElement('button'); cancelBtn.className = 'dir-btn outline'; cancelBtn.textContent = '取消';
+    cancelBtn.onclick = function() { document.body.removeChild(overlay); };
+    var confirmBtn = document.createElement('button'); confirmBtn.className = 'dir-btn primary'; confirmBtn.textContent = '保存到此目录';
+    confirmBtn.onclick = function() { if (_inlineCallback) _inlineCallback(_inlineCurrentDir); document.body.removeChild(overlay); };
+    actions.appendChild(cancelBtn); actions.appendChild(confirmBtn);
+    card.appendChild(title); card.appendChild(bc); card.appendChild(list); card.appendChild(actions);
+    overlay.appendChild(card); document.body.appendChild(overlay); loadInlineDirList('public', 'public');
+}
+function loadInlineDirList(path, rootPath) {
+    var listEl = document.getElementById('inlineDirList'); var bcEl = document.getElementById('inlineDirBreadcrumb');
+    if (!listEl || !bcEl) return; _inlineCurrentDir = path;
+    fetch('/api/files?path=' + encodeURIComponent(path)).then(function(r) { return r.json(); }).then(function(d) {
+        var items = d.files || []; bcEl.textContent = '当前位置: ' + (path || '根目录'); var html = '';
+        var safeStr = function(s) { return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); };
+        if (path && path !== rootPath) {
+            var parent = path.indexOf('/') >= 0 ? path.substring(0, path.lastIndexOf('/')) : '';
+            if (!parent || parent === rootPath) parent = rootPath;
+            html += '<div class="dir-item" onclick="loadInlineDirList(\'' + safeStr(parent) + '\', \'' + safeStr(rootPath) + '\')">.. (返回上级)</div>';
+        }
+        var folders = items.filter(function(f) { return f.type === 'folder'; });
+        if (folders.length === 0) html += '<div class="empty"><p>此目录下没有子文件夹</p></div>';
+        else { for (var i = 0; i < folders.length; i++) { html += '<div class="dir-item" onclick="loadInlineDirList(\'' + safeStr(folders[i].path) + '\', \'' + safeStr(rootPath) + '\')">' + esc(folders[i].name) + '</div>'; } }
+        listEl.innerHTML = html;
+    });
+}
+
+// ========== 任务操作 ==========
+function cancelTask(id) { fetch(API + '/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({task_id: id}) }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) { batchToast('已取消（文件保留）', 'info'); loadTasks(); } }); }
+function pauseTask(id) { fetch(API + '/pause', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({task_id: id}) }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) { batchToast('已暂停', 'info'); loadTasks(); } }); }
+function resumeTask(id) { fetch(API + '/resume', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({task_id: id}) }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) { batchToast('继续下载', 'info'); loadTasks(); } }); }
+function deleteTask(id) {
+    // 磁力/种子的产出文件由 aria2 管理：后端“删除任务和文件”也无法可靠清除其
+    // 已下载文件（仅清任务记录 + aria2 removeDownloadResult），因此对 BT 类任务
+    // 单独提示：只删任务记录，已下载文件需用户到共享文件目录手动清理。
+    var btTask = false;
+    for (var i = 0; i < _tasks.length; i++) {
+        if (_tasks[i].id === id && (_tasks[i].type === 'torrent' || _tasks[i].type === 'magnet')) { btTask = true; break; }
+    }
+    // 弹出确认对话框，询问是否删除文件
+    var overlay = document.createElement('div'); overlay.className = 'dir-overlay';
+    var card = document.createElement('div'); card.className = 'dir-card'; card.style.maxWidth = '400px';
+    var title = document.createElement('h3'); title.textContent = '删除下载任务';
+    var msg = document.createElement('div');
+    msg.style.cssText = 'margin:12px 0;line-height:1.8;font-size:13px;color:var(--text)';
+    var actions = document.createElement('div'); actions.className = 'dir-actions';
+    var cancelBtn = document.createElement('button'); cancelBtn.className = 'dir-btn outline'; cancelBtn.textContent = '取消';
+    cancelBtn.onclick = function() { document.body.removeChild(overlay); };
+    if (btTask) {
+        // 磁力/种子：按钮只删除任务记录，已下载文件保留在保存目录
+        msg.innerHTML = '<p>磁力/种子任务仅删除任务记录，已下载文件不受影响。</p>' +
+            '<p style="font-size:12px;color:var(--warn)">已下载文件请到「共享文件」目录中手动清理。</p>';
+        var delBtn = document.createElement('button'); delBtn.className = 'dir-btn danger'; delBtn.textContent = '删除任务（文件请手动清理）';
+        delBtn.onclick = function() { document.body.removeChild(overlay); deleteTaskWithFile(id, false); };
+        actions.appendChild(cancelBtn); actions.appendChild(delBtn);
+    } else {
+        msg.innerHTML = '<p>删除该下载任务。是否同时删除已下载的文件？</p>' +
+            '<p style="font-size:12px;color:var(--text-light)">「仅删除任务」：保留已下载文件；<br>「删除任务和文件」：只清理本任务自身下载的文件。</p>';
+        var keepBtn = document.createElement('button'); keepBtn.className = 'dir-btn outline'; keepBtn.textContent = '仅删除任务（保留文件）';
+        keepBtn.onclick = function() { document.body.removeChild(overlay); deleteTaskWithFile(id, false); };
+        var deleteBtn = document.createElement('button'); deleteBtn.className = 'dir-btn danger'; deleteBtn.textContent = '删除任务和文件';
+        deleteBtn.onclick = function() { document.body.removeChild(overlay); deleteTaskWithFile(id, true); };
+        actions.appendChild(cancelBtn); actions.appendChild(keepBtn); actions.appendChild(deleteBtn);
+    }
+    card.appendChild(title); card.appendChild(msg); card.appendChild(actions);
+    overlay.appendChild(card); document.body.appendChild(overlay);
+}
+function deleteTaskWithFile(id, deleteFiles) {
+    var label = deleteFiles ? '已删除任务及下载文件' : '已删除任务（保留文件）';
+    fetch(API + '/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({task_id: id, delete_files: deleteFiles}) }).then(function(r) { return r.json(); }).then(function(d) { if (d.success) { batchToast(label, 'info'); loadTasks(); } });
+}
+
+// 节点详情弹窗（实时刷新数据）
+var _peerRefreshTimer = null;
+function showPeerDetails(taskId) {
+    // 关闭旧弹窗
+    if (_peerRefreshTimer) { clearInterval(_peerRefreshTimer); _peerRefreshTimer = null; }
+    var oldOverlay = document.querySelector('.dir-overlay[id="peerOverlay"]');
+    if (oldOverlay) document.body.removeChild(oldOverlay);
+
+    var overlay = document.createElement('div'); overlay.className = 'dir-overlay'; overlay.id = 'peerOverlay';
+    var card = document.createElement('div'); card.className = 'dir-card'; card.style.maxWidth = '380px';
+    var title = document.createElement('h3'); title.textContent = '连接详情';
+    var info = document.createElement('div');
+    info.id = 'peerInfo';
+    info.style.cssText = 'margin:12px 0;line-height:2;font-size:13px;color:var(--text)';
+    var actions = document.createElement('div'); actions.className = 'dir-actions';
+    var closeBtn = document.createElement('button'); closeBtn.className = 'dir-btn primary'; closeBtn.textContent = '关闭';
+    closeBtn.onclick = function() {
+        if (_peerRefreshTimer) { clearInterval(_peerRefreshTimer); _peerRefreshTimer = null; }
+        document.body.removeChild(overlay);
+    };
+    actions.appendChild(closeBtn);
+    card.appendChild(title); card.appendChild(info); card.appendChild(actions);
+    overlay.appendChild(card); document.body.appendChild(overlay);
+
+    // 刷新函数
+    function refreshPeerInfo() {
+        var task = null;
+        for (var i = 0; i < _tasks.length; i++) {
+            if (_tasks[i].id === taskId) { task = _tasks[i]; break; }
+        }
+        if (!task) return;
+        document.getElementById('peerInfo').innerHTML =
+            '<div style="display:flex;padding:4px 0"><span style="color:var(--text-light);width:90px;flex-shrink:0">下行速度:</span><span>' + esc(task.speed || '0 B/s') + '</span></div>' +
+            '<div style="display:flex;padding:4px 0"><span style="color:var(--text-light);width:90px;flex-shrink:0">上行速度:</span><span>' + esc(task.upload_speed || '0 B/s') + '</span></div>' +
+            '<div style="display:flex;padding:4px 0"><span style="color:var(--text-light);width:90px;flex-shrink:0">种子数:</span><span>' + (task.seeds || 0) + '</span></div>' +
+            '<div style="display:flex;padding:4px 0"><span style="color:var(--text-light);width:90px;flex-shrink:0">对等节点:</span><span>' + (task.peers || 0) + '</span></div>' +
+            '<div style="display:flex;padding:4px 0"><span style="color:var(--text-light);width:90px;flex-shrink:0">总连接:</span><span>' + (task.connections || 0) + '</span></div>' +
+            '<div style="display:flex;padding:4px 0"><span style="color:var(--text-light);width:90px;flex-shrink:0">DHT 节点:</span><span>' + (task.dht_nodes || 0) + '</span></div>';
+    }
+    refreshPeerInfo();
+    // 每秒刷新一次
+    _peerRefreshTimer = setInterval(refreshPeerInfo, 1000);
+}
+
+// ========== 任务列表渲染 ==========
+var STATUS_LABEL = { waiting: '等待', downloading: '下载中', completed: '已完成', partial: '部分完成', error: '失败', cancelled: '已取消', paused: '已暂停' };
+var TYPE_LABEL = { http: '直链', m3u8: '视频', torrent: '种子', magnet: '磁力', ed2k: '电驴' };
+
+function renderTasks(tasks) {
+    _tasks = tasks;
+    var container = document.getElementById('taskList');
+    if (!tasks.length) { container.innerHTML = '<div class="empty"><p>暂无下载任务</p></div>'; return; }
+
+    // 增量更新：只更新现有元素的进度和状态
+    for (var i = 0; i < tasks.length; i++) {
+        var t = tasks[i];
+        var card = document.getElementById('task_' + t.id);
+        // 判断阶段：默认 file 兼容旧任务
+        var phase = t.phase || 'file';
+        var isMetadata = (phase === 'metadata');
+        // 元数据阶段用 metadata_progress，文件阶段用 progress
+        var progressValue = isMetadata ? (t.metadata_progress || 0) : (t.progress || 0);
+
+        if (card) {
+            // 更新进度条
+            var barContainer = card.querySelector('.dl-task-bar');
+            var bar = card.querySelector('.dl-task-progress');
+            if (bar) {
+                // 清除之前的流动/元数据样式
+                if (barContainer) barContainer.classList.remove('dl-bar-flow');
+                bar.classList.remove('dl-progress-flow', 'dl-progress-metadata');
+
+                if (isMetadata) {
+                    // 元数据阶段：橙色进度条，显示百分比
+                    bar.classList.add('dl-progress-metadata');
+                    bar.style.width = progressValue + '%';
+                } else if (t.total_size === 0 && t.status === 'downloading') {
+                    // 未知大小时流动进度条（仅非元数据阶段）
+                    if (barContainer) barContainer.classList.add('dl-bar-flow');
+                    bar.classList.add('dl-progress-flow');
+                } else {
+                    bar.style.width = progressValue + '%';
+                }
+            }
+            // 更新状态标签
+            var statusEl = card.querySelector('.dl-task-status');
+            if (statusEl) {
+                var statusText = isMetadata ? '获取元数据' : (STATUS_LABEL[t.status] || t.status);
+                statusEl.className = 'dl-task-status ' + t.status;
+                statusEl.textContent = statusText;
+            }
+            // 更新进度文字
+            var meta = card.querySelector('.dl-task-meta');
+            if (meta) {
+                var parts = [];
+                if (isMetadata) {
+                    // 元数据阶段：显示元数据下载信息
+                    var metaSize = t.metadata_total || 0;
+                    parts.push('<span>⏳ 正在获取种子信息... ' + progressValue + '%</span>');
+                    if (metaSize > 0) parts.push('<span>元数据: ' + formatSize(metaSize) + '</span>');
+                } else {
+                    parts.push('<span>进度: ' + progressValue + '%</span>');
+                    if (t.status === 'downloading' || t.status === 'completed')
+                        parts.push('<span>' + formatSize(t.downloaded) + (t.total_size > 0 ? ' / ' + formatSize(t.total_size) : '') + '</span>');
+                    if (t.status === 'downloading' && t.speed) parts.push('<span>' + t.speed + '</span>');
+                    if (t.status === 'downloading' && (t.type === 'torrent' || t.type === 'magnet')) {
+                        var conn = t.connections || 0;
+                        parts.push('<span>节点: ' + conn + ' <a href="/url-download/peers?task_id=' + encodeURIComponent(t.id) + '" target="_blank" style="color:var(--primary);font-weight:600;text-decoration:none">详情</a></span>');
+                    }
+                    if ((t.type === 'torrent' || t.type === 'magnet') && t.status === 'downloading' && t.progress === 0 && t.total_size > 0)
+                        parts.push('<span style="color:var(--warn)">⏳ 正在连接对等网络...</span>');
+                }
+                if (t.save_dir) parts.push('<span>保存到: ' + esc(t.save_dir) + ' <a href="/browse/' + encodeURIComponent(t.save_dir) + '" target="_blank" style="color:var(--primary);font-weight:600;text-decoration:none">跳转</a></span>');
+                if (t.error_msg) parts.push('<span style="color:var(--danger)">' + esc(t.error_msg) + '</span>');
+                meta.innerHTML = parts.join('');
+            }
+            // 更新按钮状态
+            var btnGroup = card.querySelector('.dl-task-header > div:last-child');
+            if (btnGroup) {
+                var statusText = isMetadata ? '获取元数据' : (STATUS_LABEL[t.status] || t.status);
+                var html = '<span class="dl-task-status ' + t.status + '">' + statusText + '</span>';
+                // 磁力/种子任务始终显示节点详情入口
+                if (t.type === 'torrent' || t.type === 'magnet') {
+                    html += '<a href="/url-download/peers?task_id=' + encodeURIComponent(t.id) + '" target="_blank" style="color:var(--primary);font-weight:600;font-size:11px;text-decoration:none;padding:0 6px">查看节点</a>';
+                }
+                if (t.status === 'downloading') {
+                    html += '<button class="dl-cancel-btn warn" onclick="pauseTask(\'' + t.id + '\')">暂停</button>';
+                    html += '<button class="dl-cancel-btn" onclick="cancelTask(\'' + t.id + '\')">取消</button>';
+                } else if (t.status === 'paused') {
+                    html += '<button class="dl-cancel-btn success" onclick="resumeTask(\'' + t.id + '\')">继续</button>';
+                    html += '<button class="dl-cancel-btn" onclick="cancelTask(\'' + t.id + '\')">取消</button>';
+                } else if (t.status === 'waiting') {
+                    html += '<button class="dl-cancel-btn" onclick="cancelTask(\'' + t.id + '\')">取消</button>';
+                } else if (t.status === 'completed' || t.status === 'error' || t.status === 'cancelled') {
+                    html += '<button class="dl-cancel-btn" onclick="deleteTask(\'' + t.id + '\')">删除</button>';
+                }
+                btnGroup.innerHTML = html;
+            }
+        } else {
+            // 新任务：全量创建
+            var statusText = isMetadata ? '获取元数据' : (STATUS_LABEL[t.status] || t.status);
+            var typeLabel = TYPE_LABEL[t.type] || t.type;
+            var displayName = t.filename || t.url.split('/').pop() || t.url;
+            var cardHtml = '<div class="dl-task-card" id="task_' + t.id + '">';
+            cardHtml += '<div class="dl-task-header">';
+            cardHtml += '<div class="dl-task-name" title="' + esc(t.url) + '"><span class="dl-task-type">' + typeLabel + '</span>' + esc(displayName) + '</div>';
+            cardHtml += '<div style="display:flex;gap:6px;align-items:center">';
+            cardHtml += '<span class="dl-task-status ' + t.status + '">' + statusText + '</span>';
+            if (t.status === 'downloading') {
+                cardHtml += '<button class="dl-cancel-btn warn" onclick="pauseTask(\'' + t.id + '\')">暂停</button>';
+                cardHtml += '<button class="dl-cancel-btn" onclick="cancelTask(\'' + t.id + '\')">取消</button>';
+            } else if (t.status === 'paused') {
+                cardHtml += '<button class="dl-cancel-btn success" onclick="resumeTask(\'' + t.id + '\')">继续</button>';
+                cardHtml += '<button class="dl-cancel-btn" onclick="cancelTask(\'' + t.id + '\')">取消</button>';
+            } else if (t.status === 'waiting') {
+                cardHtml += '<button class="dl-cancel-btn" onclick="cancelTask(\'' + t.id + '\')">取消</button>';
+            } else if (t.status === 'completed' || t.status === 'error' || t.status === 'cancelled') {
+                cardHtml += '<button class="dl-cancel-btn" onclick="deleteTask(\'' + t.id + '\')">删除</button>';
+            }
+            cardHtml += '</div></div>';
+
+            // 进度条
+            if (isMetadata) {
+                cardHtml += '<div class="dl-task-bar"><div class="dl-task-progress dl-progress-metadata" style="width:' + progressValue + '%"></div></div>';
+            } else if (t.total_size === 0 && t.status === 'downloading') {
+                cardHtml += '<div class="dl-task-bar dl-bar-flow"><div class="dl-task-progress dl-progress-flow"></div></div>';
+            } else {
+                cardHtml += '<div class="dl-task-bar"><div class="dl-task-progress" style="width:' + progressValue + '%"></div></div>';
+            }
+
+            // meta信息
+            cardHtml += '<div class="dl-task-meta">';
+            if (isMetadata) {
+                var metaSize = t.metadata_total || 0;
+                cardHtml += '<span>⏳ 正在获取种子信息... ' + progressValue + '%</span>';
+                if (metaSize > 0) cardHtml += '<span>元数据: ' + formatSize(metaSize) + '</span>';
+            } else {
+                cardHtml += '<span>进度: ' + progressValue + '%</span>';
+                if (t.status === 'downloading' || t.status === 'completed')
+                    cardHtml += '<span>' + formatSize(t.downloaded) + (t.total_size > 0 ? ' / ' + formatSize(t.total_size) : '') + '</span>';
+                if (t.status === 'downloading' && t.speed) cardHtml += '<span>' + t.speed + '</span>';
+                if (t.status === 'downloading' && (t.type === 'torrent' || t.type === 'magnet')) {
+                    var conn = t.connections || 0;
+                    cardHtml += '<span>节点: ' + conn + ' <a href="/url-download/peers?task_id=' + encodeURIComponent(t.id) + '" target="_blank" style="color:var(--primary);font-weight:600;text-decoration:none">详情</a></span>';
+                }
+                if ((t.type === 'torrent' || t.type === 'magnet') && t.status === 'downloading' && t.progress === 0 && t.total_size > 0)
+                    cardHtml += '<span style="color:var(--warn)">⏳ 正在连接对等网络...</span>';
+            }
+            if (t.save_dir) cardHtml += '<span>保存到: ' + esc(t.save_dir) + ' <a href="/browse/' + encodeURIComponent(t.save_dir) + '" target="_blank" style="color:var(--primary);font-weight:600;text-decoration:none">跳转</a></span>';
+            cardHtml += '</div></div>';
+            container.insertAdjacentHTML('afterbegin', cardHtml);
+        }
+    }
+    // 移除已不存在的任务卡片
+    var existing = container.querySelectorAll('.dl-task-card');
+    for (var j = 0; j < existing.length; j++) {
+        var cardId = existing[j].id.replace('task_', '');
+        var found = false;
+        for (var k = 0; k < tasks.length; k++) {
+            if (tasks[k].id === cardId) { found = true; break; }
+        }
+        if (!found) existing[j].remove();
+    }
+}
+
+// ========== Enter 键 ==========
+document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter') return;
+    var el = e.target;
+    if (!el || el.tagName !== 'INPUT' || el.type === 'button' || el.type === 'file') return;
+    e.preventDefault();
+    var parent = el.closest('.dl-settings');
+    if (parent) { var btn = parent.querySelector('button'); if (btn) btn.click(); }
+});
+
+// ========== 启动 ==========
+loadSettings();
+connectDLWS();
+// 任务数据主通道为 WebSocket 推送（download_list/download_update 直接渲染）；
+// 30 秒低频校准一次，用于兜底“其它会话删除任务”等推送无法覆盖的场景
+setInterval(function() { if (_currentUser) loadTasks(); }, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,543 @@
+<!-- English page. AI-translated. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Advanced Settings</title>
+<link rel="stylesheet" href="/static/style.css">
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;var myRole = __MY_ROLE__ || null;</script>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <h1><span class="ht">Advanced Settings</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting…</span></span></h1>
+        <div class="info">
+            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">Light</span></button>
+        </div>
+    </div>
+
+    <div class="nav-bar">
+        <a href="/browse/">Browse</a>
+        <a href="/gallery">Gallery</a>
+        <a href="/url-download">Downloader</a>
+        <a href="/admin">Admin</a>
+        <a href="/me">My Account</a>
+        <span style="flex:1"></span>
+        <button class="nav-back" onclick="window.location.href='/admin'">Back to Admin</button>
+    </div>
+
+    <!-- Config read status: clearly reports load failures / missing fields instead of silently showing empty data -->
+    <div id="cfgStatus" style="display:none;margin:10px 0;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5"></div>
+
+    <div class="admin-grid">
+        <!-- HTTP port -->
+        <div class="admin-card">
+            <h3>HTTP Port</h3>
+            <div class="config-group">
+                <label>The HTTP port the service listens on. Port range 1024~65535; changing it requires a server restart</label>
+                <div class="config-row">
+                    <input type="number" id="httpPortInput" min="1024" max="65535" value="8080" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">(1024~65535)</span>
+                    <button class="btn-admin primary" onclick="applyHttpPort()" style="font-size:11px">Save</button>
+                </div>
+                <div style="font-size:11px;color:var(--danger);margin-top:4px">Changing it requires a server restart to take effect</div>
+            </div>
+        </div>
+
+        <!-- WebSocket port -->
+        <div class="admin-card">
+            <h3>WebSocket Port</h3>
+            <div class="config-group">
+                <label>The WebSocket port used for realtime communication. Port range 1024~65535; changing it requires a server restart</label>
+                <div class="config-row">
+                    <input type="number" id="wsPortInput" min="1024" max="65535" value="8081" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">(1024~65535)</span>
+                    <button class="btn-admin primary" onclick="applyWsPort()" style="font-size:11px">Save</button>
+                </div>
+                <div style="font-size:11px;color:var(--danger);margin-top:4px">Changing it requires a server restart to take effect</div>
+            </div>
+        </div>
+
+        <!-- HTTPS (TLS) -->
+        <div class="admin-card">
+            <h3>HTTPS (TLS)</h3>
+            <div class="config-group">
+                <label>When enabled, access is served over encrypted HTTPS: file contents and sign-in credentials travel as ciphertext over the network, preventing eavesdropping</label>
+                <div class="config-row">
+                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
+                        <input type="checkbox" id="tlsEnabledInput" style="width:auto">
+                        <span>Enable HTTPS (plaintext HTTP when off)</span>
+                    </label>
+                    <span style="flex:1"></span>
+                    <button class="btn-admin primary" onclick="applyTls()" style="font-size:11px">Save</button>
+                </div>
+                <div style="font-size:11px;color:var(--danger);margin-top:4px">Changing it requires a server restart; once enabled, access via https://</div>
+                <div id="tlsRoleNote" style="display:none;font-size:11px;color:var(--warn);margin-top:4px">Only the Super Admin can change TLS settings (security policy).</div>
+            </div>
+        </div>
+
+        <!-- Certificate info page port -->
+        <div class="admin-card">
+            <h3>Certificate Info Page Port</h3>
+            <div class="config-group">
+                <label>Only active when HTTPS is enabled: if the browser warns "Not secure / Your connection is not private", open the plain-text info page on this port of the machine to understand why (no certificate is installed). Must not duplicate the HTTP/WebSocket port</label>
+                <div class="config-row">
+                    <input type="number" id="tlsTrustPortInput" min="1024" max="65535" value="8082" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">(1024~65535, applies after restart)</span>
+                    <button class="btn-admin primary" onclick="applyTrustPort()" style="font-size:11px">Save</button>
+                </div>
+                <div style="font-size:11px;color:var(--danger);margin-top:4px">Changing it requires a server restart; it must not be the same as the HTTP / WebSocket port</div>
+            </div>
+        </div>
+
+        <!-- Copy buffer size -->
+        <div class="admin-card">
+            <h3>Copy Buffer Size</h3>
+            <div class="config-group">
+                <label>In-memory buffer used when reading and writing files; larger means lower CPU usage but more memory used</label>
+                <div class="config-row">
+                    <input type="number" id="bufferSizeInput" min="1" value="16" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">MB (1~64 recommended)</span>
+                    <button class="btn-admin primary" onclick="applyBufferSize()" style="font-size:11px">Apply</button>
+                </div>
+                <div style="font-size:11px;color:var(--danger);margin-top:4px">Changing it requires a server restart to take effect</div>
+            </div>
+        </div>
+
+        <!-- File cache TTL -->
+        <div class="admin-card">
+            <h3>File Cache TTL</h3>
+            <div class="config-group">
+                <label>How long cached file content stays before it is refreshed automatically; 0 disables caching. Longer TTL means files are less up-to-date but fewer disk reads</label>
+                <div class="config-row">
+                    <input type="number" id="fileCacheTtlInput" min="0" value="5" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">s (0 = disable cache)</span>
+                    <button class="btn-admin primary" onclick="applyFileCacheTtl()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Folder cache TTL -->
+        <div class="admin-card">
+            <h3>Folder Cache TTL</h3>
+            <div class="config-group">
+                <label>How long cached folder sizes stay before they are refreshed automatically. Shorter TTL updates folder sizes more promptly, at a small extra performance cost</label>
+                <div class="config-row">
+                    <input type="number" id="folderCacheTtlInput" min="0" value="5" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">s (0 = disable cache)</span>
+                    <button class="btn-admin primary" onclick="applyFolderCacheTtl()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload debounce delay -->
+        <div class="admin-card">
+            <h3>Upload Debounce Delay</h3>
+            <div class="config-group">
+                <label>While several files are uploaded in a row, lowers how often folder sizes are recomputed. Larger values cost less performance, but folder-size updates are slightly delayed</label>
+                <div class="config-row">
+                    <input type="number" id="debounceDelayInput" min="0" value="2" step="0.5" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">s (0 = disable debounce)</span>
+                    <button class="btn-admin primary" onclick="applyDebounceDelay()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- API request body limit -->
+        <div class="admin-card">
+            <h3>API Request Body Size Limit</h3>
+            <div class="config-group">
+                <label>JSON requests larger than this are rejected (file uploads are not affected)</label>
+                <div class="config-row">
+                    <input type="number" id="apiBodySizeInput" min="0" value="1" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">MB (0.5~5 recommended)</span>
+                    <button class="btn-admin primary" onclick="applyApiBodySize()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload read chunk size -->
+        <div class="admin-card">
+            <h3>Upload Read Chunk Size</h3>
+            <div class="config-group">
+                <label>Buffer chunk read from the network stream and written to disk while uploading. Larger chunks use less CPU and upload faster, but memory usage rises</label>
+                <div class="config-row">
+                    <input type="number" id="uploadChunkInput" min="0.5" value="1" step="0.5" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">MB (0.5~4 recommended)</span>
+                    <button class="btn-admin primary" onclick="applyUploadChunk()" style="font-size:11px">Apply</button>
+                </div>
+                <div style="font-size:11px;color:var(--text-light);margin-top:4px">Applies to new uploads immediately</div>
+            </div>
+        </div>
+
+        <!-- ZIP packaging mode -->
+        <div class="admin-card">
+            <h3>ZIP Packaging Mode</h3>
+            <div class="config-group">
+                <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+                    <input type="checkbox" id="zipStreamInput" checked onchange="zipStreamChanged()" style="width:auto;margin-top:2px">
+                    <span><strong>Streaming packaging (on by default, recommended)</strong>: selected files are compressed and sent on the fly — no disk space used, and data starts flowing as soon as the download begins.</span>
+                </label>
+                <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+                    <button class="btn-admin primary" onclick="applyZipStream()" style="font-size:11px">Save</button>
+                    <span style="font-size:11px;color:var(--text-light)">Takes effect immediately, no restart needed</span>
+                </div>
+                <div id="zipStreamWarn" style="display:none;font-size:12px;color:var(--danger);border:1px solid var(--danger);border-radius:8px;padding:8px 10px;margin-top:10px;background:rgba(220,60,60,.07);line-height:1.7">
+                    ⚠️ <strong>Turning streaming off = package first, send later</strong>: the system compresses all selected files into a <strong>temporary file</strong> before the download starts.
+                    Packaging large files <strong>uses a lot of disk space</strong>; a full disk can <strong>make the transfer fail</strong>, and it <strong>takes much longer</strong> (no data is sent until everything is fully compressed).
+                    Keep streaming on unless you have a specific reason.
+                </div>
+            </div>
+        </div>
+
+        <!-- ZIP packaging file limit -->
+        <div class="admin-card">
+            <h3>ZIP Packaging File Limit</h3>
+            <div class="config-group">
+                <label>Maximum number of files for a one-shot packaged download (including expanded folders); 0 = unlimited</label>
+                <div class="config-row">
+                    <input type="number" id="zipMaxInput" min="0" value="500" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">files (0 = unlimited, 100~1000 recommended)</span>
+                    <button class="btn-admin primary" onclick="applyZipMax()" style="font-size:11px">Apply</button>
+                </div>
+                <div style="font-size:11px;color:var(--text-light);margin-top:4px">Takes effect immediately</div>
+            </div>
+        </div>
+
+        <!-- File cache max items -->
+        <div class="admin-card">
+            <h3>File Cache Max Items</h3>
+            <div class="config-group">
+                <label>How many file contents to cache at most; the oldest files are evicted automatically when exceeded</label>
+                <div class="config-row">
+                    <input type="number" id="cacheMaxItemsInput" min="0" value="50" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">items (0 = disable cache)</span>
+                    <button class="btn-admin primary" onclick="applyCacheMaxItems()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload size limit -->
+        <div class="admin-card">
+            <h3>Upload Size Limit</h3>
+            <div class="config-group">
+                <label>Uploads of files larger than this are rejected. 0 means no limit</label>
+                <div class="config-row">
+                    <input type="number" id="uploadMaxSizeInput" min="0" value="10240" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">MB (0 = unlimited)</span>
+                    <button class="btn-admin primary" onclick="applyUploadMaxSize()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Online preview size limit -->
+        <div class="admin-card">
+            <h3>Online Preview Size Limit</h3>
+            <div class="config-group">
+                <label>Files larger than this can only be downloaded, not previewed directly in the browser (images, video, text, etc.)</label>
+                <div class="config-row">
+                    <input type="number" id="previewMaxSizeInput" min="0" value="10" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">MB (0 = disable preview)</span>
+                    <button class="btn-admin primary" onclick="applyPreviewMaxSize()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script src="/static/qrcode.min.js"></script>
+<script>
+var startTime = Date.now();
+
+function applyHttpPort() {
+    var val = parseInt(document.getElementById('httpPortInput').value) || 8080;
+    if (val < 1024 || val > 65535) { batchToast('Port must be between 1024 and 65535', 'error'); return; }
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ http_port: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('HTTP port saved; takes effect after restart', 'success');
+        else batchToast(d.error || 'Save failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+function applyWsPort() {
+    var val = parseInt(document.getElementById('wsPortInput').value) || 8081;
+    if (val < 1024 || val > 65535) { batchToast('Port must be between 1024 and 65535', 'error'); return; }
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ws_port: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('WebSocket port saved; takes effect after restart', 'success');
+        else batchToast(d.error || 'Save failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+// TLS switch currently in effect on the server (backfilled by loadConfig; used to restore the checkbox on save failure / cancel)
+var _tlsCurrent = false;
+var _myRole = (typeof myRole !== 'undefined') ? myRole : null;
+
+function applyTls() {
+    var cb = document.getElementById('tlsEnabledInput');
+    var on = !!cb.checked;
+    if (_myRole !== 'super_admin') {
+        cb.checked = _tlsCurrent;   // Restore: only the super admin can change (security policy)
+        batchToast('Only the Super Admin can change TLS settings', 'error');
+        return;
+    }
+    var send = function (payload) {
+        return fetch('/api/config/advanced', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            if (d && d.success) {
+                _tlsCurrent = on;
+                batchToast((on ? 'Enabled' : 'Disabled') + ' HTTPS; takes effect after restart', 'success');
+            } else {
+                cb.checked = _tlsCurrent;   // Restore the checkbox so the UI does not diverge from the real state
+                batchToast((d && d.error) || 'Save failed', 'error');
+            }
+        }).catch(function () {
+            cb.checked = _tlsCurrent;
+            batchToast('Request failed, check your network', 'error');
+        });
+    };
+    if (!on) {
+        // Turning it off requires a second confirmation (backend requires confirm_tls_off:true)
+        if (!window.confirm('You are about to disable HTTPS and switch to plaintext HTTP mode.\nTransfers will no longer be encrypted; only recommended on a trusted local network.\n\nDisable HTTPS?')) {
+            cb.checked = _tlsCurrent;
+            return;
+        }
+        send({ tls_enabled: false, confirm_tls_off: true });
+    } else {
+        send({ tls_enabled: true });
+    }
+}
+
+function applyTrustPort() {
+    var val = parseInt(document.getElementById('tlsTrustPortInput').value) || 0;
+    if (val < 1024 || val > 65535) { batchToast('Port must be between 1024 and 65535', 'error'); return; }
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tls_trust_port: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('Certificate info page port saved; takes effect after restart', 'success');
+        else batchToast(d.error || 'Save failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+function applyBufferSize() {
+    var val = parseInt(document.getElementById('bufferSizeInput').value) || 16;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ copy_buffer_size: val * 1024 * 1024 })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('Buffer size updated; takes effect after restart', 'success');
+        else batchToast(d.error || 'Update failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+function applyFileCacheTtl() {
+    var val = parseInt(document.getElementById('fileCacheTtlInput').value) || 5;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_cache_ttl: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('File cache TTL updated to ' + val + ' s', 'success');
+        else batchToast(d.error || 'Update failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+function applyFolderCacheTtl() {
+    var val = parseInt(document.getElementById('folderCacheTtlInput').value) || 5;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder_cache_ttl: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('Folder cache TTL updated to ' + val + ' s', 'success');
+        else batchToast(d.error || 'Update failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+function applyDebounceDelay() {
+    var val = parseFloat(document.getElementById('debounceDelayInput').value) || 2;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ debounce_delay: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('Debounce delay updated to ' + val + ' s', 'success');
+        else batchToast(d.error || 'Update failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+function applyApiBodySize() {
+    var val = parseFloat(document.getElementById('apiBodySizeInput').value) || 1;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_body_size: val * 1024 * 1024 })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('API request body size limit updated', 'success');
+        else batchToast(d.error || 'Update failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+function applyUploadChunk() {
+    var val = parseFloat(document.getElementById('uploadChunkInput').value) || 1;
+    if (val < 0.004) val = 0.004;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upload_chunk: val * 1024 * 1024 })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('Upload read chunk size updated to ' + val + ' MB', 'success');
+        else batchToast(d.error || 'Update failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+function applyZipMax() {
+    var val = parseInt(document.getElementById('zipMaxInput').value) || 0;
+    if (val < 0) val = 0;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zip_max_files: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast(val === 0 ? 'ZIP packaging limit set to unlimited' : 'ZIP packaging limit updated to ' + val + ' files', 'success');
+        else batchToast(d.error || 'Update failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+function zipStreamChanged() {
+    var on = document.getElementById('zipStreamInput').checked;
+    var warn = document.getElementById('zipStreamWarn');
+    if (warn) warn.style.display = on ? 'none' : 'block';
+}
+
+function applyZipStream() {
+    var on = document.getElementById('zipStreamInput').checked;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zip_streaming: on })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) {
+            batchToast(on ? 'Streaming packaging enabled: compress and send on the fly, no disk usage' : 'Switched to package-first, send-later (⚠️ packaging large files uses a lot of temporary disk)', 'success');
+            zipStreamChanged();
+        } else batchToast(d.error || 'Update failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+function applyCacheMaxItems() {
+    var val = parseInt(document.getElementById('cacheMaxItemsInput').value) || 50;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cache_max_items: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('Cache max items updated to ' + val + ' items', 'success');
+        else batchToast(d.error || 'Update failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+function applyUploadMaxSize() {
+    var val = parseInt(document.getElementById('uploadMaxSizeInput').value) || 0;
+    if (val < 0) val = 0;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upload_max_size: val * 1024 * 1024 })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('Upload size limit updated to ' + val + ' MB', 'success');
+        else batchToast(d.error || 'Update failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+function applyPreviewMaxSize() {
+    var val = parseFloat(document.getElementById('previewMaxSizeInput').value) || 10;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preview_max_size: val * 1024 * 1024 })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('Preview size limit updated', 'success');
+        else batchToast(d.error || 'Update failed', 'error');
+    }).catch(function() { batchToast('Request failed', 'error'); });
+}
+
+// ========== Load the current config ==========
+function setCfgStatus(text, type) {
+    var el = document.getElementById('cfgStatus');
+    if (!el) return;
+    el.style.display = text ? 'block' : 'none';
+    el.textContent = text || '';
+    el.style.background = type === 'err' ? 'rgba(220,60,60,.12)' : (type === 'ok' ? 'rgba(40,167,69,.12)' : 'rgba(0,0,0,.04)');
+    el.style.color = type === 'err' ? 'var(--danger)' : (type === 'ok' ? 'var(--success)' : 'var(--text)');
+}
+function loadConfig() {
+    fetch('/api/config/advanced')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d || typeof d !== 'object' || d.error) {
+                setCfgStatus('Cannot read Advanced Settings: ' + ((d && d.error) || 'unexpected API response') + '. Refresh after confirming your sign-in status; the values below are defaults and saving may still work.', 'err');
+                batchToast('Failed to load the current config' + (d && d.error ? ': ' + d.error : ''), 'error');
+                return;
+            }
+            // Structure completeness check: fields the server did not return are listed explicitly, so "page without data" never goes unnoticed
+            var _expected = ['http_port', 'ws_port', 'tls_enabled', 'tls_trust_port', 'copy_buffer_size',
+                'file_cache_ttl', 'folder_cache_ttl', 'debounce_delay', 'api_body_size', 'upload_chunk',
+                'zip_max_files', 'zip_streaming', 'cache_max_items', 'upload_max_size', 'preview_max_size'];
+            var _missing = _expected.filter(function(k) { return !(k in d); });
+            if (_missing.length) {
+                setCfgStatus('Config loaded, but the server did not return these fields (possible version mismatch): ' + _missing.join(', ') + '. Those items keep their default values.', 'err');
+            } else {
+                setCfgStatus('', '');
+            }
+            document.getElementById('httpPortInput').value = d.http_port || 8080;
+            document.getElementById('wsPortInput').value = d.ws_port || 8081;
+            var tlsEl = document.getElementById('tlsEnabledInput');
+            if (tlsEl) {
+                _tlsCurrent = !!d.tls_enabled;
+                tlsEl.checked = _tlsCurrent;
+                // B-12: only the super admin can change TLS settings; other roles get the switch disabled with a notice
+                if (_myRole !== 'super_admin') {
+                    tlsEl.disabled = true;
+                    var note = document.getElementById('tlsRoleNote');
+                    if (note) note.style.display = 'block';
+                }
+            }
+            var tpEl = document.getElementById('tlsTrustPortInput');
+            if (tpEl) tpEl.value = d.tls_trust_port || 8082;
+            document.getElementById('bufferSizeInput').value = Math.round((d.copy_buffer_size || 16777216) / 1048576);
+            document.getElementById('fileCacheTtlInput').value = d.file_cache_ttl || 5;
+            document.getElementById('folderCacheTtlInput').value = d.folder_cache_ttl || 5;
+            document.getElementById('debounceDelayInput').value = d.debounce_delay || 2;
+            var apiMB = Math.round((d.api_body_size || 1048576) / 1048576 * 10) / 10;
+            document.getElementById('apiBodySizeInput').value = apiMB;
+            var chunkMB = Math.round((d.upload_chunk || 1048576) / 1048576 * 10) / 10;
+            document.getElementById('uploadChunkInput').value = chunkMB;
+            document.getElementById('zipMaxInput').value = d.zip_max_files == null ? 500 : d.zip_max_files;
+            var zsEl = document.getElementById('zipStreamInput');
+            if (zsEl) { zsEl.checked = d.zip_streaming !== false; zipStreamChanged(); }
+            document.getElementById('cacheMaxItemsInput').value = d.cache_max_items || 50;
+            document.getElementById('uploadMaxSizeInput').value = Math.round((d.upload_max_size || 0) / 1048576);
+            var previewMB = Math.round((d.preview_max_size || 10485760) / 1048576 * 10) / 10;
+            document.getElementById('previewMaxSizeInput').value = previewMB;
+        })
+        .catch(function() {
+            setCfgStatus('Failed to load the current config: check your network or sign-in status; the values below are defaults and saving may still work.', 'err');
+            batchToast('Failed to load the current config: check your network or sign-in status', 'error');
+        });
+}
+
+loadConfig();
+connectWS();
+</script>
+<style>
+.admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.admin-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.admin-card h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.config-group { margin-bottom: 10px; }
+.config-group label { display: block; font-size: 11px; color: var(--text-light); margin-bottom: 4px; line-height: 1.4; }
+.config-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.config-row input[type=number] { padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; background: var(--card-bg); color: var(--text); }
+.config-row input:focus { border-color: var(--primary); }
+/* Button styles are unified in the global style.css common buttons */
+</style>
+</body>
+</html>

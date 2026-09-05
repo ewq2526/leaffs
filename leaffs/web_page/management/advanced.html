@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>高级配置</title>
+<link rel="stylesheet" href="/static/style.css">
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;var myRole = __MY_ROLE__ || null;</script>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <h1><span class="ht">高级配置</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">连接中...</span></span></h1>
+        <div class="info">
+            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">亮色</span></button>
+        </div>
+    </div>
+
+    <div class="nav-bar">
+        <a href="/browse/">浏览</a>
+        <a href="/gallery">预览</a>
+        <a href="/url-download">下载器</a>
+        <a href="/admin">管理</a>
+        <a href="/me">我的</a>
+        <span style="flex:1"></span>
+        <button class="nav-back" onclick="window.location.href='/admin'">返回管理</button>
+    </div>
+
+    <!-- 配置读取状态：加载失败/字段缺失时明确提示，绝不静默显示空数据 -->
+    <div id="cfgStatus" style="display:none;margin:10px 0;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5"></div>
+
+    <div class="admin-grid">
+        <!-- HTTP 端口 -->
+        <div class="admin-card">
+            <h3>HTTP 端口</h3>
+            <div class="config-group">
+                <label>服务监听的 HTTP 端口。端口号范围 1024~65535，修改后必须重启服务器才能生效</label>
+                <div class="config-row">
+                    <input type="number" id="httpPortInput" min="1024" max="65535" value="8080" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">（1024~65535）</span>
+                    <button class="btn-admin primary" onclick="applyHttpPort()" style="font-size:11px">保存</button>
+                </div>
+                <div style="font-size:11px;color:var(--danger);margin-top:4px">修改后需重启服务器生效</div>
+            </div>
+        </div>
+
+        <!-- WebSocket 端口 -->
+        <div class="admin-card">
+            <h3>WebSocket 端口</h3>
+            <div class="config-group">
+                <label>WebSocket 实时通信端口。端口号范围 1024~65535，修改后必须重启服务器才能生效</label>
+                <div class="config-row">
+                    <input type="number" id="wsPortInput" min="1024" max="65535" value="8081" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">（1024~65535）</span>
+                    <button class="btn-admin primary" onclick="applyWsPort()" style="font-size:11px">保存</button>
+                </div>
+                <div style="font-size:11px;color:var(--danger);margin-top:4px">修改后需重启服务器生效</div>
+            </div>
+        </div>
+
+        <!-- HTTPS (TLS) -->
+        <div class="admin-card">
+            <h3>HTTPS (TLS)</h3>
+            <div class="config-group">
+                <label>开启后以 HTTPS 加密方式提供访问：文件内容与登录口令在网络中均为密文传输，防止被窃听</label>
+                <div class="config-row">
+                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
+                        <input type="checkbox" id="tlsEnabledInput" style="width:auto">
+                        <span>启用 HTTPS（关闭时保持明文 HTTP）</span>
+                    </label>
+                    <span style="flex:1"></span>
+                    <button class="btn-admin primary" onclick="applyTls()" style="font-size:11px">保存</button>
+                </div>
+                <div style="font-size:11px;color:var(--danger);margin-top:4px">修改后需重启服务器生效；开启后请使用 https:// 访问</div>
+                <div id="tlsRoleNote" style="display:none;font-size:11px;color:var(--warn);margin-top:4px">仅超级管理员可修改 TLS 设置（安全策略）。</div>
+            </div>
+        </div>
+
+        <!-- 证书提示页端口 -->
+        <div class="admin-card">
+            <h3>证书提示页端口</h3>
+            <div class="config-group">
+                <label>仅启用 HTTPS 时提供：浏览器提示“不安全 / 连接不是私密连接”时，可打开本机该端口的纯文字说明页了解原因（不安装任何证书）。不可与 HTTP/WebSocket 端口重复</label>
+                <div class="config-row">
+                    <input type="number" id="tlsTrustPortInput" min="1024" max="65535" value="8082" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">（1024~65535，重启生效）</span>
+                    <button class="btn-admin primary" onclick="applyTrustPort()" style="font-size:11px">保存</button>
+                </div>
+                <div style="font-size:11px;color:var(--danger);margin-top:4px">修改后需重启服务器生效；不能与 HTTP / WebSocket 端口相同</div>
+            </div>
+        </div>
+
+        <!-- 复制缓冲区大小 -->
+        <div class="admin-card">
+            <h3>复制缓冲区大小</h3>
+            <div class="config-group">
+                <label>文件读写时使用的内存缓冲区，越大CPU占用越小但越占内存</label>
+                <div class="config-row">
+                    <input type="number" id="bufferSizeInput" min="1" value="16" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">MB（建议 1~64）</span>
+                    <button class="btn-admin primary" onclick="applyBufferSize()" style="font-size:11px">应用</button>
+                </div>
+                <div style="font-size:11px;color:var(--danger);margin-top:4px">修改后需重启服务器生效</div>
+            </div>
+        </div>
+
+        <!-- 文件缓存 TTL -->
+        <div class="admin-card">
+            <h3>文件缓存存活时间</h3>
+            <div class="config-group">
+                <label>缓存的文件内容多久后自动刷新，0 表示禁用缓存。存活时间越长，文件实时性越低，但硬盘读取减少</label>
+                <div class="config-row">
+                    <input type="number" id="fileCacheTtlInput" min="0" value="5" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">秒（0 = 禁用缓存）</span>
+                    <button class="btn-admin primary" onclick="applyFileCacheTtl()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 文件夹缓存 TTL -->
+        <div class="admin-card">
+            <h3>文件夹缓存存活时间</h3>
+            <div class="config-group">
+                <label>文件夹大小的缓存多久后自动刷新。存活时间越短，文件夹大小更新越及时，同时小幅提升性能消耗</label>
+                <div class="config-row">
+                    <input type="number" id="folderCacheTtlInput" min="0" value="5" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">秒（0 = 禁用缓存）</span>
+                    <button class="btn-admin primary" onclick="applyFolderCacheTtl()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 上传防抖延迟 -->
+        <div class="admin-card">
+            <h3>上传防抖延迟</h3>
+            <div class="config-group">
+                <label>连续上传多个文件时，降低文件夹大小计算频率。越大性能消耗越小，但文件夹大小更新会稍微延迟</label>
+                <div class="config-row">
+                    <input type="number" id="debounceDelayInput" min="0" value="2" step="0.5" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">秒（0 = 禁用防抖）</span>
+                    <button class="btn-admin primary" onclick="applyDebounceDelay()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- API 请求体上限 -->
+        <div class="admin-card">
+            <h3>API 请求体大小上限</h3>
+            <div class="config-group">
+                <label>超过此大小的 JSON 请求会被拒绝（文件上传不受影响）</label>
+                <div class="config-row">
+                    <input type="number" id="apiBodySizeInput" min="0" value="1" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">MB（建议 0.5~5）</span>
+                    <button class="btn-admin primary" onclick="applyApiBodySize()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 上传读取块大小 -->
+        <div class="admin-card">
+            <h3>上传读取块大小</h3>
+            <div class="config-group">
+                <label>上传时从网络流读取并写入磁盘的缓冲块大小。越大 CPU 占用越低、上传越快，但内存占用上升</label>
+                <div class="config-row">
+                    <input type="number" id="uploadChunkInput" min="0.5" value="1" step="0.5" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">MB（建议 0.5~4）</span>
+                    <button class="btn-admin primary" onclick="applyUploadChunk()" style="font-size:11px">应用</button>
+                </div>
+                <div style="font-size:11px;color:var(--text-light);margin-top:4px">对新上传立即生效</div>
+            </div>
+        </div>
+
+        <!-- ZIP 打包方式 -->
+        <div class="admin-card">
+            <h3>ZIP 打包方式</h3>
+            <div class="config-group">
+                <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
+                    <input type="checkbox" id="zipStreamInput" checked onchange="zipStreamChanged()" style="width:auto;margin-top:2px">
+                    <span><strong>流式打包（默认开启，推荐）</strong>：选中文件后边压缩边发送，不占磁盘空间，一点下载就开始出数据。</span>
+                </label>
+                <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+                    <button class="btn-admin primary" onclick="applyZipStream()" style="font-size:11px">保存</button>
+                    <span style="font-size:11px;color:var(--text-light)">立即生效，无需重启</span>
+                </div>
+                <div id="zipStreamWarn" style="display:none;font-size:12px;color:var(--danger);border:1px solid var(--danger);border-radius:8px;padding:8px 10px;margin-top:10px;background:rgba(220,60,60,.07);line-height:1.7">
+                    ⚠️ <strong>关闭流式 = 先打包、后发送</strong>：系统会把所有选中文件先压缩写进<strong>临时文件</strong>再开始下载。
+                    打包大文件时会<strong>占用大量磁盘空间</strong>，磁盘写满会<strong>导致传输失败</strong>，而且<strong>耗时更久</strong>（必须等全部压缩完才开始出数据）。
+                    没有特殊需求请保持流式开启。
+                </div>
+            </div>
+        </div>
+
+        <!-- ZIP 打包上限 -->
+        <div class="admin-card">
+            <h3>ZIP 打包文件上限</h3>
+            <div class="config-group">
+                <label>一次性打包下载（含文件夹展开）的文件数量上限，0 = 不限制</label>
+                <div class="config-row">
+                    <input type="number" id="zipMaxInput" min="0" value="500" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">个（0 = 不限，建议 100~1000）</span>
+                    <button class="btn-admin primary" onclick="applyZipMax()" style="font-size:11px">应用</button>
+                </div>
+                <div style="font-size:11px;color:var(--text-light);margin-top:4px">立即生效</div>
+            </div>
+        </div>
+
+        <!-- 文件缓存最大条目 -->
+        <div class="admin-card">
+            <h3>文件缓存最大条目数</h3>
+            <div class="config-group">
+                <label>最多缓存多少个文件的内容。超过时自动淘汰最旧的文件</label>
+                <div class="config-row">
+                    <input type="number" id="cacheMaxItemsInput" min="0" value="50" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">个（0 = 禁用缓存）</span>
+                    <button class="btn-admin primary" onclick="applyCacheMaxItems()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 上传大小上限 -->
+        <div class="admin-card">
+            <h3>上传大小上限</h3>
+            <div class="config-group">
+                <label>超过此大小的文件上传会被拒绝。0 表示不限制</label>
+                <div class="config-row">
+                    <input type="number" id="uploadMaxSizeInput" min="0" value="10240" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">MB（0 = 不限制）</span>
+                    <button class="btn-admin primary" onclick="applyUploadMaxSize()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 在线预览大小上限 -->
+        <div class="admin-card">
+            <h3>在线预览大小上限</h3>
+            <div class="config-group">
+                <label>超过此大小的文件只能下载，不能直接在浏览器中预览（图片、视频、文本等）</label>
+                <div class="config-row">
+                    <input type="number" id="previewMaxSizeInput" min="0" value="10" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">MB（0 = 禁用预览）</span>
+                    <button class="btn-admin primary" onclick="applyPreviewMaxSize()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script src="/static/qrcode.min.js"></script>
+<script>
+var startTime = Date.now();
+
+function applyHttpPort() {
+    var val = parseInt(document.getElementById('httpPortInput').value) || 8080;
+    if (val < 1024 || val > 65535) { batchToast('端口号必须在 1024~65535 之间', 'error'); return; }
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ http_port: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('HTTP 端口已保存，重启后生效', 'success');
+        else batchToast(d.error || '保存失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+function applyWsPort() {
+    var val = parseInt(document.getElementById('wsPortInput').value) || 8081;
+    if (val < 1024 || val > 65535) { batchToast('端口号必须在 1024~65535 之间', 'error'); return; }
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ws_port: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('WebSocket 端口已保存，重启后生效', 'success');
+        else batchToast(d.error || '保存失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+// 服务端当前生效的 TLS 开关（loadConfig 回填；保存失败/取消时用于还原勾选状态）
+var _tlsCurrent = false;
+var _myRole = (typeof myRole !== 'undefined') ? myRole : null;
+
+function applyTls() {
+    var cb = document.getElementById('tlsEnabledInput');
+    var on = !!cb.checked;
+    if (_myRole !== 'super_admin') {
+        cb.checked = _tlsCurrent;   // 还原：仅超管可改（安全策略）
+        batchToast('仅超级管理员可修改 TLS 设置', 'error');
+        return;
+    }
+    var send = function (payload) {
+        return fetch('/api/config/advanced', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        }).then(function (r) { return r.json(); }).then(function (d) {
+            if (d && d.success) {
+                _tlsCurrent = on;
+                batchToast((on ? '已开启' : '已关闭') + ' HTTPS，重启后生效', 'success');
+            } else {
+                cb.checked = _tlsCurrent;   // 还原勾选，避免界面与真实状态不一致
+                batchToast((d && d.error) || '保存失败', 'error');
+            }
+        }).catch(function () {
+            cb.checked = _tlsCurrent;
+            batchToast('请求失败，请检查网络', 'error');
+        });
+    };
+    if (!on) {
+        // 关闭方向需二次确认（后端要求 confirm_tls_off:true）
+        if (!window.confirm('即将关闭 HTTPS，切换为明文 HTTP 模式。\n所有传输将不再加密，仅建议在可信局域网内使用。\n\n确定要关闭 HTTPS 吗？')) {
+            cb.checked = _tlsCurrent;
+            return;
+        }
+        send({ tls_enabled: false, confirm_tls_off: true });
+    } else {
+        send({ tls_enabled: true });
+    }
+}
+
+function applyTrustPort() {
+    var val = parseInt(document.getElementById('tlsTrustPortInput').value) || 0;
+    if (val < 1024 || val > 65535) { batchToast('端口号必须在 1024~65535 之间', 'error'); return; }
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tls_trust_port: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('证书引导页端口已保存，重启后生效', 'success');
+        else batchToast(d.error || '保存失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+function applyBufferSize() {
+    var val = parseInt(document.getElementById('bufferSizeInput').value) || 16;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ copy_buffer_size: val * 1024 * 1024 })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('缓冲区大小已更新，重启后生效', 'success');
+        else batchToast(d.error || '更新失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+function applyFileCacheTtl() {
+    var val = parseInt(document.getElementById('fileCacheTtlInput').value) || 5;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_cache_ttl: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('文件缓存 TTL 已更新为 ' + val + ' 秒', 'success');
+        else batchToast(d.error || '更新失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+function applyFolderCacheTtl() {
+    var val = parseInt(document.getElementById('folderCacheTtlInput').value) || 5;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder_cache_ttl: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('文件夹缓存 TTL 已更新为 ' + val + ' 秒', 'success');
+        else batchToast(d.error || '更新失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+function applyDebounceDelay() {
+    var val = parseFloat(document.getElementById('debounceDelayInput').value) || 2;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ debounce_delay: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('防抖延迟已更新为 ' + val + ' 秒', 'success');
+        else batchToast(d.error || '更新失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+function applyApiBodySize() {
+    var val = parseFloat(document.getElementById('apiBodySizeInput').value) || 1;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_body_size: val * 1024 * 1024 })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('API 请求体上限已更新', 'success');
+        else batchToast(d.error || '更新失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+function applyUploadChunk() {
+    var val = parseFloat(document.getElementById('uploadChunkInput').value) || 1;
+    if (val < 0.004) val = 0.004;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upload_chunk: val * 1024 * 1024 })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('上传读取块大小已更新为 ' + val + ' MB', 'success');
+        else batchToast(d.error || '更新失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+function applyZipMax() {
+    var val = parseInt(document.getElementById('zipMaxInput').value) || 0;
+    if (val < 0) val = 0;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zip_max_files: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast(val === 0 ? 'ZIP 打包上限已更新为不限' : 'ZIP 打包上限已更新为 ' + val + ' 个', 'success');
+        else batchToast(d.error || '更新失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+function zipStreamChanged() {
+    var on = document.getElementById('zipStreamInput').checked;
+    var warn = document.getElementById('zipStreamWarn');
+    if (warn) warn.style.display = on ? 'none' : 'block';
+}
+
+function applyZipStream() {
+    var on = document.getElementById('zipStreamInput').checked;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zip_streaming: on })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) {
+            batchToast(on ? '流式打包已开启：边压边发，不占磁盘' : '已切换为先打包后发送（⚠️ 大文件打包会占用大量临时磁盘）', 'success');
+            zipStreamChanged();
+        } else batchToast(d.error || '更新失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+function applyCacheMaxItems() {
+    var val = parseInt(document.getElementById('cacheMaxItemsInput').value) || 50;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cache_max_items: val })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('缓存最大条目已更新为 ' + val + ' 个', 'success');
+        else batchToast(d.error || '更新失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+function applyUploadMaxSize() {
+    var val = parseInt(document.getElementById('uploadMaxSizeInput').value) || 0;
+    if (val < 0) val = 0;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upload_max_size: val * 1024 * 1024 })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('上传大小上限已更新为 ' + val + ' MB', 'success');
+        else batchToast(d.error || '更新失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+function applyPreviewMaxSize() {
+    var val = parseFloat(document.getElementById('previewMaxSizeInput').value) || 10;
+    fetch('/api/config/advanced', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preview_max_size: val * 1024 * 1024 })
+    }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.success) batchToast('预览大小上限已更新', 'success');
+        else batchToast(d.error || '更新失败', 'error');
+    }).catch(function() { batchToast('请求失败', 'error'); });
+}
+
+// ========== 加载当前配置 ==========
+function setCfgStatus(text, type) {
+    var el = document.getElementById('cfgStatus');
+    if (!el) return;
+    el.style.display = text ? 'block' : 'none';
+    el.textContent = text || '';
+    el.style.background = type === 'err' ? 'rgba(220,60,60,.12)' : (type === 'ok' ? 'rgba(40,167,69,.12)' : 'rgba(0,0,0,.04)');
+    el.style.color = type === 'err' ? 'var(--danger)' : (type === 'ok' ? 'var(--success)' : 'var(--text)');
+}
+function loadConfig() {
+    fetch('/api/config/advanced')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d || typeof d !== 'object' || d.error) {
+                setCfgStatus('无法读取高级配置：' + ((d && d.error) || '接口返回异常') + '。请确认登录状态后刷新；下方为默认值，仍可尝试保存。', 'err');
+                batchToast('加载当前配置失败' + (d && d.error ? '：' + d.error : ''), 'error');
+                return;
+            }
+            // 结构完整性核对：服务端未返回的字段明确列出，避免“页面没数据”且无人知晓
+            var _expected = ['http_port', 'ws_port', 'tls_enabled', 'tls_trust_port', 'copy_buffer_size',
+                'file_cache_ttl', 'folder_cache_ttl', 'debounce_delay', 'api_body_size', 'upload_chunk',
+                'zip_max_files', 'zip_streaming', 'cache_max_items', 'upload_max_size', 'preview_max_size'];
+            var _missing = _expected.filter(function(k) { return !(k in d); });
+            if (_missing.length) {
+                setCfgStatus('已加载配置，但服务端未返回以下字段（可能版本不一致）：' + _missing.join(', ') + '。对应项保持默认值。', 'err');
+            } else {
+                setCfgStatus('', '');
+            }
+            document.getElementById('httpPortInput').value = d.http_port || 8080;
+            document.getElementById('wsPortInput').value = d.ws_port || 8081;
+            var tlsEl = document.getElementById('tlsEnabledInput');
+            if (tlsEl) {
+                _tlsCurrent = !!d.tls_enabled;
+                tlsEl.checked = _tlsCurrent;
+                // B-12：仅超级管理员可修改 TLS 设置；其余角色禁用开关并提示
+                if (_myRole !== 'super_admin') {
+                    tlsEl.disabled = true;
+                    var note = document.getElementById('tlsRoleNote');
+                    if (note) note.style.display = 'block';
+                }
+            }
+            var tpEl = document.getElementById('tlsTrustPortInput');
+            if (tpEl) tpEl.value = d.tls_trust_port || 8082;
+            document.getElementById('bufferSizeInput').value = Math.round((d.copy_buffer_size || 16777216) / 1048576);
+            document.getElementById('fileCacheTtlInput').value = d.file_cache_ttl || 5;
+            document.getElementById('folderCacheTtlInput').value = d.folder_cache_ttl || 5;
+            document.getElementById('debounceDelayInput').value = d.debounce_delay || 2;
+            var apiMB = Math.round((d.api_body_size || 1048576) / 1048576 * 10) / 10;
+            document.getElementById('apiBodySizeInput').value = apiMB;
+            var chunkMB = Math.round((d.upload_chunk || 1048576) / 1048576 * 10) / 10;
+            document.getElementById('uploadChunkInput').value = chunkMB;
+            document.getElementById('zipMaxInput').value = d.zip_max_files == null ? 500 : d.zip_max_files;
+            var zsEl = document.getElementById('zipStreamInput');
+            if (zsEl) { zsEl.checked = d.zip_streaming !== false; zipStreamChanged(); }
+            document.getElementById('cacheMaxItemsInput').value = d.cache_max_items || 50;
+            document.getElementById('uploadMaxSizeInput').value = Math.round((d.upload_max_size || 0) / 1048576);
+            var previewMB = Math.round((d.preview_max_size || 10485760) / 1048576 * 10) / 10;
+            document.getElementById('previewMaxSizeInput').value = previewMB;
+        })
+        .catch(function() {
+            setCfgStatus('加载当前配置失败：请检查网络或登录状态；下方为默认值，仍可尝试保存。', 'err');
+            batchToast('加载当前配置失败：请检查网络或登录状态', 'error');
+        });
+}
+
+loadConfig();
+connectWS();
+</script>
+<style>
+.admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.admin-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.admin-card h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.config-group { margin-bottom: 10px; }
+.config-group label { display: block; font-size: 11px; color: var(--text-light); margin-bottom: 4px; line-height: 1.4; }
+.config-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.config-row input[type=number] { padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; background: var(--card-bg); color: var(--text); }
+.config-row input:focus { border-color: var(--primary); }
+/* 按钮样式已统一在全局 style.css 通用按钮 */
+</style>
+</body>
+</html>

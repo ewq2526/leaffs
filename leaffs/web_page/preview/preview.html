@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>预览</title>
+<link rel="stylesheet" href="/static/style.css">
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <h1><span class="ht">预览</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">连接中...</span></span></h1>
+        <div class="info">
+            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">亮色</span></button>
+        </div>
+    </div>
+
+    <div class="nav-bar">
+        <a href="/browse/">浏览</a>
+        <a href="/gallery" class="active">预览</a>
+        <a href="/url-download">下载器</a>
+        <a href="/admin">管理</a>
+        <a href="/me">我的</a>
+        <span style="flex:1"></span>
+    </div>
+
+    <div class="gallery-header">
+        分类预览
+    </div>
+    <div class="breadcrumb" id="galleryBreadcrumb"><a href="/browse/">根目录</a></div>
+
+    <div class="gallery-tabs" id="galleryTabs">
+        <div class="gallery-tab active" data-type="all" onclick="switchTab('all')">全部</div>
+        <div class="gallery-tab" data-type="image" onclick="switchTab('image')">图片</div>
+        <div class="gallery-tab" data-type="video" onclick="switchTab('video')">视频</div>
+        <div class="gallery-tab" data-type="audio" onclick="switchTab('audio')">音频</div>
+        <div class="gallery-tab" data-type="text" onclick="switchTab('text')">文本</div>
+        <div class="gallery-tab" data-type="pdf" onclick="switchTab('pdf')">PDF</div>
+        <div class="gallery-tab" data-type="other" onclick="switchTab('other')">其他</div>
+    </div>
+
+    <div class="gallery-search">
+        <input class="gallery-search-input" id="gallerySearch" placeholder="搜索所有文件..." oninput="debounceGallerySearch()">
+    </div>
+
+    <div class="gallery-grid" id="galleryGrid">
+        <div class="empty"><p>正在加载...</p></div>
+    </div>
+    <div style="display:none" id="totalCount"></div>
+</div>
+
+<script src="/static/app.js"></script>
+<script src="/static/preview/preview.js"></script>
+<script>
+var myRole = __MY_ROLE__;
+// 根据角色显隐导航项
+(function(){
+    var isGuest = myRole === 'guest' || !myRole;
+    var navDownloader = document.querySelector('.nav-bar a[href="/url-download"]');
+    var navAdmin = document.querySelector('.nav-bar a[href="/admin"]');
+    if (navDownloader) navDownloader.style.display = isGuest ? 'none' : '';
+    if (navAdmin) navAdmin.style.display = (myRole === 'admin' || myRole === 'super_admin') ? '' : 'none';
+})();
+
+var allFiles = [];
+var currentTab = 'all';
+var _currentUsername = '';
+var _isGuest = false;
+var _currentScanRoot = '';
+var _loadGen = 0;
+
+function onWSConnected() { loadAllFiles(); }
+
+function handleWSMessage(msg) {
+    if (msg.type === 'gallery') { allFiles = msg.files || []; renderGallery(); }
+}
+
+function getUserInfo(callback) {
+    fetch('/api/auth/check')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            _currentUsername = data.username || '';
+            _isGuest = (_currentUsername === '游客' || !_currentUsername);
+            callback();
+        })
+        .catch(function() {
+            _currentUsername = '';
+            _isGuest = true;
+            callback();
+        });
+}
+
+function updateGalleryBreadcrumb() {
+    var el = document.getElementById('galleryBreadcrumb');
+    var isInPublic = _currentScanRoot === 'public';
+    var locationLabel = isInPublic ? '公共目录' : '我的目录';
+    var html = '<span style="font-size:12px;font-weight:600;color:var(--text);margin-right:8px;padding:2px 8px;border-radius:4px;background:var(--bg);border:1px solid var(--border)">' + locationLabel + '</span>';
+    if (isInPublic) {
+        html += '<a href="/gallery?dir=public">公共目录</a>';
+        // 游客只在公共目录，不提供“切换到我的目录”
+        if (myRole !== 'guest') {
+            html += ' <span style="margin-left:14px;color:var(--text-light);font-size:11px">|</span> ';
+            html += '<a href="/gallery" style="color:var(--primary);font-weight:500;font-size:12px">切换到我的目录</a>';
+        }
+    } else {
+        var parts = _currentScanRoot.split('/');
+        var userName = parts[1] || '';
+        html += '<span>' + esc(userName) + '</span>';
+        html += ' <span style="margin-left:14px;color:var(--text-light);font-size:11px">|</span> ';
+        html += '<a href="/gallery?dir=public" style="color:var(--primary);font-weight:500;font-size:12px">切换到公共目录</a>';
+    }
+    el.innerHTML = html;
+}
+
+var _loadingQueue = [];
+
+function loadAllFiles() {
+    _loadGen++;
+    var myGen = _loadGen;
+    getUserInfo(function() {
+        var urlParams = new URLSearchParams(window.location.search);
+        var dirParam = urlParams.get('dir');
+        if (dirParam) {
+            _currentScanRoot = dirParam;
+        } else if (!_currentScanRoot) {
+            if (_isGuest) {
+                _currentScanRoot = 'public';
+            } else if (_currentUsername) {
+                _currentScanRoot = 'users/' + _currentUsername;
+            } else {
+                _currentScanRoot = '';
+            }
+        }
+        updateGalleryBreadcrumb();
+        _loadingQueue = [];
+        allFiles = [];
+        if (_currentScanRoot) {
+            fetchQueue(_currentScanRoot, myGen);
+        } else {
+            fetchQueue('', myGen);
+        }
+    });
+}
+
+function fetchQueue(path, gen) {
+    fetch('/api/files?path=' + encodeURIComponent(path))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (gen !== _loadGen) return;
+            var items = d.files || [];
+            items.forEach(function (f) {
+                if (f.type === 'folder') {
+                    _loadingQueue.push(f.path);
+                } else {
+                    allFiles.push(f);
+                }
+            });
+            processQueue(gen);
+        })
+        .catch(function () {
+            if (gen !== _loadGen) return;
+            document.getElementById('galleryGrid').innerHTML = '<div class="empty"><p>加载失败</p></div>';
+        });
+}
+
+function processQueue(gen) {
+    if (gen !== _loadGen) return;
+    if (!_loadingQueue.length) {
+        renderGallery();
+        return;
+    }
+    var folderPath = _loadingQueue.shift();
+    fetch('/api/files?path=' + encodeURIComponent(folderPath))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (gen !== _loadGen) return;
+            var items = d.files || [];
+            items.forEach(function (f) {
+                if (f.type === 'folder') {
+                    _loadingQueue.push(f.path);
+                } else {
+                    allFiles.push(f);
+                }
+            });
+            setTimeout(function() { processQueue(gen); }, 10);
+        });
+}
+
+function switchTab(type) {
+    currentTab = type;
+    document.querySelectorAll('.gallery-tab').forEach(function (tab) {
+        tab.classList.toggle('active', tab.dataset.type === type);
+    });
+    renderGallery();
+}
+
+function thumbGiveUpIcon(img, icon) {
+    var w = img.parentNode;
+    if (!w || !w.parentNode) return;
+    var span = document.createElement('span');
+    span.className = 'icon-large';
+    span.textContent = icon;
+    span.onclick = function () {
+        var path = img.getAttribute('data-path');
+        openPreview(path, allFiles);
+    };
+    w.parentNode.replaceChild(span, w);
+}
+
+function thumbError(img, icon) {
+    var retries = parseInt(img.getAttribute('data-retry') || '0', 10);
+    if (retries < 1) {
+        // 首次失败：5 秒后带缓存戳重试一次（保留完整 URL 查询参数），期间显示“加载中”
+        img.setAttribute('data-retry', '1');
+        if (!img.getAttribute('data-src')) img.setAttribute('data-src', img.getAttribute('src') || '');
+        setTimeout(function () {
+            if (!img.isConnected) return;
+            var base = img.getAttribute('data-src') || img.getAttribute('src') || '';
+            if (!base) { thumbGiveUpIcon(img, icon); return; }
+            img.src = base + (base.indexOf('?') === -1 ? '?' : '&') + '_=' + Date.now();
+        }, 5000);
+        return;
+    }
+    // 重试仍失败：替换为图标占位
+    thumbGiveUpIcon(img, icon);
+}
+
+var _gallerySearchTimer = null;
+var gallerySearchQuery = '';
+
+function debounceGallerySearch() {
+    if (_gallerySearchTimer) clearTimeout(_gallerySearchTimer);
+    _gallerySearchTimer = setTimeout(function () {
+        _gallerySearchTimer = null;
+        gallerySearchQuery = document.getElementById('gallerySearch').value.toLowerCase().trim();
+        renderGallery();
+    }, 200);
+}
+
+function renderGallery() {
+    var container = document.getElementById('galleryGrid');
+    var filtered = allFiles.filter(function (f) {
+        if (f.type === 'folder') return false;
+        if (currentTab === 'all') return true;
+        return fileType(f.name) === currentTab;
+    });
+    if (gallerySearchQuery) {
+        filtered = filtered.filter(function (f) {
+            return f.name.toLowerCase().includes(gallerySearchQuery);
+        });
+    }
+
+    if (!filtered.length) {
+        container.innerHTML = '<div class="empty"><p>' + (gallerySearchQuery ? '没有匹配的文件' : '暂无文件') + '</p></div>';
+        document.getElementById('totalCount').textContent = '0 个文件';
+        return;
+    }
+
+    document.getElementById('totalCount').textContent = filtered.length + ' 个文件';
+
+    var html = '';
+    for (var i = 0; i < filtered.length; i++) {
+        var f = filtered[i];
+        var encodedPath = encodeURIComponent(f.path);
+        var sname = safeStr(f.path);
+        var ename = esc(f.name);
+        var ft = fileType(f.name);
+        var iconFallback = ft === 'video' ? '&#127916;' : '&#128444;';
+
+        var thumbHtml = '';
+        if (ft === 'image' || ft === 'video') {
+            thumbHtml = '<span class="thumb-wrap"><span class="thumb-loading">加载中…</span><img class="thumb" src="/api/thumb?path=' + encodedPath +
+                '" alt="' + ename + '" loading="lazy" ' +
+                'data-path="' + sname + '" data-retry="0" ' +
+                'onload="thumbLoaded(this)" ' +
+                'onclick="openPreview(\'' + sname + '\', allFiles)" ' +
+                'onerror="thumbError(this, \'' + iconFallback + '\')"></span>';
+        } else {
+            var icon = getFileIcon(f.name);
+            thumbHtml = '<span class="icon-large" onclick="openPreview(\'' + sname + '\', allFiles)">' + icon + '</span>';
+        }
+
+        html += '<div class="gallery-item" onclick="openPreview(\'' + sname + '\', allFiles)">';
+        html += thumbHtml;
+        html += '<div class="item-name" title="' + ename + '">' + ename + '</div>';
+        html += '<div style="font-size:11px;color:var(--muted)">' + formatSize(f.size) + '</div>';
+        html += '</div>';
+    }
+    container.innerHTML = html;
+}
+
+var urlParams = new URLSearchParams(window.location.search);
+var initType = urlParams.get('type');
+if (initType) {
+    currentTab = initType;
+    document.querySelectorAll('.gallery-tab').forEach(function (tab) {
+        tab.classList.toggle('active', tab.dataset.type === initType);
+    });
+}
+
+loadAllFiles();
+connectWS();
+
+// 预览页自动刷新（每 10 秒重新扫描文件列表）
+setInterval(function() {
+    if (document.hidden) return;
+    loadAllFiles();
+}, 10000);
+</script>
+<style>
+.gallery-header { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+.breadcrumb { font-size: 12px; margin-bottom: 10px; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.breadcrumb a { color: var(--primary); text-decoration: none; font-size: 12px; }
+.breadcrumb a:hover { text-decoration: underline; }
+.breadcrumb span { color: var(--text); }
+.gallery-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.gallery-tab { padding: 4px 14px; border-radius: 20px; border: 1px solid var(--border); font-size: 12px; cursor: pointer; color: var(--text); background: var(--card-bg); }
+.gallery-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.gallery-search { margin-bottom: 12px; }
+.gallery-search-input { width: 100%; padding: 8px 12px; border: 2px solid var(--border); border-radius: 8px; font-size: 13px; outline: none; background: var(--card-bg); color: var(--text); }
+.gallery-search-input:focus { border-color: var(--primary); }
+.gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.gallery-item { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; text-align: center; padding-bottom: 8px; }
+.gallery-item:hover { border-color: var(--primary); }
+.gallery-item img.thumb { width: 100%; height: 120px; object-fit: cover; display: block; }
+.gallery-item .icon-large { font-size: 40px; display: flex; align-items: center; justify-content: center; height: 120px; }
+.gallery-item .item-name { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 8px 2px; }
+.gallery-empty { text-align: center; padding: 80px 20px; color: var(--text-light); font-size: 13px; }
+.empty { text-align: center; padding: 60px 20px; color: var(--text-light); font-size: 13px; }
+</style>
+</body>
+</html>

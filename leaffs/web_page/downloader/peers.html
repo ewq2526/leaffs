@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>节点连接详情</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.dl-page { margin-top: 14px; }
+.header-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.header-bar h2 { font-size: 15px; font-weight: 600; color: var(--text); margin: 0; }
+.header-bar .back-btn { padding: 6px 14px; border: 1px solid var(--border); border-radius: 8px; text-decoration: none; color: var(--text); font-size: 13px; }
+.header-bar .back-btn:hover { border-color: var(--primary); color: var(--primary); }
+.dl-input-area {
+    background: var(--card-bg); border-radius: var(--radius); padding: 16px;
+    border: 1px solid var(--border); margin-bottom: 14px;
+}
+.dl-input-area h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--text); }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.summary-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; text-align: center; }
+.summary-card .val { font-size: 18px; font-weight: 700; color: var(--text); }
+.summary-card .lbl { font-size: 11px; color: var(--text-light); margin-top: 2px; }
+.dl-task-card {
+    background: var(--card-bg); border-radius: var(--radius); padding: 14px 18px;
+    border: 1px solid var(--border); margin-bottom: 10px;
+}
+.peers-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.peers-table th { text-align: left; padding: 8px 6px; border-bottom: 2px solid var(--border); color: var(--text-light); font-weight: 600; white-space: nowrap; }
+.peers-table td { padding: 7px 6px; border-bottom: 1px solid var(--border); color: var(--text); white-space: nowrap; }
+.peers-table tr:hover td { background: var(--hover-bg); }
+.peer-ip { font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; color: var(--primary); }
+.dl-task-status { font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
+.dl-task-status.active { background: var(--tint-info); color: var(--primary); }
+.dl-task-status.choking { background: var(--tint-warn); color: var(--warn); }
+.dl-task-status.unchoked { background: var(--tint-ok); color: var(--success); }
+.dl-task-status.encrypted { background: #f0e6ff; color: #8e44ad; }
+.dl-task-status.plain { background: var(--chip-bg); color: var(--muted); }
+.empty-msg { text-align: center; padding: 40px; color: var(--text-light); font-size: 13px; }
+.error-msg { text-align: center; padding: 20px; color: var(--danger); font-size: 13px; }
+.dl-progress-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; min-width: 60px; }
+.dl-progress-bar .fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+@media (max-width: 600px) {
+    .peers-table th:nth-child(4), .peers-table td:nth-child(4),
+    .peers-table th:nth-child(5), .peers-table td:nth-child(5) { display: none; }
+}
+</style>
+</head>
+<body>
+<div class="dl-page">
+    <div class="header-bar">
+        <a href="/url-download" class="back-btn">← 返回下载器</a>
+        <h2 id="taskTitle">节点连接详情</h2>
+        <span style="flex:1"></span>
+        <span style="font-size:11px;color:var(--text-light)" id="refreshStatus"></span>
+        <button class="btn btn-sm btn-outline" onclick="toggleAutoRefresh()" id="refreshBtn" style="padding:4px 10px;font-size:11px">暂停刷新</button>
+    </div>
+
+    <div class="dl-input-area">
+        <h3>传输概览</h3>
+        <div class="summary-grid" id="summaryGrid"></div>
+    </div>
+
+    <div class="dl-input-area">
+        <h3>对等节点列表 <span style="font-size:11px;color:var(--text-light);font-weight:400" id="peerCount">(0)</span></h3>
+        <div id="peerList"><div class="empty-msg">加载中...</div></div>
+    </div>
+</div>
+<script>
+var API = '/api/url-download';
+var _taskId = '';
+var _refreshTimer = null;
+var _autoRefresh = true;
+var _history = { dlSpeed: [], ulSpeed: [], peers: [] };
+
+function getParams() {
+    var p = {};
+    location.search.substr(1).split('&').forEach(function(kv) {
+        var pair = kv.split('=');
+        if (pair[0]) p[decodeURIComponent(pair[0])] = decodeURIComponent(pair.slice(1).join('=')) || '';
+    });
+    return p;
+}
+
+function esc(str) {
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(str || ''));
+    return div.innerHTML;
+}
+
+function formatSize(b) {
+    if (!b || b === 0) return '0 B';
+    var u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var i = Math.floor(Math.log(b) / Math.log(1024));
+    if (i >= u.length) i = u.length - 1;
+    var val = b / Math.pow(1024, i);
+    return (i === 0 ? val : val.toFixed(1)) + ' ' + u[i];
+}
+
+function formatSpeed(bps) {
+    return formatSize(bps) + '/s';
+}
+
+function ipStr(peer) {
+    var ip = peer.ip || '';
+    var port = (peer.peerPort || peer.port || '');
+    return port ? ip + ':' + port : ip;
+}
+
+function toggleAutoRefresh() {
+    _autoRefresh = !_autoRefresh;
+    var btn = document.getElementById('refreshBtn');
+    if (_autoRefresh) {
+        btn.textContent = '暂停';
+        _refreshTimer = setInterval(fetchPeers, 3000);
+    } else {
+        btn.textContent = '刷新';
+        if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+    }
+}
+
+function addHistory(key, val, max) {
+    if (!_history[key]) _history[key] = [];
+    _history[key].push(val);
+    if (_history[key].length > (max || 30)) _history[key].shift();
+}
+
+function getMaxHistory(key) {
+    var arr = _history[key] || [];
+    return arr.length > 0 ? Math.max.apply(null, arr) : 1;
+}
+
+function fetchPeers() {
+    var taskId = _taskId;
+    if (!taskId) return;
+    fetch(API + '/peers', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({task_id: taskId})
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (!d.success) {
+            document.getElementById('peerList').innerHTML = '<div class="error-msg">' + esc(d.error || '获取失败') + '</div>';
+            return;
+        }
+        var peers = d.peers || [];
+        var status = d.status || {};
+        var task = d.task || {};
+
+        var dlSpeed = parseInt(status.downloadSpeed || '0');
+        var ulSpeed = parseInt(status.uploadSpeed || '0');
+        var total = parseInt(status.totalLength || '0');
+        var completed = parseInt(status.completedLength || '0');
+        var progress = total > 0 ? (completed * 100 / total).toFixed(1) : 0;
+
+        addHistory('dlSpeed', dlSpeed);
+        addHistory('ulSpeed', ulSpeed);
+        addHistory('peers', peers.length);
+
+        document.getElementById('taskTitle').textContent = '节点连接 - ' + (task.filename || '未知');
+        document.getElementById('refreshStatus').textContent = new Date().toLocaleTimeString();
+        document.getElementById('peerCount').textContent = '(' + peers.length + ')';
+
+        var maxDl = getMaxHistory('dlSpeed');
+        var maxUl = getMaxHistory('ulSpeed');
+        document.getElementById('summaryGrid').innerHTML =
+            '<div class="summary-card"><div class="val" style="color:var(--primary)">' + formatSpeed(dlSpeed) + '</div><div class="lbl">下载速度</div><div class="trend" style="color:' + (dlSpeed > 0 ? 'var(--success)' : 'var(--text-light)') + '">峰值 ' + formatSpeed(maxDl) + '</div></div>' +
+            '<div class="summary-card"><div class="val" style="color:var(--warn)">' + formatSpeed(ulSpeed) + '</div><div class="lbl">上传速度</div><div class="trend" style="color:' + (ulSpeed > 0 ? 'var(--success)' : 'var(--text-light)') + '">峰值 ' + formatSpeed(maxUl) + '</div></div>' +
+            '<div class="summary-card"><div class="val">' + progress + '%</div><div class="lbl">下载进度</div><div class="trend" style="color:var(--text-light)">' + formatSize(completed) + (total > 0 ? ' / ' + formatSize(total) : '') + '</div></div>' +
+            '<div class="summary-card"><div class="val" style="color:#8e44ad">' + peers.length + '</div><div class="lbl">对等节点</div><div class="trend" style="color:var(--text-light)">最多 ' + getMaxHistory('peers') + '</div></div>' +
+            '<div class="summary-card"><div class="val">' + (status.numSeeders || '0') + '</div><div class="lbl">完成源</div><div class="trend" style="color:var(--text-light)">连接 ' + (status.connections || '0') + '</div></div>' +
+            '<div class="summary-card"><div class="val">' + (status.connections || '0') + '</div><div class="lbl">总连接数</div><div class="trend" style="color:var(--text-light)">GID: ' + (status.gid || '').substring(0, 8) + '</div></div>';
+
+        var html = '';
+        if (peers.length === 0) {
+            html = '<div class="empty-msg">暂无对等节点连接</div>';
+        } else {
+            html = '<table class="peers-table"><thead><tr>' +
+                '<th>IP 地址</th>' +
+                '<th>下载速度</th>' +
+                '<th>上传速度</th>' +
+                '<th>已下载 / 总大小</th>' +
+                '<th>进度</th>' +
+                '<th>状态</th>' +
+                '<th>客户端</th>' +
+                '</tr></thead><tbody>';
+            for (var i = 0; i < peers.length; i++) {
+                var p = peers[i];
+                var pDl = parseInt(p.downloadSpeed || '0');
+                var pUl = parseInt(p.uploadSpeed || '0');
+                var pCompleted = parseInt(p.completedLength || '0');
+                var pTotal = parseInt(p.totalLength || '0');
+                var pPct = pTotal > 0 ? Math.round(pCompleted * 100 / pTotal) : 0;
+                var barColor = pPct < 30 ? 'var(--danger)' : (pPct < 70 ? 'var(--warn)' : 'var(--success)');
+                var encryption = p.encryption || 'plain';
+                var amChoking = p.amChoking === 'true' || p.amChoking === true;
+                var peerChoking = p.peerChoking === 'true' || p.peerChoking === true;
+                var tags = '';
+                tags += '<span class="dl-task-status ' + (amChoking ? 'choking' : 'unchoked') + '">' + (amChoking ? '窒息' : '上传') + '</span> ';
+                tags += '<span class="dl-task-status ' + (peerChoking ? 'choking' : 'unchoked') + '">' + (peerChoking ? '阻塞' : '下载') + '</span> ';
+                tags += '<span class="dl-task-status ' + (encryption === 'plain' ? 'plain' : 'encrypted') + '">' + (encryption === 'plain' ? '明文' : '加密') + '</span>';
+                html += '<tr>' +
+                    '<td class="peer-ip">' + esc(ipStr(p)) + '</td>' +
+                    '<td style="font-weight:600;color:' + (pDl > 0 ? 'var(--primary)' : 'var(--text-light)') + '">' + formatSpeed(pDl) + '</td>' +
+                    '<td style="color:' + (pUl > 0 ? 'var(--warn)' : 'var(--text-light)') + '">' + formatSpeed(pUl) + '</td>' +
+                    '<td>' + formatSize(pCompleted) + (pTotal > 0 ? ' / ' + formatSize(pTotal) : '') + '</td>' +
+                    '<td><div class="dl-progress-bar"><div class="fill" style="width:' + pPct + '%;background:' + barColor + '"></div></div>' + pPct + '%</td>' +
+                    '<td>' + tags + '</td>' +
+                    '<td style="color:' + (p.extension ? 'var(--text)' : 'var(--text-light)') + '">' + esc(p.extension || '未知') + '</td>' +
+                    '</tr>';
+            }
+            html += '</tbody></table>';
+        }
+        document.getElementById('peerList').innerHTML = html;
+    })
+    .catch(function(err) {
+        document.getElementById('peerList').innerHTML = '<div class="error-msg">请求失败: ' + esc(err.message || '未知错误') + '</div>';
+    });
+}
+
+(function() {
+    var params = getParams();
+    _taskId = params.task_id || '';
+    if (!_taskId) {
+        document.getElementById('peerList').innerHTML = '<div class="error-msg">缺少 task_id 参数</div>';
+        return;
+    }
+    fetchPeers();
+    _refreshTimer = setInterval(fetchPeers, 3000);
+})();
+</script>
+</body>
+</html>

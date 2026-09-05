@@ -1,0 +1,29 @@
+LeafFS bundled components and sources
+组件与源码清单（分发版随附）
+
+Directory 说明: 本目录(licenses/)存放随附/依赖组件的许可原文；此文件列出版本与官方源码地址。
+Purpose: this folder ships the license texts of bundled/dependent components; this file lists versions and official source locations.
+
+Component            Version           License                Bundled file(s)                 Official source
+-------------------  ----------------  ---------------------  ------------------------------  ---------------------------------------------------------
+Python runtime       3.12.10           PSF License v2          (runtime when packaged)         https://www.python.org/
+websockets           16.0              BSD-3-Clause            (Python package, runtime)        https://github.com/aaugustin/websockets
+QRCode.js (qrcode.min.js)  (repo)      MIT                     leaffs/web_page/common/qrcode.min.js  https://github.com/davidshimjs/qrcodejs
+OpenSSL              3.6.3             Apache-2.0              leaffs/openssl.exe, libssl-3-x64.dll, libcrypto-3-x64.dll, zlib1.dll  https://github.com/openssl/openssl
+aria2 (aria2c)       1.37.0            GPL-2.0-or-later        leaffs/aria2c.exe               https://github.com/aria2/aria2
+FFmpeg (ffmpeg)      gyan essentials 2026-06-15 git  LGPL-2.1+ (build)  leaffs/ffmpeg.exe         https://ffmpeg.org/ | https://www.gyan.dev/ffmpeg/builds/
+pythonnet            3.1.0             MIT                     (optional desktop window)        https://github.com/pythonnet/pythonnet
+pywebview            4.2.2             BSD-3-Clause            (optional desktop window)        https://github.com/r0x0r/pywebview
+
+Redistribution notes / 再分发注意
+1. All components are used unmodified. / 上述组件均原样使用、未修改。
+2. aria2 and FFmpeg are distributed as standalone executables invoked as processes. When you
+   redistribute the binaries, comply with GPL-2.0/LGPL-2.1: ship the license texts (in this
+   folder) and give recipients a way to obtain the corresponding source. For unmodified builds,
+   the official source locations above (and the FFmpeg build page) satisfy this in practice.
+   / aria2 与 FFmpeg 为随包二进制（进程调用）。再分发时请随附许可文本并指明对应源码获取方式；
+     未修改的构建以官方源码地址（及 gyan.dev 构建页）作为对应源码的提供方式。
+3. MIT / BSD-3 / Apache-2.0 / PSF components: keep the copyright and license notices with the
+   distribution (see files in this folder). / MIT/BSD/Apache/PSF 组件：随分发保留版权与许可声明。
+4. License texts are provided for reference; the upstream official texts govern.
+   / 许可文本仅供参考，以各组件上游官方文本为准。

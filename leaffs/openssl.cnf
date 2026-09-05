@@ -1,0 +1,6 @@
+# LeafFS bundled OpenSSL minimal configuration
+HOME = .
+RANDFILE = .rnd
+openssl_conf = openssl_init
+
+[openssl_init]

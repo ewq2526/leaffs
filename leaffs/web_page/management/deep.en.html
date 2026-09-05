@@ -1,0 +1,434 @@
+<!-- English page. AI-translated. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deep Config</title>
+<link rel="stylesheet" href="/static/style.css">
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;var myRole = __MY_ROLE__ || null;</script>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <h1><span class="ht">Deep Config</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting…</span></span></h1>
+        <div class="info">
+            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">Light</span></button>
+        </div>
+    </div>
+
+    <div class="nav-bar">
+        <a href="/browse/">Browse</a>
+        <a href="/gallery">Gallery</a>
+        <a href="/url-download">Downloader</a>
+        <a href="/admin">Admin</a>
+        <a href="/me">My Account</a>
+        <span style="flex:1"></span>
+        <button class="nav-back" onclick="window.location.href='/admin'">Back to Admin</button>
+    </div>
+
+    <!-- Config read status (real values are loaded from the server on page open, avoiding stale defaults) -->
+    <div id="cfgStatus" style="display:none;margin:10px 0;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5"></div>
+
+    <div class="admin-grid">
+        <!-- Password hash iterations -->
+        <div class="admin-card">
+            <h3>Password Hash Iterations</h3>
+            <div class="config-group">
+                <label>How many times hashing is repeated when deriving a password; higher is more secure but makes sign-in slower. <span style="color:var(--danger)">Security minimum <span id="pbkdf2MinHint">100000</span></span>, 100000~1000000 recommended</label>
+                <div class="config-row">
+                    <input type="number" id="pbkdf2IterationsInput" min="100000" value="600000" step="50000" style="width:110px">
+                    <span style="font-size:11px;color:var(--text-light)">iterations</span>
+                    <button class="btn-admin primary" onclick="applyPbkdf2Iterations()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Password salt length -->
+        <div class="admin-card">
+            <h3>Password Salt Length</h3>
+            <div class="config-group">
+                <label>Length of the random data mixed in when hashing; longer is more secure. Only applies to passwords created after a restart. <span style="color:var(--danger)">Security minimum <span id="saltMinHint">16</span></span> (16~64 bytes recommended)</label>
+                <div class="config-row">
+                    <input type="number" id="saltLengthInput" min="16" value="32" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">bytes</span>
+                    <button class="btn-admin primary" onclick="applySaltLength()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Thumbnail sampling ratio -->
+        <div class="admin-card">
+            <h3>Thumbnail Startup Sampling Ratio</h3>
+            <div class="config-group">
+                <label>How much of the thumbnail index is checked at startup. Lower values start faster but detect issues less accurately</label>
+                <div class="config-row">
+                    <input type="number" id="thumbSampleRatioInput" min="0.001" max="1" value="0.1" step="0.05" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">(0.001~1, 0.05~0.5 recommended)</span>
+                    <button class="btn-admin primary" onclick="applyThumbSampleRatio()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Missing source file threshold -->
+        <div class="admin-card">
+            <h3>Thumbnail Missing-Source Threshold</h3>
+            <div class="config-group">
+                <label>If more than this ratio of source files is found missing during sampling, a full background cleanup starts. Lower values catch it sooner</label>
+                <div class="config-row">
+                    <input type="number" id="thumbMissThresholdInput" min="0.001" max="1" value="0.05" step="0.01" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">(0.001~1, 0.02~0.1 recommended)</span>
+                    <button class="btn-admin primary" onclick="applyThumbMissThreshold()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cleanup batch size -->
+        <div class="admin-card">
+            <h3>Background Cleanup Batch Size</h3>
+            <div class="config-group">
+                <label>How many entries each batch handles during background thumbnail cleanup. Larger values clean faster but cause higher momentary I/O load</label>
+                <div class="config-row">
+                    <input type="number" id="thumbScanBatchInput" min="1" max="10000" value="100" step="10" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">entries/batch (1~10000, 50~500 recommended)</span>
+                    <button class="btn-admin primary" onclick="applyThumbScanBatch()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cleanup batch interval -->
+        <div class="admin-card">
+            <h3>Background Cleanup Batch Interval</h3>
+            <div class="config-group">
+                <label>Wait time between cleanup batches. Larger values affect normal requests less but clean more slowly</label>
+                <div class="config-row">
+                    <input type="number" id="thumbScanIntervalInput" min="0.01" max="60" value="0.5" step="0.1" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">s (0.01~60, 0.1~2 recommended)</span>
+                    <button class="btn-admin primary" onclick="applyThumbScanInterval()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Session lifetime -->
+        <div class="admin-card">
+            <h3>Sign-in Session Lifetime</h3>
+            <div class="config-group">
+                <label>Days a sign-in session stays valid; after expiry you must sign in again (guest sessions included)</label>
+                <div class="config-row">
+                    <input type="number" id="sessionExpiryInput" min="1" max="3650" value="30" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">days (1~3650)</span>
+                    <button class="btn-admin primary" onclick="applySessionExpiry()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Guest upload switch -->
+        <div class="admin-card">
+            <h3>Guest Upload to Public Folder</h3>
+            <div class="config-group">
+                <label>When enabled, guests can create new files in public (duplicate names are renamed automatically); guests can <b>never</b> delete/overwrite existing content or create folders</label>
+                <div class="config-row">
+                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
+                        <input type="checkbox" id="guestWriteInput" style="width:auto">
+                        <span>Allow guests to upload new files to the public folder</span>
+                    </label>
+                    <span style="flex:1"></span>
+                    <button class="btn-admin primary" onclick="applyGuestWrite()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Guest downloader switch -->
+        <div class="admin-card">
+            <h3>Guests Can Use URL Downloader</h3>
+            <div class="config-group">
+                <label>Whether guests may use the "URL Downloader". When off, only users / admins and above can use it</label>
+                <div class="config-row">
+                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
+                        <input type="checkbox" id="dlGuestInput" style="width:auto">
+                        <span>Allow guests to use the downloader</span>
+                    </label>
+                    <span style="flex:1"></span>
+                    <button class="btn-admin primary" onclick="applyDlGuest()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Request access log switch -->
+        <div class="admin-card">
+            <h3>Request-Level Access Log</h3>
+            <div class="config-group">
+                <label>Logs every HTTP request (with date and time). Turning it off reduces log volume but weakens auditing</label>
+                <div class="config-row">
+                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
+                        <input type="checkbox" id="accessLogInput" style="width:auto">
+                        <span>Log access requests</span>
+                    </label>
+                    <span style="flex:1"></span>
+                    <button class="btn-admin primary" onclick="applyAccessLog()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Idle disconnect time -->
+        <div class="admin-card">
+            <h3>Idle Disconnect Time</h3>
+            <div class="config-group">
+                <label>Connections with no data sent or received for the set time are dropped automatically, freeing the connection and thread resources they hold. Too small a value may interrupt slow transfers or real connections that briefly pause; too large a value lets idle connections hold resources longer (default 120 s)</label>
+                <div class="config-row">
+                    <input type="number" id="deepIdleTimeoutInput" min="1" step="any" value="120" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">s (≥ 1, decimals allowed)</span>
+                    <button class="btn-admin primary" onclick="applyIdleTimeout()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Certificate info page bind address -->
+        <div class="admin-card">
+            <h3>Certificate Info Page Bind Address</h3>
+            <div class="config-group">
+                <label>Bind address of the HTTPS certificate info page (a plain-text notice page; its port is set under "Advanced Settings"): <code>0.0.0.0</code> = listen on all interfaces (default); a specific IP such as <code>127.0.0.1</code> is also allowed. Only takes effect when HTTPS is enabled</label>
+                <div class="config-row">
+                    <input type="text" id="trustBindHostInput" value="0.0.0.0" maxlength="64" style="width:140px">
+                    <button class="btn-admin primary" onclick="applyTrustBindHost()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Compatibility archive (read-only): self-signed certificate / ACL mechanisms were removed with the distribution policy -->
+        <div class="admin-card">
+            <h3>Compatibility Archive (self-signed certificate/ACL mechanisms removed)</h3>
+            <div class="config-group">
+                <label>The "self-signed CA / auto-trust / folder ACL" features behind the keys below were removed with the distribution security policy and no longer take effect; the values are kept as an archive only, so old config files stay compatible. For HTTPS, configure a proper certificate (see the Advanced Settings notes)</label>
+                <div class="info-row"><span class="info-label">auto_trust_ca</span><span class="info-value" id="autoTrustCaVal">-</span></div>
+                <div class="info-row"><span class="info-label">ca_trust_decision</span><span class="info-value" id="caTrustDecisionVal">-</span></div>
+                <div class="info-row"><span class="info-label">ca_validity_days</span><span class="info-value" id="caValidityVal">-</span></div>
+                <div class="info-row"><span class="info-label">harden_config_acls</span><span class="info-value" id="hardenAclsVal">-</span></div>
+                <div class="info-row"><span class="info-label">Username max length</span><span class="info-value" id="userMaxLenVal">-</span></div>
+                <div class="info-row"><span class="info-label">Password max length</span><span class="info-value" id="pwdMaxLenVal">-</span></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script src="/static/qrcode.min.js"></script>
+<script>
+var startTime = Date.now();
+// Security minimums returned by the server (updated after loading; fallback 100000/16 matches the backend)
+var _pbkdf2Min = 100000;
+var _saltMin = 16;
+var _loading = false;
+
+function setCfgStatus(text, type) {
+    var el = document.getElementById('cfgStatus');
+    if (!el) return;
+    el.style.display = text ? 'block' : 'none';
+    el.textContent = text || '';
+    el.style.background = type === 'err' ? 'rgba(220,60,60,.12)' : (type === 'ok' ? 'rgba(40,167,69,.12)' : 'rgba(0,0,0,.04)');
+    el.style.color = type === 'err' ? 'var(--danger)' : (type === 'ok' ? 'var(--success)' : 'var(--text)');
+}
+function setCheck(id, val) { var el = document.getElementById(id); if (el) el.checked = !!val; }
+function setNum(id, val) { var el = document.getElementById(id); if (el && document.activeElement !== el) el.value = (val === undefined || val === null || isNaN(val)) ? '' : val; }
+// Byte value → MB display (1 decimal), for keys entered in MB on the deep page
+function setNumMb(id, bytesVal) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (bytesVal === undefined || bytesVal === null || isNaN(bytesVal)) { el.value = ''; return; }
+    el.value = Math.round((bytesVal / 1048576) * 10) / 10;
+}
+function setTxt(id, val) { var el = document.getElementById(id); if (el) el.textContent = (val === undefined || val === null) ? '-' : String(val); }
+
+// Read the real config from the server and backfill every control (runs on page open)
+function loadDeepConfig() {
+    if (_loading) return Promise.resolve();
+    _loading = true;
+    setCfgStatus('Loading the current Deep Config…', '');
+    return fetch('/api/config/deep')
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            _loading = false;
+            if (!d || d.error) {
+                setCfgStatus('Cannot read Deep Config: ' + ((d && d.error) || 'unknown error') + '. You can still try saving with the "Apply" button on each row, or refresh the page to retry.', 'err');
+                return;
+            }
+            // Security minimum hints (B-11: the server returns *_min)
+            if (typeof d.pbkdf2_iterations_min === 'number' && d.pbkdf2_iterations_min > 0) _pbkdf2Min = d.pbkdf2_iterations_min;
+            if (typeof d.salt_length_min === 'number' && d.salt_length_min > 0) _saltMin = d.salt_length_min;
+            var pi = document.getElementById('pbkdf2IterationsInput');
+            if (pi) { pi.min = _pbkdf2Min; pi.value = d.pbkdf2_iterations; }
+            var pmin = document.getElementById('pbkdf2MinHint');
+            if (pmin) pmin.textContent = _pbkdf2Min;
+            var si = document.getElementById('saltLengthInput');
+            if (si) { si.min = _saltMin; si.value = d.salt_length; }
+            var smin = document.getElementById('saltMinHint');
+            if (smin) smin.textContent = _saltMin;
+            setNum('thumbSampleRatioInput', d.thumb_sample_ratio);
+            setNum('thumbMissThresholdInput', d.thumb_miss_threshold);
+            setNum('thumbScanBatchInput', d.thumb_scan_batch);
+            setNum('thumbScanIntervalInput', d.thumb_scan_interval);
+            setNum('sessionExpiryInput', d.session_expiry_days);
+            setCheck('guestWriteInput', d.guest_public_write);
+            setCheck('dlGuestInput', d.downloader_guest_allowed);
+            setCheck('accessLogInput', d.access_log);
+            // Whole-machine / per-IP connection limits moved to the admin home; only the idle timeout is backfilled here (default used when an old server omits it)
+            setNum('deepIdleTimeoutInput', (typeof d.io_idle_timeout_secs === 'number') ? d.io_idle_timeout_secs : 120);
+            var th = document.getElementById('trustBindHostInput');
+            if (th) th.value = d.trust_bind_host || '0.0.0.0';
+            // Read-only archive values
+            setTxt('autoTrustCaVal', d.auto_trust_ca);
+            setTxt('caTrustDecisionVal', d.ca_trust_decision);
+            setTxt('caValidityVal', d.ca_validity_days);
+            setTxt('hardenAclsVal', d.harden_config_acls);
+            setTxt('userMaxLenVal', d.username_max_length);
+            setTxt('pwdMaxLenVal', d.password_max_length);
+            // Structure completeness check: if the server did not return certain keys (field name / version mismatch),
+            // the missing items are reported explicitly instead of being silently left blank, avoiding the illusion of "no data on this page"
+            var _expected = ['pbkdf2_iterations', 'pbkdf2_iterations_min', 'salt_length', 'salt_length_min',
+                'thumb_sample_ratio', 'thumb_miss_threshold', 'thumb_scan_batch', 'thumb_scan_interval',
+                'session_expiry_days', 'guest_public_write', 'downloader_guest_allowed', 'access_log',
+                'max_conn_per_ip', 'trust_bind_host', 'auto_trust_ca', 'ca_trust_decision',
+                'ca_validity_days', 'harden_config_acls', 'username_max_length', 'password_max_length'];
+            var _missing = _expected.filter(function (k) { return !(k in d); });
+            if (_missing.length) {
+                setCfgStatus('Config loaded, but the server did not return these fields (possible version mismatch): ' + _missing.join(', ') + '. Those items keep their previous/default values.', 'err');
+            } else {
+                setCfgStatus('', '');
+            }
+        })
+        .catch(function (e) {
+            _loading = false;
+            setCfgStatus('Failed to load the current config (' + (e && e.message ? e.message : 'network error') + '). The values shown are defaults/previous values; saving may still work.', 'err');
+        });
+}
+
+// Unified save: POST /api/config/deep; success toast then re-reads latest values; failure shows the server message
+function deepPost(payload, okText) {
+    return fetch('/api/config/deep', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d && d.success) {
+            batchToast(okText || 'Saved', 'success');
+            loadDeepConfig();
+        } else {
+            batchToast((d && d.error) || 'Save failed', 'error');
+        }
+    }).catch(function () {
+        batchToast('Request failed, check your network', 'error');
+    });
+}
+
+function applyPbkdf2Iterations() {
+    var el = document.getElementById('pbkdf2IterationsInput');
+    var val = parseInt(el.value, 10);
+    if (isNaN(val)) { batchToast('Enter an integer number of iterations', 'error'); return; }
+    if (val < _pbkdf2Min) { batchToast('Iterations must not be below ' + _pbkdf2Min, 'error'); return; }
+    deepPost({ pbkdf2_iterations: val }, 'Hash iterations updated; applies to new passwords');
+}
+
+function applySaltLength() {
+    var el = document.getElementById('saltLengthInput');
+    var val = parseInt(el.value, 10);
+    if (isNaN(val)) { batchToast('Enter an integer salt length (bytes)', 'error'); return; }
+    if (val < _saltMin) { batchToast('Salt length must not be below ' + _saltMin + ' bytes', 'error'); return; }
+    deepPost({ salt_length: val }, 'Salt length updated; applies to new passwords after restart');
+}
+
+function applyThumbSampleRatio() {
+    var val = parseFloat(document.getElementById('thumbSampleRatioInput').value);
+    if (isNaN(val) || val < 0.001 || val > 1) { batchToast('Sampling ratio must be between 0.001 and 1', 'error'); return; }
+    deepPost({ thumb_sample_ratio: val }, 'Sampling ratio updated to ' + val);
+}
+
+function applyThumbMissThreshold() {
+    var val = parseFloat(document.getElementById('thumbMissThresholdInput').value);
+    if (isNaN(val) || val < 0.001 || val > 1) { batchToast('Missing threshold must be between 0.001 and 1', 'error'); return; }
+    deepPost({ thumb_miss_threshold: val }, 'Missing threshold updated to ' + val);
+}
+
+function applyThumbScanBatch() {
+    var val = parseInt(document.getElementById('thumbScanBatchInput').value, 10);
+    if (isNaN(val) || val < 1 || val > 10000) { batchToast('Batch size must be between 1 and 10000', 'error'); return; }
+    deepPost({ thumb_scan_batch: val }, 'Batch size updated to ' + val);
+}
+
+function applyThumbScanInterval() {
+    var val = parseFloat(document.getElementById('thumbScanIntervalInput').value);
+    if (isNaN(val) || val < 0.01 || val > 60) { batchToast('Batch interval must be between 0.01 and 60 s', 'error'); return; }
+    deepPost({ thumb_scan_interval: val }, 'Batch interval updated to ' + val + ' s');
+}
+
+function applySessionExpiry() {
+    var val = parseInt(document.getElementById('sessionExpiryInput').value, 10);
+    if (isNaN(val) || val < 1 || val > 3650) { batchToast('Session lifetime must be between 1 and 3650 days', 'error'); return; }
+    deepPost({ session_expiry_days: val }, 'Session lifetime updated to ' + val + ' days');
+}
+
+function applyGuestWrite() {
+    deepPost({ guest_public_write: !!document.getElementById('guestWriteInput').checked }, 'Guest upload setting saved');
+}
+
+function applyDlGuest() {
+    deepPost({ downloader_guest_allowed: !!document.getElementById('dlGuestInput').checked }, 'Guest downloader setting saved');
+}
+
+function applyAccessLog() {
+    deepPost({ access_log: !!document.getElementById('accessLogInput').checked }, 'Access log setting saved');
+}
+
+// Idle disconnect time (io_idle_timeout_secs, seconds, ≥ 1, decimals allowed) — uses the existing deep save flow; server message is shown on 400
+function applyIdleTimeout() {
+    var el = document.getElementById('deepIdleTimeoutInput');
+    if (!el) return;
+    var val = parseFloat(el.value);
+    if (isNaN(val) || val < 1) { batchToast('Idle disconnect time must be at least 1 second', 'error'); return; }
+    deepPost({ io_idle_timeout_secs: val }, 'Idle disconnect time saved as ' + val + ' s');
+}
+
+function applyTrustBindHost() {
+    var val = (document.getElementById('trustBindHostInput').value || '').trim();
+    if (!val) { batchToast('Bind address cannot be empty (use 0.0.0.0 to listen on all interfaces)', 'error'); return; }
+    deepPost({ trust_bind_host: val }, 'Certificate info page bind address saved; takes effect after restart');
+}
+
+// Generic save for integer/float keys (deep accepts the server key name directly at /api/config/deep)
+function applyDeepKey(key, val, min, max, label) {
+    if (isNaN(val) || (min !== undefined && min !== null && val < min) || (max !== undefined && max !== null && val > max)) {
+        batchToast((label || key) + ' must be in range ' + (min === undefined || min === null ? '' : min) + '~' + (max === undefined || max === null ? '' : max), 'error');
+        return;
+    }
+    var payload = {}; payload[key] = val;
+    deepPost(payload, (label || key) + ' saved');
+}
+
+// Generic save for keys entered in MB (converted to bytes before submitting)
+function applyMbKey(key, el, label) {
+    var mb = parseFloat(el.value);
+    if (isNaN(mb) || mb < 0) { batchToast((label || key) + ' must be a number not below 0 (MB)', 'error'); return; }
+    if (key === 'upload_chunk' && mb < 0.004) { batchToast('Upload read chunk must not be below 0.004 MB', 'error'); return; }
+    var payload = {}; payload[key] = Math.round(mb * 1048576);
+    deepPost(payload, (label || key) + ' saved');
+}
+
+loadDeepConfig();
+connectWS();
+</script>
+<style>
+.admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.admin-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.admin-card h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.config-group { margin-bottom: 10px; }
+.config-group label { display: block; font-size: 11px; color: var(--text-light); margin-bottom: 4px; line-height: 1.6; }
+.config-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.config-row .row-label { font-size: 12px; color: var(--text); min-width: 150px; flex-shrink: 0; }
+.config-row .row-unit { font-size: 11px; color: var(--text-light); }
+.config-row input[type=number], .config-row input[type=text] { padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; background: var(--card-bg); color: var(--text); }
+.config-row input:focus { border-color: var(--primary); }
+.info-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 12px; }
+.info-label { color: var(--text-light); }
+.info-value { color: var(--text); font-weight: 500; word-break: break-all; }
+code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+</style>
+</body>
+</html>

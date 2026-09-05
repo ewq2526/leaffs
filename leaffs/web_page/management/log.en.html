@@ -1,0 +1,83 @@
+<!-- English page. AI-translated. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Logs</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.log-list { max-height: 70vh; overflow-y: auto; }
+.log-item { padding: 10px 14px; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--text); display: flex; gap: 10px; align-items: flex-start; }
+.log-item:last-child { border-bottom: none; }
+.log-time { color: var(--text-light); white-space: nowrap; font-family: monospace; }
+.log-msg { flex: 1; word-break: break-all; line-height: 1.5; }
+.log-level { font-size: 10px; padding: 1px 6px; border-radius: 3px; font-weight: 600; white-space: nowrap; }
+.log-level.info { background: var(--tint-info); color: var(--primary); }
+.log-level.err { background: var(--tint-err); color: var(--danger); }
+.log-level.ok { background: var(--tint-ok); color: var(--success); }
+.log-level.warn { background: var(--tint-warn); color: var(--warn); }
+.log-empty { text-align: center; padding: 60px 20px; color: var(--text-light); font-size: 13px; }
+.toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+.toolbar .count { font-size: 12px; color: var(--text-light); }
+</style>
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <h1>Logs</h1>
+        <div class="info">
+            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">Light</span></button>
+        </div>
+    </div>
+    <div class="nav-bar">
+        <a href="/browse/">Browse</a>
+        <a href="/gallery">Gallery</a>
+        <a href="/url-download">Downloader</a>
+        <a href="/admin">Admin</a>
+        <a href="/me">My Account</a>
+        <a href="/log" class="active">Logs</a>
+        <span style="flex:1"></span>
+        <button class="nav-back" onclick="window.location.href='/admin'">Back to Admin</button>
+    </div>
+    <div class="toolbar">
+        <span class="count" id="logCount">0 entries</span>
+        <button class="btn btn-sm btn-outline" onclick="loadLogs()">Refresh</button>
+        <button class="btn btn-sm btn-danger" onclick="clearLogs()">Clear</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+        <div class="log-list" id="logList"><div class="log-empty">No logs yet</div></div>
+    </div>
+</div>
+<script src="/static/app.js"></script>
+<script>
+function loadLogs() {
+    fetch('/api/logs').then(function(r) { return r.json(); }).then(function(d) {
+        var logs = d.logs || [];
+        document.getElementById('logCount').textContent = logs.length + ' entries';
+        var c = document.getElementById('logList');
+        if (!logs.length) { c.innerHTML = '<div class="log-empty">No logs yet</div>'; return; }
+        var h = '';
+        for (var i = logs.length - 1; i >= 0; i--) {
+            var l = logs[i];
+            h += '<div class="log-item"><span class="log-time">' + esc(l.time) + '</span><span class="log-level ' + (l.level || 'info') + '">' + (l.level || 'info') + '</span><span class="log-msg">' + esc(l.msg) + '</span></div>';
+        }
+        c.innerHTML = h;
+    });
+}
+function clearLogs() {
+    if (!confirm('Clear all logs?')) return;
+    fetch('/api/logs/clear', { method: 'POST' }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d && d.success) {
+            document.getElementById('logList').innerHTML = '<div class="log-empty">Logs cleared</div>';
+            document.getElementById('logCount').textContent = '0 entries';
+        } else {
+            batchToast('Clear failed', 'error');
+        }
+    }).catch(function() { batchToast('Clear failed', 'error'); });
+}
+loadLogs();
+</script>
+</body>
+</html>

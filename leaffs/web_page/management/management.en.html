@@ -1,0 +1,218 @@
+<!-- English page. AI-translated. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin</title>
+<link rel="stylesheet" href="/static/style.css">
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <h1><span class="ht">Admin</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting…</span></span></h1>
+        <div class="info">
+            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">Light</span></button>
+        </div>
+    </div>
+
+    <div class="nav-bar">
+        <a href="/browse/">Browse</a>
+        <a href="/gallery">Gallery</a>
+        <a href="/url-download">Downloader</a>
+        <a href="/admin" class="active">Admin</a>
+        <a href="/me">My Account</a>
+        <span style="flex:1"></span>
+    </div>
+
+    <div class="admin-grid" id="adminGrid">
+        <!-- Server status -->
+        <div class="admin-card">
+            <h3>Server Status</h3>
+            <div class="info-row"><span class="info-label">HTTP Port</span><span class="info-value" id="httpPort">-</span></div>
+            <div class="info-row"><span class="info-label">WebSocket</span><span class="info-value" id="wsPortInfo">-</span></div>
+            <div class="info-row"><span class="info-label">Service Status</span><span class="info-value"><span class="status-dot green"></span> Running</span></div>
+            <div class="info-row"><span class="info-label">Local IP</span><span class="info-value" id="localIp">-</span></div>
+            <div class="info-row"><span class="info-label">Uptime</span><span class="info-value" id="startTime">-</span></div>
+            <div class="info-row"><span class="info-label">Connected Users</span><span class="info-value" id="connCount">-</span></div>
+        </div>
+
+        <!-- Resource stats -->
+        <div class="admin-card">
+            <h3>Resource Stats</h3>
+            <div class="info-row"><span class="info-label">Total Files</span><span class="info-value" id="fileTotal">-</span></div>
+            <div class="info-row"><span class="info-label">Total Size</span><span class="info-value" id="shareTotalSize">-</span></div>
+            <div class="info-row"><span class="info-label">User Space</span><span class="info-value" id="userQuotaInfo">-</span></div>
+            <div class="info-row"><span class="info-label">Public Space</span><span class="info-value" id="publicQuotaInfo">-</span></div>
+            <div class="info-row"><span class="info-label">System Total Space</span><span class="info-value" id="totalQuotaInfo">-</span></div>
+            <div class="info-row"><span class="info-label">ffmpeg</span><span class="info-value" id="ffmpegStatus">-</span></div>
+            <div class="info-row"><span class="info-label">aria2c</span><span class="info-value" id="aria2cStatus">-</span></div>
+        </div>
+
+        <!-- Guest mode -->
+        <div class="admin-card" style="padding:16px 20px">
+            <h3>Guest Mode</h3>
+            <div style="display:flex;gap:20px;align-items:stretch;min-height:100px">
+                <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+                    <div class="config-row">
+                        <span class="auth-state" id="authState">-</span>
+                        <button class="btn-admin" id="authToggleBtn" onclick="toggleAuth()">Toggle</button>
+                    </div>
+                    <div class="config-hint">When enabled, anyone can browse and download files in the public folder without signing in. Signed-in users are not affected by this setting.</div>
+                </div>
+                <div style="width:1px;background:var(--border);flex-shrink:0"></div>
+                <div style="width:50%;display:flex;align-items:center;justify-content:center">
+                    <div style="width:115px;height:115px;display:flex;align-items:center;justify-content:center;border:2px solid #d0d5dd;border-radius:8px;background:var(--card-bg)">
+                        <div id="qrContainer" style="width:105px;height:105px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted)">Loading…</div>
+                    </div>
+                </div>
+            </div>
+            <div id="qrUrl" style="font-size:14px;color:var(--primary);word-break:break-all;margin-top:14px;line-height:1.5;text-align:center;font-weight:600"></div>
+            <div id="qrCaption" style="font-size:11px;color:var(--text-light);margin-top:6px;text-align:center;line-height:1.5">Scan with your phone to access the file service</div>
+        </div>
+
+        <!-- Feature entries: User Management / Advanced Settings / Deep Config (in the same .admin-grid as the other cards, wrapping with the window) -->
+        <div class="admin-card" style="cursor:pointer" onclick="window.location.href='/admin/users'">
+            <h3>User Management</h3>
+            <div style="font-size:12px;color:var(--text-light);margin:4px 0">Add, delete, reset passwords, manage permissions</div>
+            <div class="btn btn-sm btn-primary" style="margin-top:6px">Open</div>
+        </div>
+        <div class="admin-card" style="cursor:pointer" onclick="window.location.href='/admin/advanced'">
+            <h3>Advanced Settings</h3>
+            <div style="font-size:12px;color:var(--text-light);margin:4px 0">Buffer size, cache policy, upload debounce, API size limit, etc.</div>
+            <div class="btn btn-sm btn-primary" style="margin-top:6px">Open</div>
+        </div>
+        <div class="admin-card" style="cursor:pointer" onclick="window.location.href='/admin/deep'">
+            <h3>Deep Config</h3>
+            <div style="font-size:12px;color:var(--text-light);margin:4px 0">Password hashing parameters, thumbnail cleanup policy, input length limits, etc.</div>
+            <div class="btn btn-sm btn-primary" style="margin-top:6px">Open</div>
+        </div>
+
+        <!-- Speed limit settings -->
+        <div class="admin-card">
+            <h3>Speed Limit Settings</h3>
+            <div class="config-group">
+                <label>Global default speed limit (KB/s, 0 = no limit)</label>
+                <div class="config-row">
+                    <input type="number" id="speedInput" min="0" value="0" placeholder="0 = no limit">
+                    <button class="btn-admin primary" onclick="applySpeed()">Apply</button>
+                </div>
+                <div class="config-hint">All users use this speed limit by default. You can set a separate limit per user in User Management.</div>
+            </div>
+        </div>
+
+        <!-- Quota settings -->
+        <div class="admin-card">
+            <h3>Quota Settings</h3>
+            <div style="display:flex;gap:16px;margin-bottom:6px">
+                <div class="config-group" style="margin-bottom:0;flex:1">
+                    <label>User Space Size</label>
+                    <div class="config-row">
+                        <input type="number" id="userQuotaInput" min="0" value="5" style="width:80px">
+                        <span style="font-size:11px;color:var(--text-light)">GB</span>
+                    </div>
+                </div>
+                <div class="config-group" style="margin-bottom:0;flex:1">
+                    <label>Public Space Size</label>
+                    <div class="config-row">
+                        <input type="number" id="publicQuotaInput" min="0" value="5" style="width:80px">
+                        <span style="font-size:11px;color:var(--text-light)">GB</span>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex;gap:16px">
+                <div class="config-group" style="margin-bottom:0;flex:1">
+                    <label>System Space Size</label>
+                    <div class="config-row">
+                        <input type="number" id="totalQuotaInput" min="0" value="50" style="width:80px">
+                        <span style="font-size:11px;color:var(--text-light)">GB</span>
+                    </div>
+                </div>
+                <div class="config-group" style="margin-bottom:0;flex:1;display:flex;flex-direction:column;justify-content:flex-end">
+                    <div style="display:flex;align-items:center;min-height:32px">
+                        <button class="btn-admin primary" onclick="applyQuotas()">Apply</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Connected users list -->
+        <div class="admin-card">
+            <h3>Connected Users</h3>
+            <div id="connTableWrap" style="max-height:180px;overflow-y:auto"><div style="color:var(--text-light);font-size:11px">Loading…</div></div>
+        </div>
+
+        <!-- Connection count limit (connections the whole machine handles at once; adjusted directly on the admin home and takes effect immediately) -->
+        <div class="admin-card" id="connConfigCard">
+            <h3>Connection Limit</h3>
+            <div class="config-group">
+                <label>Maximum connections the whole machine serves at the same time (browser, download and phone app connections each count as one)</label>
+                <div class="config-row">
+                    <input type="number" id="connLimitInput" min="1" max="20000" step="1" value="256" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">Default 256 (1~20000)</span>
+                    <button class="btn-admin primary" onclick="applyConnLimit()">Save</button>
+                </div>
+                <div class="config-hint">Takes effect immediately after saving, no restart needed; new connections beyond the limit are <strong>rejected immediately</strong> instead of queued</div>
+            </div>
+            <div class="config-group" style="border-top:1px solid var(--border);padding-top:10px">
+                <label>Maximum simultaneous active connections per device (same IP), to keep one machine from saturating the service</label>
+                <div class="config-row">
+                    <input type="number" id="connPerIpInput" min="1" max="1000" step="1" value="20" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">Default 20 (1~1000)</span>
+                    <button class="btn-admin primary" onclick="applyConnPerIp()">Save</button>
+                </div>
+                <div class="config-hint">Takes effect immediately after saving; setting it too low may affect multiple devices used at the same time behind one router/proxy</div>
+            </div>
+            <div class="config-group" style="border-top:1px solid var(--border);padding-top:10px">
+                <label>Maximum realtime (WebSocket) connections each device keeps at once: every extra open page / additional signed-in client takes one</label>
+                <div class="config-row">
+                    <input type="number" id="wsConnPerIpInput" min="1" max="256" step="1" value="8" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">Default 8 (1~256)</span>
+                    <button class="btn-admin primary" onclick="applyWsConnPerIp()">Save</button>
+                </div>
+                <div class="config-hint">Takes effect immediately after saving; lowering it prevents a single device from occupying too many realtime channels</div>
+            </div>
+        </div>
+
+        <!-- Server log preview (full logs at /log) -->
+        <div class="admin-card" id="logCard" style="display:flex;flex-direction:column">
+            <h3 style="display:flex;align-items:center;justify-content:space-between">Server Logs<a href="/log" style="font-size:12px;font-weight:400;text-decoration:none">View All Logs →</a></h3>
+            <div id="logArea" class="log-area" style="flex:1 1 auto;min-height:0"><div style="color:var(--text-light);font-size:11px">Loading…</div></div>
+        </div>
+    </div>
+</div>
+
+<script>var myRole = '__MY_ROLE__';</script>
+<script src="/static/app.js"></script>
+<script src="/static/qrcode.min.js"></script>
+<script src="/static/management/admin-config.js"></script>
+<script src="/static/management/admin-core.js"></script>
+<style>
+.admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.admin-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.admin-card h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.info-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 12px; }
+.info-label { color: var(--text-light); }
+.info-value { color: var(--text); font-weight: 500; }
+.config-group { margin-bottom: 10px; }
+.config-group label { display: block; font-size: 11px; color: var(--text-light); margin-bottom: 4px; }
+.config-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.config-row input[type=number] { padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; background: var(--card-bg); color: var(--text); width: 80px; }
+.config-row input:focus { border-color: var(--primary); }
+.config-hint { font-size: 11px; color: var(--text-light); margin-top: 4px; line-height: 1.4; }
+/* Button styles are unified in the global style.css common buttons; none are defined in this page */
+.auth-state { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 4px; }
+.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+.status-dot.green { background: var(--success); }
+.log-area { overflow-y: auto; font-size: 11px; line-height: 1.6; }
+.log-area .lv { display: flex; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border); align-items: baseline; }
+.log-area .lv:last-child { border-bottom: none; }
+.log-area .lv .t { color: var(--text-light); white-space: nowrap; font-family: monospace; flex-shrink: 0; }
+.log-area .lv .m { flex: 1; word-break: break-all; color: var(--text); }
+.log-area .lv .m.ok { color: var(--success); }
+.log-area .lv .m.err { color: var(--danger); }
+.log-area .lv .m.warn { color: var(--warn); }
+</style>
+</body>
+</html>

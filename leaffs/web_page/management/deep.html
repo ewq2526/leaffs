@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>深度配置</title>
+<link rel="stylesheet" href="/static/style.css">
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;var myRole = __MY_ROLE__ || null;</script>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <h1><span class="ht">深度配置</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">连接中...</span></span></h1>
+        <div class="info">
+            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">亮色</span></button>
+        </div>
+    </div>
+
+    <div class="nav-bar">
+        <a href="/browse/">浏览</a>
+        <a href="/gallery">预览</a>
+        <a href="/url-download">下载器</a>
+        <a href="/admin">管理</a>
+        <a href="/me">我的</a>
+        <span style="flex:1"></span>
+        <button class="nav-back" onclick="window.location.href='/admin'">返回管理</button>
+    </div>
+
+    <!-- 配置读取状态（打开页面即从服务端加载真实值，避免显示陈旧默认值） -->
+    <div id="cfgStatus" style="display:none;margin:10px 0;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5"></div>
+
+    <div class="admin-grid">
+        <!-- 密码哈希迭代次数 -->
+        <div class="admin-card">
+            <h3>密码哈希迭代次数</h3>
+            <div class="config-group">
+                <label>计算密码时重复的次数，越高越安全但登录也越慢。<span style="color:var(--danger)">安全下限 <span id="pbkdf2MinHint">100000</span></span>，建议 100000~1000000</label>
+                <div class="config-row">
+                    <input type="number" id="pbkdf2IterationsInput" min="100000" value="600000" step="50000" style="width:110px">
+                    <span style="font-size:11px;color:var(--text-light)">次</span>
+                    <button class="btn-admin primary" onclick="applyPbkdf2Iterations()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 密码盐长度 -->
+        <div class="admin-card">
+            <h3>密码盐长度</h3>
+            <div class="config-group">
+                <label>加密时加入的随机数据长度，越长越安全。重启后新建的密码才生效。<span style="color:var(--danger)">安全下限 <span id="saltMinHint">16</span></span>（建议 16~64 字节）</label>
+                <div class="config-row">
+                    <input type="number" id="saltLengthInput" min="16" value="32" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">字节</span>
+                    <button class="btn-admin primary" onclick="applySaltLength()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 缩略图采样比例 -->
+        <div class="admin-card">
+            <h3>缩略图启动采样比例</h3>
+            <div class="config-group">
+                <label>启动时检查多少比例的缩略图索引。值越小启动越快但检测越不准</label>
+                <div class="config-row">
+                    <input type="number" id="thumbSampleRatioInput" min="0.001" max="1" value="0.1" step="0.05" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">（0.001~1，建议 0.05~0.5）</span>
+                    <button class="btn-admin primary" onclick="applyThumbSampleRatio()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 源文件缺失阈值 -->
+        <div class="admin-card">
+            <h3>缩略图源文件缺失阈值</h3>
+            <div class="config-group">
+                <label>采样中超过此比例的源文件丢失，就启动后台全量清理。越小越早发现</label>
+                <div class="config-row">
+                    <input type="number" id="thumbMissThresholdInput" min="0.001" max="1" value="0.05" step="0.01" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">（0.001~1，建议 0.02~0.1）</span>
+                    <button class="btn-admin primary" onclick="applyThumbMissThreshold()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 清理每批数量 -->
+        <div class="admin-card">
+            <h3>后台清理每批数量</h3>
+            <div class="config-group">
+                <label>缩略图后台清理时每批处理多少条。越大清理越快但瞬间 IO 压力越大</label>
+                <div class="config-row">
+                    <input type="number" id="thumbScanBatchInput" min="1" max="10000" value="100" step="10" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">条/批（1~10000，建议 50~500）</span>
+                    <button class="btn-admin primary" onclick="applyThumbScanBatch()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 清理批间隔 -->
+        <div class="admin-card">
+            <h3>后台清理批间隔</h3>
+            <div class="config-group">
+                <label>每批清理之间的等待时间。越大对正常请求影响越小但清理越慢</label>
+                <div class="config-row">
+                    <input type="number" id="thumbScanIntervalInput" min="0.01" max="60" value="0.5" step="0.1" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">秒（0.01~60，建议 0.1~2）</span>
+                    <button class="btn-admin primary" onclick="applyThumbScanInterval()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 会话有效期 -->
+        <div class="admin-card">
+            <h3>登录会话有效期</h3>
+            <div class="config-group">
+                <label>登录会话保持有效的天数，到期后需重新登录（含游客会话）</label>
+                <div class="config-row">
+                    <input type="number" id="sessionExpiryInput" min="1" max="3650" value="30" style="width:80px">
+                    <span style="font-size:11px;color:var(--text-light)">天（1~3650）</span>
+                    <button class="btn-admin primary" onclick="applySessionExpiry()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 访客上传开关 -->
+        <div class="admin-card">
+            <h3>访客可上传公共目录</h3>
+            <div class="config-group">
+                <label>开启后访客可向 public 新建文件（同名自动改名）；访客始终<b>不能</b>删除/覆盖已有内容、不能建目录</label>
+                <div class="config-row">
+                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
+                        <input type="checkbox" id="guestWriteInput" style="width:auto">
+                        <span>允许访客向公共目录上传新文件</span>
+                    </label>
+                    <span style="flex:1"></span>
+                    <button class="btn-admin primary" onclick="applyGuestWrite()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 访客下载器开关 -->
+        <div class="admin-card">
+            <h3>访客使用 URL 下载器</h3>
+            <div class="config-group">
+                <label>是否允许访客使用“URL 下载器”。关闭时仅 user / 管理员及以上可用</label>
+                <div class="config-row">
+                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
+                        <input type="checkbox" id="dlGuestInput" style="width:auto">
+                        <span>允许访客使用下载器</span>
+                    </label>
+                    <span style="flex:1"></span>
+                    <button class="btn-admin primary" onclick="applyDlGuest()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 请求访问日志开关 -->
+        <div class="admin-card">
+            <h3>请求级访问日志</h3>
+            <div class="config-group">
+                <label>记录每个 HTTP 请求的访问日志（含时间日期）。关闭可减少日志量，但会降低审计能力</label>
+                <div class="config-row">
+                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
+                        <input type="checkbox" id="accessLogInput" style="width:auto">
+                        <span>记录访问日志</span>
+                    </label>
+                    <span style="flex:1"></span>
+                    <button class="btn-admin primary" onclick="applyAccessLog()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 空闲断开时间 -->
+        <div class="admin-card">
+            <h3>空闲断开时间</h3>
+            <div class="config-group">
+                <label>连接在设定时间内没有数据收发时自动断开，释放所占的连接与线程资源。取值过小可能中断慢速传输或短暂挂起的真实连接；取值过大则空闲连接占用资源的时间更久（默认 120 秒）</label>
+                <div class="config-row">
+                    <input type="number" id="deepIdleTimeoutInput" min="1" step="any" value="120" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">秒（不小于 1，可带小数）</span>
+                    <button class="btn-admin primary" onclick="applyIdleTimeout()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 证书提示页监听地址 -->
+        <div class="admin-card">
+            <h3>证书提示页监听地址</h3>
+            <div class="config-group">
+                <label>HTTPS 证书提示页（纯文字提醒页，端口见“高级配置”）的监听地址：<code>0.0.0.0</code> = 全网监听（默认），也可填具体 IP 如 <code>127.0.0.1</code>。仅启用 HTTPS 时生效</label>
+                <div class="config-row">
+                    <input type="text" id="trustBindHostInput" value="0.0.0.0" maxlength="64" style="width:140px">
+                    <button class="btn-admin primary" onclick="applyTrustBindHost()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 兼容存档（只读）：自签证书/ACL 机制已随分发策略移除 -->
+        <div class="admin-card">
+            <h3>兼容存档（自签证书/ACL 机制已移除）</h3>
+            <div class="config-group">
+                <label>以下键对应的“自签 CA / 自动信任 / 目录 ACL”功能已随分发安全策略移除，不再产生运行效果，仅保留数值存档以便兼容旧配置文件。如需 HTTPS 请配置正式证书（见高级配置说明）</label>
+                <div class="info-row"><span class="info-label">auto_trust_ca</span><span class="info-value" id="autoTrustCaVal">-</span></div>
+                <div class="info-row"><span class="info-label">ca_trust_decision</span><span class="info-value" id="caTrustDecisionVal">-</span></div>
+                <div class="info-row"><span class="info-label">ca_validity_days</span><span class="info-value" id="caValidityVal">-</span></div>
+                <div class="info-row"><span class="info-label">harden_config_acls</span><span class="info-value" id="hardenAclsVal">-</span></div>
+                <div class="info-row"><span class="info-label">用户名最大长度</span><span class="info-value" id="userMaxLenVal">-</span></div>
+                <div class="info-row"><span class="info-label">密码最大长度</span><span class="info-value" id="pwdMaxLenVal">-</span></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script src="/static/qrcode.min.js"></script>
+<script>
+var startTime = Date.now();
+// 服务端返回的安全下限（加载后更新，缺省 100000/16 与后端一致）
+var _pbkdf2Min = 100000;
+var _saltMin = 16;
+var _loading = false;
+
+function setCfgStatus(text, type) {
+    var el = document.getElementById('cfgStatus');
+    if (!el) return;
+    el.style.display = text ? 'block' : 'none';
+    el.textContent = text || '';
+    el.style.background = type === 'err' ? 'rgba(220,60,60,.12)' : (type === 'ok' ? 'rgba(40,167,69,.12)' : 'rgba(0,0,0,.04)');
+    el.style.color = type === 'err' ? 'var(--danger)' : (type === 'ok' ? 'var(--success)' : 'var(--text)');
+}
+function setCheck(id, val) { var el = document.getElementById(id); if (el) el.checked = !!val; }
+function setNum(id, val) { var el = document.getElementById(id); if (el && document.activeElement !== el) el.value = (val === undefined || val === null || isNaN(val)) ? '' : val; }
+// 字节值 → MB 显示（1 位小数），用于 deep 页上以 MB 为单位输入的键
+function setNumMb(id, bytesVal) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (bytesVal === undefined || bytesVal === null || isNaN(bytesVal)) { el.value = ''; return; }
+    el.value = Math.round((bytesVal / 1048576) * 10) / 10;
+}
+function setTxt(id, val) { var el = document.getElementById(id); if (el) el.textContent = (val === undefined || val === null) ? '-' : String(val); }
+
+// 从服务端读取真实配置并回填所有控件（打开页面即执行）
+function loadDeepConfig() {
+    if (_loading) return Promise.resolve();
+    _loading = true;
+    setCfgStatus('正在加载当前深度配置…', '');
+    return fetch('/api/config/deep')
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            _loading = false;
+            if (!d || d.error) {
+                setCfgStatus('无法读取深度配置：' + ((d && d.error) || '未知错误') + '。可点击各行的“应用”仍会尝试保存，或刷新页面重试。', 'err');
+                return;
+            }
+            // 安全下限提示（B-11：服务端返回 *_min）
+            if (typeof d.pbkdf2_iterations_min === 'number' && d.pbkdf2_iterations_min > 0) _pbkdf2Min = d.pbkdf2_iterations_min;
+            if (typeof d.salt_length_min === 'number' && d.salt_length_min > 0) _saltMin = d.salt_length_min;
+            var pi = document.getElementById('pbkdf2IterationsInput');
+            if (pi) { pi.min = _pbkdf2Min; pi.value = d.pbkdf2_iterations; }
+            var pmin = document.getElementById('pbkdf2MinHint');
+            if (pmin) pmin.textContent = _pbkdf2Min;
+            var si = document.getElementById('saltLengthInput');
+            if (si) { si.min = _saltMin; si.value = d.salt_length; }
+            var smin = document.getElementById('saltMinHint');
+            if (smin) smin.textContent = _saltMin;
+            setNum('thumbSampleRatioInput', d.thumb_sample_ratio);
+            setNum('thumbMissThresholdInput', d.thumb_miss_threshold);
+            setNum('thumbScanBatchInput', d.thumb_scan_batch);
+            setNum('thumbScanIntervalInput', d.thumb_scan_interval);
+            setNum('sessionExpiryInput', d.session_expiry_days);
+            setCheck('guestWriteInput', d.guest_public_write);
+            setCheck('dlGuestInput', d.downloader_guest_allowed);
+            setCheck('accessLogInput', d.access_log);
+            // 整机/单 IP 连接上限已移至管理首页；此处仅回填空闲断开时间（旧服务端未返回时按默认值）
+            setNum('deepIdleTimeoutInput', (typeof d.io_idle_timeout_secs === 'number') ? d.io_idle_timeout_secs : 120);
+            var th = document.getElementById('trustBindHostInput');
+            if (th) th.value = d.trust_bind_host || '0.0.0.0';
+            // 只读存档值
+            setTxt('autoTrustCaVal', d.auto_trust_ca);
+            setTxt('caTrustDecisionVal', d.ca_trust_decision);
+            setTxt('caValidityVal', d.ca_validity_days);
+            setTxt('hardenAclsVal', d.harden_config_acls);
+            setTxt('userMaxLenVal', d.username_max_length);
+            setTxt('pwdMaxLenVal', d.password_max_length);
+            // 结构完整性核对：若服务端未返回某些键（字段名/版本不一致），
+            // 明确提示缺失项而不是默默留空，避免“页面没数据”的错觉
+            var _expected = ['pbkdf2_iterations', 'pbkdf2_iterations_min', 'salt_length', 'salt_length_min',
+                'thumb_sample_ratio', 'thumb_miss_threshold', 'thumb_scan_batch', 'thumb_scan_interval',
+                'session_expiry_days', 'guest_public_write', 'downloader_guest_allowed', 'access_log',
+                'max_conn_per_ip', 'trust_bind_host', 'auto_trust_ca', 'ca_trust_decision',
+                'ca_validity_days', 'harden_config_acls', 'username_max_length', 'password_max_length'];
+            var _missing = _expected.filter(function (k) { return !(k in d); });
+            if (_missing.length) {
+                setCfgStatus('已加载配置，但服务端未返回以下字段（可能版本不一致）：' + _missing.join(', ') + '。对应项保持上次/默认值。', 'err');
+            } else {
+                setCfgStatus('', '');
+            }
+        })
+        .catch(function (e) {
+            _loading = false;
+            setCfgStatus('加载当前配置失败（' + (e && e.message ? e.message : '网络错误') + '）。当前显示的是默认/上次值，仍可尝试保存。', 'err');
+        });
+}
+
+// 统一保存：POST /api/config/deep；成功 toast 并回读最新值；失败显示服务端文案
+function deepPost(payload, okText) {
+    return fetch('/api/config/deep', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d && d.success) {
+            batchToast(okText || '已保存', 'success');
+            loadDeepConfig();
+        } else {
+            batchToast((d && d.error) || '保存失败', 'error');
+        }
+    }).catch(function () {
+        batchToast('请求失败，请检查网络', 'error');
+    });
+}
+
+function applyPbkdf2Iterations() {
+    var el = document.getElementById('pbkdf2IterationsInput');
+    var val = parseInt(el.value, 10);
+    if (isNaN(val)) { batchToast('请输入整数迭代次数', 'error'); return; }
+    if (val < _pbkdf2Min) { batchToast('迭代次数不得低于 ' + _pbkdf2Min, 'error'); return; }
+    deepPost({ pbkdf2_iterations: val }, '哈希迭代次数已更新，新密码生效');
+}
+
+function applySaltLength() {
+    var el = document.getElementById('saltLengthInput');
+    var val = parseInt(el.value, 10);
+    if (isNaN(val)) { batchToast('请输入整数盐长度（字节）', 'error'); return; }
+    if (val < _saltMin) { batchToast('盐长度不得低于 ' + _saltMin + ' 字节', 'error'); return; }
+    deepPost({ salt_length: val }, '盐长度已更新，重启后新密码生效');
+}
+
+function applyThumbSampleRatio() {
+    var val = parseFloat(document.getElementById('thumbSampleRatioInput').value);
+    if (isNaN(val) || val < 0.001 || val > 1) { batchToast('采样比例需在 0.001~1 之间', 'error'); return; }
+    deepPost({ thumb_sample_ratio: val }, '采样比例已更新为 ' + val);
+}
+
+function applyThumbMissThreshold() {
+    var val = parseFloat(document.getElementById('thumbMissThresholdInput').value);
+    if (isNaN(val) || val < 0.001 || val > 1) { batchToast('缺失阈值需在 0.001~1 之间', 'error'); return; }
+    deepPost({ thumb_miss_threshold: val }, '缺失阈值已更新为 ' + val);
+}
+
+function applyThumbScanBatch() {
+    var val = parseInt(document.getElementById('thumbScanBatchInput').value, 10);
+    if (isNaN(val) || val < 1 || val > 10000) { batchToast('每批数量需在 1~10000 之间', 'error'); return; }
+    deepPost({ thumb_scan_batch: val }, '每批数量已更新为 ' + val);
+}
+
+function applyThumbScanInterval() {
+    var val = parseFloat(document.getElementById('thumbScanIntervalInput').value);
+    if (isNaN(val) || val < 0.01 || val > 60) { batchToast('批间隔需在 0.01~60 秒之间', 'error'); return; }
+    deepPost({ thumb_scan_interval: val }, '批间隔已更新为 ' + val + ' 秒');
+}
+
+function applySessionExpiry() {
+    var val = parseInt(document.getElementById('sessionExpiryInput').value, 10);
+    if (isNaN(val) || val < 1 || val > 3650) { batchToast('会话有效期需在 1~3650 天之间', 'error'); return; }
+    deepPost({ session_expiry_days: val }, '会话有效期已更新为 ' + val + ' 天');
+}
+
+function applyGuestWrite() {
+    deepPost({ guest_public_write: !!document.getElementById('guestWriteInput').checked }, '访客上传开关已保存');
+}
+
+function applyDlGuest() {
+    deepPost({ downloader_guest_allowed: !!document.getElementById('dlGuestInput').checked }, '访客下载器开关已保存');
+}
+
+function applyAccessLog() {
+    deepPost({ access_log: !!document.getElementById('accessLogInput').checked }, '访问日志开关已保存');
+}
+
+// 空闲断开时间（io_idle_timeout_secs，秒，≥1 可带小数）——走既有 deep 保存流程，400 时展示服务端文案
+function applyIdleTimeout() {
+    var el = document.getElementById('deepIdleTimeoutInput');
+    if (!el) return;
+    var val = parseFloat(el.value);
+    if (isNaN(val) || val < 1) { batchToast('空闲断开时间需不小于 1 秒', 'error'); return; }
+    deepPost({ io_idle_timeout_secs: val }, '空闲断开时间已保存为 ' + val + ' 秒');
+}
+
+function applyTrustBindHost() {
+    var val = (document.getElementById('trustBindHostInput').value || '').trim();
+    if (!val) { batchToast('监听地址不能为空（如需全网监听请填 0.0.0.0）', 'error'); return; }
+    deepPost({ trust_bind_host: val }, '证书提示页监听地址已保存，重启后生效');
+}
+
+// 通用保存：整数/浮点键（deep /api/config/deep 直接接受服务端键名）
+function applyDeepKey(key, val, min, max, label) {
+    if (isNaN(val) || (min !== undefined && min !== null && val < min) || (max !== undefined && max !== null && val > max)) {
+        batchToast((label || key) + ' 取值需在 ' + (min === undefined || min === null ? '' : min) + '~' + (max === undefined || max === null ? '' : max) + ' 之间', 'error');
+        return;
+    }
+    var payload = {}; payload[key] = val;
+    deepPost(payload, (label || key) + ' 已保存');
+}
+
+// 通用保存：以 MB 为单位的键（提交前转字节）
+function applyMbKey(key, el, label) {
+    var mb = parseFloat(el.value);
+    if (isNaN(mb) || mb < 0) { batchToast((label || key) + ' 需为不小于 0 的数字（MB）', 'error'); return; }
+    if (key === 'upload_chunk' && mb < 0.004) { batchToast('上传读取块不得小于 0.004 MB', 'error'); return; }
+    var payload = {}; payload[key] = Math.round(mb * 1048576);
+    deepPost(payload, (label || key) + ' 已保存');
+}
+
+loadDeepConfig();
+connectWS();
+</script>
+<style>
+.admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.admin-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.admin-card h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.config-group { margin-bottom: 10px; }
+.config-group label { display: block; font-size: 11px; color: var(--text-light); margin-bottom: 4px; line-height: 1.6; }
+.config-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.config-row .row-label { font-size: 12px; color: var(--text); min-width: 150px; flex-shrink: 0; }
+.config-row .row-unit { font-size: 11px; color: var(--text-light); }
+.config-row input[type=number], .config-row input[type=text] { padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; background: var(--card-bg); color: var(--text); }
+.config-row input:focus { border-color: var(--primary); }
+.info-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 12px; }
+.info-label { color: var(--text-light); }
+.info-value { color: var(--text); font-weight: 500; word-break: break-all; }
+code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+</style>
+</body>
+</html>

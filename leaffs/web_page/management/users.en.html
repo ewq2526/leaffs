@@ -1,0 +1,220 @@
+<!-- English page. AI-translated. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>User Management</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.user-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.user-actions { display: grid; grid-template-columns: 1fr; gap: 12px; max-width: 500px; }
+.action-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.action-form input { flex: 1; min-width: 0; padding: 7px 10px; border: 2px solid var(--border); border-radius: 6px; font-size: 13px; outline: none; background: var(--card-bg); color: var(--text); max-width: 150px; }
+.action-form input:focus { border-color: var(--primary); }
+.user-list-card { min-height: 300px; margin-top: 14px; }
+.user-list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px solid var(--border); font-size: 13px; color: var(--text); }
+.user-search { margin-bottom: 10px; }
+.user-search input { width: 100%; padding: 9px 14px; border: 2px solid var(--border); border-radius: 8px; font-size: 13px; outline: none; background: var(--card-bg); color: var(--text); }
+.user-search input:focus { border-color: var(--primary); }
+.user-card { border: 2px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--card-bg); }
+.user-card:hover { border-color: var(--primary); }
+.user-card.expanded { border-color: var(--primary); }
+.user-summary { display: flex; align-items: center; padding: 14px 16px; gap: 12px; cursor: pointer; user-select: none; }
+.user-avatar { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; background: var(--primary); color: #fff; }
+.user-avatar.super { background: var(--danger); }
+.user-avatar.admin { background: var(--primary); }
+.user-avatar.user { background: var(--muted-deep); }
+.user-summary-info { flex: 1; min-width: 0; }
+.user-summary-info .user-name { font-size: 15px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 6px; }
+.user-summary-info .user-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.user-tag { font-size: 11px; padding: 3px 10px; border-radius: 6px; background: var(--bg); border: 1.5px solid var(--border); color: var(--text); font-weight: 600; }
+.user-summary-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
+/* Button styles are unified in the global style.css common buttons (.btn-sm.primary/danger/.btn-edit.* semantics also live globally) */
+.expand-arrow { font-size: 12px; color: var(--text); margin-left: 2px; transition: transform 0.2s; }
+.user-card.expanded .expand-arrow { transform: rotate(180deg); }
+.user-edit-panel { display: none; padding: 0 14px 14px; border-top: 2px solid var(--border); }
+.user-card.expanded .user-edit-panel { display: block; }
+.edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; padding: 12px; margin: 8px 0 2px; border: 2px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg); }
+@media (max-width: 500px) { .edit-grid { grid-template-columns: 1fr; } }
+.edit-row { display: flex; gap: 10px; align-items: center; padding: 6px 0; }
+.edit-label { font-size: 13px; font-weight: 700; color: var(--text); min-width: 56px; flex-shrink: 0; white-space: nowrap; }
+.edit-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex: 1; }
+.edit-controls input[type=number] { width: 72px; padding: 5px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; text-align: center; background: var(--card-bg); color: var(--text); }
+.edit-controls input[type=text] { width: 80px; padding: 5px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; background: var(--card-bg); color: var(--text); }
+.edit-controls input:focus { border-color: var(--primary); }
+.current-val { font-size: 12px; color: var(--text); background: var(--bg); border: 1.5px solid var(--border); padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: 600; }
+.pwd-hint { font-size: 11px; color: var(--text); font-weight: 600; margin-right: 2px; }
+.role-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+.role-badge.super { background: var(--danger); color: #fff; }
+.role-badge.admin { background: var(--primary); color: #fff; }
+.role-badge.user { background: var(--muted-deep); color: #fff; }
+.admin-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.admin-card h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+</style>
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <h1><span class="ht">User Management</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting…</span></span></h1>
+        <div class="info">
+            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">Light</span></button>
+        </div>
+    </div>
+
+    <div class="nav-bar">
+        <a href="/browse/">Browse</a>
+        <a href="/gallery">Gallery</a>
+        <a href="/url-download">Downloader</a>
+        <a href="/admin">Admin</a>
+        <a href="/me">My Account</a>
+        <span style="flex:1"></span>
+        <button class="nav-back" onclick="window.location.href='/admin'">Back to Admin</button>
+    </div>
+
+    <div class="user-actions" style="margin-top:14px">
+        <div class="admin-card">
+            <h3>Add User</h3>
+            <div class="action-form">
+                <input type="text" id="newUserName" placeholder="Username" maxlength="20">
+                <input type="text" id="newUserPass" placeholder="Password (at least 8 characters)" maxlength="50">
+                <button class="btn-admin primary" onclick="addUser()">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="admin-card user-list-card">
+        <h3>User List</h3>
+        <div class="user-search">
+            <input type="text" id="userSearchInput" placeholder="Search users..." oninput="filterUsers()">
+        </div>
+        <div class="user-list-header">
+            <span>Total <span class="count" id="userTotalCount">0</span> users</span>
+            <button class="btn-admin outline" onclick="refreshUsers()" style="padding:3px 10px;font-size:11px">Refresh</button>
+        </div>
+        <div id="userList" class="user-grid"><div style="color:var(--text);font-size:13px;padding:40px 0;text-align:center;grid-column:1/-1">Loading…</div></div>
+    </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script src="/static/qrcode.min.js"></script>
+<script>
+var myRole = '__MY_ROLE__';
+var myUsername = '__MY_USERNAME__';
+var startTime = Date.now();
+
+function toggleDark() { var html=document.documentElement; var isDark=html.getAttribute('data-theme')==='dark'; var btn=document.getElementById('darkToggle'); if(isDark){html.removeAttribute('data-theme');localStorage.setItem('theme','light');if(btn){btn.querySelector('#darkIcon').textContent='☀';btn.querySelector('#darkLabel').textContent='Light';}}else{html.setAttribute('data-theme','dark');localStorage.setItem('theme','dark');if(btn){btn.querySelector('#darkIcon').textContent='☾';btn.querySelector('#darkLabel').textContent='Dark';}}}
+(function(){if(localStorage.getItem('theme')==='dark'){document.documentElement.setAttribute('data-theme','dark');setTimeout(function(){var btn=document.getElementById('darkToggle');if(btn){btn.querySelector('#darkIcon').textContent='☾';btn.querySelector('#darkLabel').textContent='Dark';}},0);}})();
+
+function batchToast(msg,type){var c=document.querySelector('.toast-container');if(!c){c=document.createElement('div');c.className='toast-container';document.body.appendChild(c);}var e=document.createElement('div');e.className='toast '+(type||'info');e.textContent=msg;c.appendChild(e);setTimeout(function(){e.remove();},2800);}
+
+var _allUsers=[],_expandedSet={};
+function toggleUser(idx){var card=document.querySelector('[data-card-idx="'+idx+'"]');if(!card)return;var expanded=card.classList.toggle('expanded');var txt=card.querySelector('.expand-text');if(txt)txt.textContent=expanded?'Collapse':'Expand';if(expanded)_expandedSet[idx]=true;else delete _expandedSet[idx];}
+function filterUsers(){var q=document.getElementById('userSearchInput').value.toLowerCase().trim();var container=document.getElementById('userList');var visible=0;_allUsers.forEach(function(u){var match=!q||u.name.indexOf(q)!==-1;var el=container.querySelector('[data-card-idx="'+u.idx+'"]');if(el)el.style.display=match?'':'none';if(match)visible++;});document.getElementById('userTotalCount').textContent=_allUsers.length+(q?', showing '+visible:'');}
+
+function refreshUsers(users){if(arguments.length===0){return fetch('/api/users').then(function(r){return r.json();}).then(function(d){refreshUsers(d.users||{});});}var prevExpanded={};for(var k in _expandedSet)prevExpanded[k]=true;_allUsers=[];var html='',idx=0;for(var name in users){var role=users[name].role;var roleTxt={'super_admin':'Super Admin','admin':'Admin','user':'User'}[role]||role;var badgeClass={'super_admin':'super','admin':'admin','user':'user'}[role]||'user';var speed=users[name].speed_limit||0;var speedKB=speed>0?Math.round(speed/1024):0;var speedTxt=speedKB>0?speedKB+' KB/s':'No limit';var userQuota=users[name].quota||0;var userQuotaMB=userQuota>0?Math.round(userQuota/1048576):0;var quotaTxt=userQuotaMB>0?userQuotaMB+' MB':'Default';var sn=name.replace(/'/g,"\\'");var canManage=myRole==='super_admin'||(myRole==='admin'&&(role==='user'||name===myUsername));var canDelete=canManage&&role!=='super_admin';var canQR=myRole==='super_admin'||(myRole==='admin'&&role==='user');var actionBtns='';if(canQR)actionBtns+='<button class="btn-sm primary" onclick="event.stopPropagation();genQR(\''+sn+'\')">Sign in with QR</button>';if(canDelete)actionBtns+='<button class="btn-sm danger" onclick="event.stopPropagation();deleteUser(\''+sn+'\')">Delete</button>';actionBtns+='<span class="expand-arrow">&#9660;</span> <span class="expand-text" style="font-size:12px;color:var(--text)">'+(prevExpanded[idx]?'Collapse':'Expand')+'</span>';var editPanel='<div class="edit-grid">';if(canManage){editPanel+='<div class="edit-row"><span class="edit-label">Password</span><div class="edit-controls"><input type="text" id="pwd_'+name+'" placeholder="New password" maxlength="50" style="width:80px"><input type="text" id="pwd2_'+name+'" placeholder="Confirm" maxlength="50" style="width:80px"><button class="btn-edit primary" onclick="setUserPassword(\''+sn+'\')">Change</button></div></div>';editPanel+='<div class="edit-row"><span class="edit-label">Speed Limit</span><div class="edit-controls"><span class="current-val">Current: '+speedTxt+'</span><input type="number" id="speed_'+name+'" value="'+speedKB+'" min="0" placeholder="KB/s"><button class="btn-edit success" onclick="setUserSpeed(\''+sn+'\')">Apply</button></div></div>';editPanel+='<div class="edit-row"><span class="edit-label">Quota</span><div class="edit-controls"><span class="current-val">Current: '+quotaTxt+'</span><input type="number" id="quota_'+name+'" value="'+userQuotaMB+'" min="0" placeholder="MB"><button class="btn-edit warning" onclick="setUserQuota(\''+sn+'\')">Apply</button></div></div>';if(canManage&&role!=='super_admin'){var roleLabel=role==='user'?'Promote to Admin':'Demote to User';editPanel+='<div class="edit-row"><span class="edit-label">Role</span><div class="edit-controls"><span class="current-val">'+roleTxt+'</span><button class="btn-edit outline" onclick="changeRole(\''+sn+'\',\''+role+'\')">'+roleLabel+'</button></div></div>';}if(myRole==='super_admin'||(myRole==='admin'&&role!=='super_admin')){editPanel+='<div class="edit-row"><span class="edit-label">Rename</span><div class="edit-controls"><span class="current-val">Current: '+esc(name)+'</span><input type="text" id="rename_'+name+'" placeholder="New username" maxlength="20" style="width:90px"><button class="btn-edit primary" onclick="renameUser(\''+sn+'\')">Rename</button></div></div>';}}else{editPanel+='<div style="text-align:center;padding:8px 0;color:var(--text-light);font-size:12px">No permission to manage</div>';}editPanel+='</div>';html+='<div class="user-card'+(prevExpanded[idx]?' expanded':'')+'" data-card-idx="'+idx+'"><div class="user-summary" onclick="toggleUser('+idx+')"><div class="user-avatar '+badgeClass+'">'+(role==='super_admin'?'&#128274;':role==='admin'?'&#128737;':'&#128100;')+'</div><div class="user-summary-info"><div class="user-name">'+esc(name)+' <span class="role-badge '+badgeClass+'">'+roleTxt+'</span></div><div class="user-tags"><span class="user-tag">Speed limit '+speedTxt+'</span><span class="user-tag">Quota '+quotaTxt+'</span></div></div><div class="user-summary-actions">'+actionBtns+'</div></div><div class="user-edit-panel">'+editPanel+'</div></div>';_allUsers.push({name:name.toLowerCase(),idx:idx,role:role});idx++;}document.getElementById('userList').innerHTML=html||'<div class="empty" style="grid-column:1/-1;padding:40px 20px;text-align:center"><p style="color:var(--text)">No users yet</p></div>';document.getElementById('userTotalCount').textContent=Object.keys(users).length;filterUsers();}
+
+function addUser(){var name=document.getElementById('newUserName').value.trim();var pass=document.getElementById('newUserPass').value.trim();if(!name||!pass){batchToast('Please enter a username and password','info');return;}if(pass.length<8){batchToast('Password must be at least 8 characters','error');return;}fetch('/api/users/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,password:pass})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('User added: '+name,'success');document.getElementById('newUserName').value='';document.getElementById('newUserPass').value='';refreshUsers();}else batchToast(d.error||'Add failed','error');});}
+function setUserPassword(name){var pass=document.getElementById('pwd_'+name).value.trim();var pass2=document.getElementById('pwd2_'+name).value.trim();if(!pass){batchToast('Please enter a new password','info');return;}if(pass.length<8){batchToast('Password must be at least 8 characters','error');return;}if(pass!==pass2){batchToast('The two passwords do not match','error');return;}fetch('/api/users/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,password:pass})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Password changed for '+name,'success');document.getElementById('pwd_'+name).value='';document.getElementById('pwd2_'+name).value='';refreshUsers();}else batchToast(d.error||'Change failed','error');});}
+function changeRole(name,currentRole){var newRole=currentRole==='user'?'admin':'user';if(!confirm('Change the role of "'+name+'" to '+(newRole==='admin'?'Admin':'User')+'?'))return;fetch('/api/users/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,role:newRole})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Role changed for '+name,'success');refreshUsers();}else batchToast(d.error||'Operation failed','error');});}
+function deleteUser(name){if(!confirm('Delete user "'+name+'"?'))return;fetch('/api/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('User deleted: '+name,'success');refreshUsers();}else batchToast(d.error||'Delete failed','error');});}
+function setUserQuota(name){var quotaMB=parseInt(document.getElementById('quota_'+name).value)||0;fetch('/api/users/quota',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,quota_mb:quotaMB})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Quota of user '+name+': '+quotaMB+' MB','success');refreshUsers();}else batchToast(d.error||'Save failed','error');}).catch(function(){batchToast('Save failed','error');});}
+function setUserSpeed(name){var speedKB=parseInt(document.getElementById('speed_'+name).value)||0;fetch('/api/users/speed',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,speed_kb:speedKB})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Speed limit of user '+name+': '+speedKB+' KB/s','success');refreshUsers();}else batchToast(d.error||'Save failed','error');}).catch(function(){batchToast('Save failed','error');});}
+function renameUser(oldName){var newName=document.getElementById('rename_'+oldName).value.trim();if(!newName){batchToast('Please enter a new username','info');return;}if(!confirm('Rename "'+oldName+'" to "'+newName+'"?'))return;fetch('/api/users/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_name:oldName,new_name:newName})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Renamed '+oldName+' → '+newName,'success');document.getElementById('rename_'+oldName).value='';refreshUsers();}else batchToast(d.error||'Rename failed','error');});}
+function genQR(name) {
+    fetch('/api/qrcode?name=' + encodeURIComponent(name) + '&embed=1')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (!d.qr_url) { batchToast('Failed to generate QR code', 'error'); return; }
+            var sid = d.sid, qrUrl = d.qr_url;
+            var overlay = document.createElement('div');
+            overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999;background:var(--modal-overlay);display:flex;align-items:center;justify-content:center';
+            var card = document.createElement('div');
+            card.style.cssText = 'background:var(--card-bg);border-radius:12px;padding:32px;max-width:360px;width:90%;box-shadow:var(--shadow-hover);text-align:center;position:relative';
+            var closeBtn = document.createElement('button');
+            closeBtn.innerHTML = '\u2715';
+            closeBtn.style.cssText = 'position:absolute;top:8px;right:10px;width:28px;height:28px;border-radius:50%;border:none;background:var(--chip-bg);color:var(--muted);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center';
+            var title = document.createElement('div');
+            title.style.cssText = 'font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px';
+            title.textContent = 'Scan to sign in';
+            var sub = document.createElement('div');
+            sub.style.cssText = 'font-size:12px;color:var(--muted);margin-bottom:16px';
+            sub.textContent = 'Signs in automatically after scanning (' + name + ')';
+            var qrWrap = document.createElement('div');
+            qrWrap.style.cssText = 'text-align:center;padding:12px 0';
+            // QR code frame (same style as the guest card: border + rounded corners + background; white background with black modules in dark mode)
+            var qrFrame = document.createElement('div');
+            qrFrame.style.cssText = 'display:inline-block;border:2px solid var(--border);border-radius:10px;padding:8px;background:var(--card-bg);line-height:0';
+            qrWrap.appendChild(qrFrame);
+            card.appendChild(closeBtn);
+            card.appendChild(title);
+            card.appendChild(sub);
+            card.appendChild(qrWrap);
+            overlay.appendChild(card);
+            document.body.appendChild(overlay);
+            if (typeof QRCode !== 'undefined') {
+                var _qu = { text: qrUrl, width: 220, height: 220 };
+                if (typeof qrThemeColors === 'function') { var _quc = qrThemeColors(); _qu.colorDark = _quc.colorDark; _qu.colorLight = _quc.colorLight; }
+                new QRCode(qrFrame, _qu);
+                var img = qrFrame.querySelector('img');
+                if (img) { img.style.display = 'block'; img.style.margin = '0 auto'; }
+            }
+            // Wait for the server WS push of qr_consumed (instant, no polling)
+            var done = false;
+            function showExpired() {
+                if (done) return; done = true;
+                delete _qrWindows[sid];
+                qrWrap.style.display = 'none';
+                var tip = document.createElement('div');
+                tip.style.cssText = 'font-size:12px;color:var(--danger);margin-top:10px;text-align:center';
+                tip.textContent = 'The QR code has expired. Close and generate a new one.';
+                overlay.appendChild(tip);
+            }
+            function finishConsumed() {
+                if (done) return; done = true;
+                clearTimeout(qrExpireTimer);
+                delete _qrWindows[sid];
+                qrWrap.style.display = 'none';
+                setTimeout(function() {
+                    if (document.body.contains(overlay)) document.body.removeChild(overlay);
+                }, 1200);
+            }
+            _qrWindows[sid] = finishConsumed;
+            if (ws && ws.readyState === WebSocket.OPEN) sendWS({ type: 'qr-sub', sid: sid });
+            var qrExpireTimer = setTimeout(showExpired, 120000);
+            function qrClose() {
+                if (!done) {
+                    done = true;
+                    clearTimeout(qrExpireTimer);
+                    delete _qrWindows[sid];
+                    sendWS({ type: 'qr-unsub', sid: sid });
+                }
+                if (document.body.contains(overlay)) document.body.removeChild(overlay);
+            }
+            closeBtn.onclick = qrClose;
+            overlay.onclick = function(e) { if (e.target === overlay) qrClose(); };
+        });
+}
+
+var _qrWindows = {};
+var _lastUsersJson = '';
+function _usersEditing() { var a = document.activeElement; return !!(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')); }
+function _applyUsers(users) {
+    if (arguments.length === 0) { refreshUsers(); return; }  // First load: go through fetch
+    var key = JSON.stringify(users || {});
+    if (key === _lastUsersJson) return;   // No data change: do not rebuild the DOM
+    if (_usersEditing()) return;          // Editing a password/speed/quota input: do not interrupt
+    _lastUsersJson = key;
+    refreshUsers(users);
+}
+function onWSConnected(){ if (window.wsAdminAuthAndSubscribe) { window.wsAdminAuthAndSubscribe(ws); } else { sendWS({ type: 'admin-sub' }); } for (var sid in _qrWindows) sendWS({ type: 'qr-sub', sid: sid }); }
+function handleWSMessage(msg){ if (!msg) return; if (msg.type === 'qr_consumed' && msg.sid && _qrWindows[msg.sid]){ var cb = _qrWindows[msg.sid]; delete _qrWindows[msg.sid]; cb(); return; } if (msg.type === 'admin_data' && msg.users) _applyUsers(msg.users); }
+connectWS();
+setTimeout(_applyUsers, 500);
+</script>
+<style>
+/* Button styles are unified in the global style.css common buttons */
+</style>
+</body>
+</html>

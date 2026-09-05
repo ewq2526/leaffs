@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>File Transfer</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.toolbar .count { font-size: 12px; color: var(--text-light); }
+.toolbar .refresh-btn { --btn-c: #fff; background-color: var(--muted-deep) !important; background-image: none !important; box-shadow: none !important; }
+.file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.file-grid.list-view { grid-template-columns: 1fr; }
+.file-card { position: relative; background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; text-align: center; cursor: pointer; transition: border-color 0.15s; }
+.file-card:hover { border-color: var(--primary); }
+.file-card .icon { font-size: 32px; display: block; margin: 8px 0; }
+.file-card .name { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
+.file-card .meta { font-size: 11px; color: var(--text-light); }
+.file-card .actions { margin-top: 8px; display: flex; gap: 6px; justify-content: center; }
+.file-card .actions a, .file-card .actions button { font-size: 11px; padding: 4px 10px; }
+.file-card input[type=checkbox] { position: absolute; top: 8px; left: 8px; z-index: 2; }
+.file-card.folder { cursor: pointer; }
+.list-view .file-card { display: flex; align-items: center; gap: 12px; padding: 8px 14px; text-align: left; }
+.list-view .file-card .icon { font-size: 20px; margin: 0; }
+.list-view .file-card .name { flex: 1; margin: 0; }
+.list-view .file-card .meta { min-width: 80px; text-align: right; }
+.list-view .file-card .actions { margin: 0; }
+.breadcrumb { font-size: 12px; margin-bottom: 12px; color: var(--text-light); }
+.breadcrumb a { color: var(--primary); text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+.breadcrumb span { color: var(--text); }
+.upload-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 30px 20px; text-align: center; background-color: var(--card-bg); margin-bottom: 14px; cursor: pointer; }
+.upload-zone.dragover { border-color: var(--primary); background: var(--hover-bg); }
+.upload-zone .label { font-size: 13px; color: var(--text-light); }
+.upload-zone .sub { font-size: 11px; color: var(--text-light); margin-top: 6px; }
+.upload-zone .btns { margin-top: 12px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.upload-zone input[type=file] { display: none; }
+.preview-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.preview-bar .chip { padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border); font-size: 12px; cursor: pointer; color: var(--text); background: var(--card-bg); text-decoration: none; }
+.preview-bar .chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.preview-bar .chip .cnt { margin-left: 4px; font-size: 11px; opacity: 0.7; }
+.progress-wrap { height: 4px; background: var(--border); border-radius: 2px; margin-bottom: 14px; overflow: hidden; display: none; }
+.progress-wrap.active { display: block; }
+.progress-wrap .bar { height: 100%; background: var(--primary); width: 0; transition: width 0.3s; }
+.search-hl { background: var(--ring-soft); padding: 0 2px; border-radius: 2px; }
+.item-path { display: block; font-size: 10px; color: var(--text-light); margin-top: 2px; }
+.view-toggle { display: flex; gap: 2px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.view-toggle button { padding: 4px 10px; font-size: 11px; border: none; background: var(--card-bg); color: var(--text-light); cursor: pointer; }
+.view-toggle button.active { background: var(--primary); color: #fff; }
+</style>
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <h1><span class="ht">File Transfer</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connected</span></span></h1>
+        <div class="info">
+            <span id="fileCount" style="font-size:12px;color:var(--text-light)"></span>
+            <span id="totalSize" style="font-size:12px;color:var(--text-light)"></span>
+            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">Light</span></button>
+        </div>
+    </div>
+    <div class="nav-bar">
+        <a href="/browse/" class="active">Browse</a>
+        <a href="/gallery" id="galleryNavLink">Gallery</a>
+        <a href="/url-download" id="navDownloader">Downloader</a>
+        <a href="/admin" id="navAdmin">Admin</a>
+        <a href="/me">My Account</a>
+        <span style="flex:1"></span>
+        <button class="nav-back" onclick="goBack()" id="backBtn">Back</button>
+    </div>
+
+    <div class="breadcrumb" id="breadcrumb"><a href="/browse/">Home</a></div>
+    <div class="progress-wrap" id="progressWrap"><div class="bar" id="progressBar"></div></div>
+
+    <div class="upload-zone" id="dropZone">
+        <div class="label" id="uploadLimitLabel">Click to upload</div>
+        <div class="sub">Drag files or folders here</div>
+        <div class="btns">
+            <button class="btn btn-sm btn-primary" onclick="document.getElementById('fileInput').click()">Upload file</button>
+            <button class="btn btn-sm btn-primary" onclick="document.getElementById('folderInput').click()">Upload folder</button>
+            <button class="btn btn-sm btn-outline" onclick="createFolder()">New folder</button>
+        </div>
+        <input type="file" id="fileInput" multiple>
+        <input type="file" id="folderInput" webkitdirectory multiple>
+    </div>
+
+    <div class="preview-bar" id="previewBar" style="display:none"></div>
+
+    <div class="toolbar">
+        <button class="btn btn-sm btn-outline" onclick="selectAll(true)">Select all</button>
+        <button class="btn btn-sm btn-outline" onclick="selectAll(false)">Clear</button>
+        <button class="btn btn-sm btn-success" onclick="downloadSelected()">Download</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteSelected()">Delete</button>
+        <button class="btn btn-sm refresh-btn" onclick="loadFiles()">Refresh</button>
+        <span class="count">Selected <strong id="selectedCount">0</strong></span>
+        <select class="sort-select" id="sortSelect" onchange="sortFiles()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--card-bg);color:var(--text)">
+            <option value="time_desc" selected>Time &#8595;</option>
+            <option value="time_asc">Time &#8593;</option>
+            <option value="name_asc">Name &#8593;</option>
+            <option value="name_desc">Name &#8595;</option>
+            <option value="size_asc">Size &#8593;</option>
+            <option value="size_desc">Size &#8595;</option>
+        </select>
+        <button class="btn btn-sm btn-outline" onclick="openSearch('local')">Search page</button>
+        <button class="btn btn-sm btn-outline" onclick="openSearch('global')">Search all</button>
+        <span style="flex:1"></span>
+        <div class="view-toggle">
+            <button class="active" id="viewGrid" onclick="setViewMode('grid')">Grid</button>
+            <button id="viewList" onclick="setViewMode('list')">List</button>
+        </div>
+    </div>
+
+    <div class="file-grid" id="fileList"></div>
+</div>
+
+<script src="/static/app.js"></script>
+<script src="/static/downloader.js"></script>
+<script src="/static/preview.js"></script>
+<script>
+var myRole = __MY_ROLE__;
+var myUsername = '__MY_USERNAME__';
+(function(){
+    var isGuest = myRole === 'guest' || !myRole;
+    var navDownloader = document.getElementById('navDownloader');
+    var navAdmin = document.getElementById('navAdmin');
+    if (navDownloader) navDownloader.style.display = isGuest ? 'none' : '';
+    if (navAdmin) navAdmin.style.display = (myRole === 'admin' || myRole === 'super_admin') ? '' : 'none';
+})();
+
+var files = [], selected = new Set();
+var currentPath = '', searchQuery = '', sortMode = 'time_desc';
+var uploadQueue = [], uploadDone = 0, uploading = false;
+var viewMode = localStorage.getItem('viewMode') || 'grid';
+
+function onWSConnected() { if (files.length === 0) loadFiles(); }
+
+var _currentTotalFiles = 0;
+var _currentTotalSize = 0;
+var _searchOverlay = null;
+
+function updateStats() {
+    var fc = 0, foc = 0, ts = 0;
+    files.forEach(function(f) { if (f.type === 'folder') foc++; else fc++; ts += f.size; });
+    document.getElementById('fileCount').textContent = 'Here: ' + formatSize(ts) + '  ' + foc + ' folders ' + fc + ' files | Total: ' + _currentTotalFiles + ' files';
+    document.getElementById('totalSize').textContent = '';
+}
+
+function getParent() { if (!currentPath) return ''; var p = currentPath.split('/'); p.pop(); return p.join('/'); }
+function goBack() { window.location.href = '/browse/' + encodeURIComponent(getParent()); }
+
+function sortFiles() { sortMode = document.getElementById('sortSelect').value; render(); }
+function getSortKey(f, mode) {
+    var p = mode.split('_'), field = p[0], dir = p[1];
+    var v = field === 'name' ? f.name.toLowerCase() : field === 'size' ? (f.type === 'folder' ? 0 : f.size) : (f.mtime || 0);
+    return [f.type === 'folder' ? 0 : 1, dir === 'asc' ? v : (typeof v === 'number' ? -v : v.split('').reverse().join(''))];
+}
+
+function setViewMode(mode) {
+    viewMode = mode; localStorage.setItem('viewMode', mode);
+    document.getElementById('viewGrid').className = mode === 'grid' ? 'active' : '';
+    document.getElementById('viewList').className = mode === 'list' ? 'active' : '';
+    render();
+}
+
+function render() {
+    var filtered = files.slice();
+    if (searchQuery) filtered = filtered.filter(function(f) { return f.name.toLowerCase().includes(searchQuery); });
+    filtered.sort(function(a,b) { var ka = getSortKey(a, sortMode), kb = getSortKey(b, sortMode); for(var i=0;i<ka.length;i++){if(ka[i]<kb[i])return -1;if(ka[i]>kb[i])return 1;} return 0; });
+
+    var c = document.getElementById('fileList');
+    if (!filtered.length) { c.innerHTML = '<div class="empty" style="padding:60px 20px;color:var(--text-light);font-size:13px;text-align:center"><p>' + (searchQuery ? 'No matches' : 'No files yet') + '</p></div>'; updateSelected(); return; }
+    c.className = 'file-grid' + (viewMode === 'list' ? ' list-view' : '');
+
+    var h = '';
+    for (var i = 0; i < filtered.length; i++) {
+        var f = filtered[i], checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
+        var sz = formatSize(f.size), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
+        var ep = encodeURIComponent(f.path), en = esc(f.name), sp = safeStr(f.path), ft = fileType(f.name);
+        var acts = isFolder ? '<a href="/browse/' + ep + '" class="btn btn-sm btn-primary">Open</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">Delete</button>'
+            : '<a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">Download</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">Delete</button>';
+        var thumb = '';
+        if (!isFolder && (ft === 'image' || ft === 'video')) {
+            thumb = '<span class="thumb-wrap"><span class="thumb-loading">Loading…</span><img class="preview-thumb" src="/api/thumb?path=' + ep + '" alt="" loading="lazy" onload="thumbLoaded(this)" onerror="retryThumbOnce(this, thumbGiveUpBlank)" onclick="event.stopPropagation();openPreview(\'' + sp + '\', files)"></span>';
+        } else {
+            thumb = '<span class="icon"' + (!isFolder ? ' onclick="event.stopPropagation();openPreview(\'' + sp + '\', files)"' : '') + '>' + icon + '</span>';
+        }
+
+        h += '<div class="file-card' + (isFolder ? ' folder' : '') + '" data-path="' + esc(f.path) + '"' + (!isFolder ? ' onclick="openPreview(\'' + sp + '\', files)"' : '') + '>';
+        if (isFolder) h += '<a href="/browse/' + ep + '" class="folder-link" style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1" aria-label="Open ' + en + '"></a>';
+        h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked)">';
+        h += thumb;
+        h += '<div class="name">' + en + '</div>';
+        if (viewMode === 'list') { h += '<div class="meta">' + sz + ' &middot; ' + formatTime(f.mtime) + '</div>'; }
+        else { h += '<div class="meta">' + sz + '</div>'; }
+        h += '<div class="actions">' + acts + '</div></div>';
+    }
+    c.innerHTML = h;
+    updatePreviewBar();
+    updateSelected();
+}
+
+function updatePreviewBar() {
+    var counts = { all: 0, image: 0, video: 0, audio: 0, text: 0, pdf: 0 };
+    files.forEach(function(f) { if (f.type === 'folder') return; counts.all++; var ft = fileType(f.name); if (counts[ft] !== undefined) counts[ft]++; });
+    var bar = document.getElementById('previewBar');
+    if (!counts.all) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    var types = [['all', 'All'], ['image', 'Images'], ['video', 'Videos'], ['audio', 'Audio'], ['text', 'Text'], ['pdf', 'PDF']];
+    var root = getScopeRoot(currentPath), params = root ? '?dir=' + encodeURIComponent(root) : '';
+    bar.innerHTML = types.map(function(t) {
+        var cnt = counts[t[0]] || 0;
+        if (t[0] === 'all') return '<a href="/gallery' + params + '" class="chip active">' + t[1] + ' <span class="cnt">' + cnt + '</span></a>';
+        return '<a href="/gallery' + params + '&type=' + t[0] + '" class="chip">' + t[1] + ' <span class="cnt">' + cnt + '</span></a>';
+    }).join('');
+}
+
+function toggleSelect(p, c) { if (c) selected.add(p); else selected.delete(p); updateSelected(); }
+function selectAll(c) { files.forEach(function(f) { if (c) selected.add(f.path); else selected.delete(f.path); }); render(); }
+function updateSelected() { document.getElementById('selectedCount').textContent = selected.size; }
+
+var MAX_UPLOAD_SIZE = 10 * 1024 * 1024 * 1024;
+(function(){
+    fetch('/api/config/advanced').then(function(r){return r.json()}).then(function(d){
+        var size = d.upload_max_size, lbl = document.getElementById('uploadLimitLabel');
+        if (size === 0) { MAX_UPLOAD_SIZE = Infinity; lbl.textContent = 'Click to upload'; }
+        else if (size && size > 0) { MAX_UPLOAD_SIZE = size; lbl.textContent = 'Click to upload · up to ' + Math.round(size / 1073741824) + ' GB'; }
+    }).catch(function(){});
+})();
+
+function uploadFiles(fileList) {
+    if (!fileList.length) return;
+    var queue = [];
+    for (var i = 0; i < fileList.length; i++) {
+        var f = fileList[i];
+        if (f.size > MAX_UPLOAD_SIZE) { batchToast(f.name + ' exceeds the limit, skipped', 'error'); continue; }
+        queue.push({ file: f, path: currentPath });
+    }
+    if (!queue.length) return;
+    uploadQueue = uploadQueue.concat(queue);
+    if (!uploading) processUploadQueue();
+}
+
+function processUploadQueue() {
+    if (!uploadQueue.length) { uploading = false; setTimeout(function() { document.getElementById('progressWrap').classList.remove('active'); }, 1500); loadFiles(); return; }
+    uploading = true;
+    var item = uploadQueue.shift(), file = item.file;
+    var fd = new FormData(); fd.append('file', file, file.webkitRelativePath || file.name);
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload?path=' + encodeURIComponent(item.path || ''), true);
+    xhr.upload.onprogress = function(e) { if (e.lengthComputable) { var pct = e.loaded / e.total * 100; updateProgress(pct); } };
+    xhr.onload = function() { uploadDone++; if (xhr.status === 200) batchToast(file.name + ' uploaded', 'success'); else batchToast(file.name + ' upload failed', 'error'); processUploadQueue(); };
+    xhr.onerror = function() { uploadDone++; batchToast(file.name + ' upload failed', 'error'); processUploadQueue(); };
+    xhr.send(fd);
+}
+
+function updateProgress(pct) { document.getElementById('progressWrap').classList.add('active'); document.getElementById('progressBar').style.width = Math.min(pct, 100) + '%'; }
+
+document.getElementById('fileInput').onchange = function() { if (this.files.length) { uploadFiles(this.files); this.value = ''; } };
+document.getElementById('folderInput').onchange = function() { if (this.files.length) { uploadFiles(this.files); this.value = ''; } };
+var drop = document.getElementById('dropZone');
+drop.ondragover = function(e) { e.preventDefault(); drop.classList.add('dragover'); };
+drop.ondragleave = function() { drop.classList.remove('dragover'); };
+drop.ondrop = function(e) { e.preventDefault(); drop.classList.remove('dragover'); if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files); };
+
+function downloadSelected() {
+    var sel = Array.from(selected), files_s = sel.filter(function(p) { var f = files.find(function(f) { return f.path === p; }); return f && f.type !== 'folder'; });
+    var folders = sel.filter(function(p) { var f = files.find(function(f) { return f.path === p; }); return f && f.type === 'folder'; });
+    if (!files_s.length && !folders.length) { batchToast('Select something first', 'info'); return; }
+    if (files_s.length === 1 && !folders.length) { window.open('/download/' + encodeURIComponent(files_s[0]), '_blank'); return; }
+    window.open('/api/zip?files=' + encodeURIComponent(JSON.stringify(sel)) + '&base=' + encodeURIComponent(currentPath), '_blank');
+}
+
+function deleteFile(path) { if (!confirm('Delete "' + path + '"?')) return; apiDelete([path], function(d) { batchToast(d.success ? 'Deleted' : 'Delete failed', d.success ? 'success' : 'error'); if (d.success) loadFiles(); }); }
+function deleteSelected() { if (!selected.size) { batchToast('Select something first', 'info'); return; } if (!confirm('Delete ' + selected.size + ' selected item(s)?')) return; var paths = Array.from(selected); apiDelete(paths, function(d) { batchToast(d.success ? 'Deleted' : 'Delete failed', d.success ? 'success' : 'error'); if (d.success) loadFiles(); }); }
+function createFolder() { var name = prompt('Folder name:'); if (!name) return; if (sendWS({ type: 'mkdir', path: currentPath, name: name })) return; apiMkdir(currentPath, name, function(d) { batchToast(d.success ? 'Created' : 'Failed to create', d.success ? 'success' : 'error'); if (d.success) loadFiles(); }); }
+
+function openSearch(mode) {
+    var overlay = document.createElement('div'); overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:var(--modal-overlay);display:flex;align-items:flex-start;justify-content:center;padding-top:80px';
+    overlay.onclick = function(e) { if (e.target === overlay) document.body.removeChild(overlay); };
+    var box = document.createElement('div'); box.style.cssText = 'background:var(--card-bg);border-radius:12px;padding:20px;max-width:380px;width:90%;box-shadow:var(--shadow-hover)';
+    var title = document.createElement('div'); title.style.cssText = 'font-size:14px;font-weight:600;color:var(--text);margin-bottom:10px'; title.textContent = mode === 'local' ? 'Search current page' : 'Search all files';
+    var input = document.createElement('input'); input.type = 'text'; input.placeholder = mode === 'local' ? 'Search this folder...' : 'Search all folders...';
+    input.style.cssText = 'width:100%;padding:10px 12px;border:2px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--card-bg);color:var(--text);margin-bottom:12px'; input.focus();
+    var br = document.createElement('div'); br.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    var cb = document.createElement('button'); cb.textContent = 'Cancel'; cb.style.cssText = 'padding:6px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card-bg);color:var(--text-light);font-size:12px;cursor:pointer'; cb.onclick = function() { document.body.removeChild(overlay); };
+    var sb = document.createElement('button'); sb.textContent = 'Search'; sb.style.cssText = 'padding:6px 14px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer'; sb.onclick = function() { doSearch(mode, input.value.trim()); document.body.removeChild(overlay); };
+    input.onkeydown = function(e) { if (e.key === 'Enter') sb.click(); };
+    br.appendChild(cb); br.appendChild(sb); box.appendChild(title); box.appendChild(input); box.appendChild(br); overlay.appendChild(box); document.body.appendChild(overlay);
+    _searchOverlay = overlay;
+}
+
+function doSearch(mode, q) {
+    if (!q) { if (mode === 'local') { searchQuery = ''; loadFiles(); } else { document.getElementById('fileList').innerHTML = '<div class="empty" style="padding:60px 20px;color:var(--text-light);font-size:13px;text-align:center"><p>Type a keyword to search</p></div>'; } return; }
+    if (mode === 'local') { searchQuery = q.toLowerCase(); render(); }
+    else {
+        fetch('/api/search?q=' + encodeURIComponent(q)).then(function(r) { return r.json(); }).then(function(d) {
+            var rf = d.files || []; document.getElementById('fileCount').textContent = rf.length + ' result(s)'; renderSearchResults(rf, q);
+        }).catch(function() { batchToast('Search failed', 'error'); });
+    }
+}
+
+function renderSearchResults(rf, query) {
+    var c = document.getElementById('fileList');
+    if (!rf.length) { c.innerHTML = '<div class="empty" style="padding:60px 20px;color:var(--text-light);font-size:13px;text-align:center"><p>No results for "' + esc(query) + '"</p></div>'; updateSelected(); return; }
+    c.className = 'file-grid list-view';
+    var h = '';
+    for (var i = 0; i < rf.length; i++) {
+        var f = rf[i], checked = selected.has(f.path) ? 'checked' : '', sp = safeStr(f.path), ep = encodeURIComponent(f.path);
+        var nameHtml = esc(f.name), idx = nameHtml.toLowerCase().indexOf(query.toLowerCase());
+        if (idx !== -1) nameHtml = esc(f.name.substring(0, idx)) + '<span class="search-hl">' + esc(f.name.substring(idx, idx + query.length)) + '</span>' + esc(f.name.substring(idx + query.length));
+        var dir = f.path.indexOf('/') !== -1 ? f.path.substring(0, f.path.lastIndexOf('/')) : '';
+        h += '<div class="file-card list-item"><div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1" onclick="openPreview(\'' + sp + '\', rf)"></div>';
+        h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked)">';
+        h += '<span class="icon" onclick="event.stopPropagation();openPreview(\'' + sp + '\', rf)">' + getFileIcon(f.name) + '</span>';
+        h += '<div class="name">' + nameHtml + (dir ? '<span class="item-path">' + esc(dir) + '</span>' : '') + '</div>';
+        h += '<div class="meta">' + formatSize(f.size) + '</div>';
+        h += '<div class="actions"><a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">Download</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">Delete</button></div></div>';
+    }
+    c.innerHTML = h; updateSelected();
+}
+
+function getScopeRoot(path) {
+    if (!path) return '';
+    if (path.indexOf('users/') === 0) { var parts = path.split('/'); return parts[0] + '/' + parts[1]; }
+    if (path.indexOf('public') === 0) return 'public';
+    return '';
+}
+
+function updateGalleryLinks() {
+    var root = getScopeRoot(currentPath), params = root ? '?dir=' + encodeURIComponent(root) : '';
+    document.querySelectorAll('#galleryNavLink').forEach(function(l) { l.href = '/gallery' + params; });
+}
+
+if (viewMode === 'list') { document.getElementById('viewGrid').className = ''; document.getElementById('viewList').className = 'active'; }
+var pathMatch = window.location.pathname.match(/^\/browse\/(.*)$/);
+currentPath = pathMatch ? decodeURIComponent(pathMatch[1]) : '';
+updateGalleryLinks();
+connectWS();
+loadFiles();
+</script>
+</body>
+</html>

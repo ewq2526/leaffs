@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>文件传输</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+.toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.toolbar .count { font-size: 12px; color: var(--text-light); }
+.toolbar .refresh-btn { --btn-c: #fff; background-color: var(--muted-deep) !important; background-image: none !important; box-shadow: none !important; }
+.file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.file-grid.list-view { grid-template-columns: 1fr; }
+.file-card { position: relative; background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; text-align: center; cursor: pointer; transition: border-color 0.15s; }
+.file-card:hover { border-color: var(--primary); }
+.file-card .icon { font-size: 32px; display: block; margin: 8px 0; }
+.file-card .name { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
+.file-card .meta { font-size: 11px; color: var(--text-light); }
+.file-card .actions { margin-top: 8px; display: flex; gap: 6px; justify-content: center; }
+.file-card .actions a, .file-card .actions button { font-size: 11px; padding: 4px 10px; }
+.file-card input[type=checkbox] { position: absolute; top: 8px; left: 8px; z-index: 2; }
+.file-card.folder { cursor: pointer; }
+.list-view .file-card { display: flex; align-items: center; gap: 12px; padding: 8px 14px; text-align: left; }
+.list-view .file-card .icon { font-size: 20px; margin: 0; }
+.list-view .file-card .name { flex: 1; margin: 0; }
+.list-view .file-card .meta { min-width: 80px; text-align: right; }
+.list-view .file-card .actions { margin: 0; }
+.breadcrumb { font-size: 12px; margin-bottom: 12px; color: var(--text-light); }
+.breadcrumb a { color: var(--primary); text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+.breadcrumb span { color: var(--text); }
+.upload-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 30px 20px; text-align: center; background-color: var(--card-bg); margin-bottom: 14px; cursor: pointer; }
+.upload-zone.dragover { border-color: var(--primary); background: var(--hover-bg); }
+.upload-zone .label { font-size: 13px; color: var(--text-light); }
+.upload-zone .sub { font-size: 11px; color: var(--text-light); margin-top: 6px; }
+.upload-zone .btns { margin-top: 12px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.upload-zone input[type=file] { display: none; }
+.preview-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.preview-bar .chip { padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border); font-size: 12px; cursor: pointer; color: var(--text); background: var(--card-bg); text-decoration: none; }
+.preview-bar .chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+.preview-bar .chip .cnt { margin-left: 4px; font-size: 11px; opacity: 0.7; }
+.progress-wrap { height: 4px; background: var(--border); border-radius: 2px; margin-bottom: 14px; overflow: hidden; display: none; }
+.progress-wrap.active { display: block; }
+.progress-wrap .bar { height: 100%; background: var(--primary); width: 0; transition: width 0.3s; }
+.search-hl { background: var(--ring-soft); padding: 0 2px; border-radius: 2px; }
+.item-path { display: block; font-size: 10px; color: var(--text-light); margin-top: 2px; }
+.view-toggle { display: flex; gap: 2px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.view-toggle button { padding: 4px 10px; font-size: 11px; border: none; background: var(--card-bg); color: var(--text-light); cursor: pointer; }
+.view-toggle button.active { background: var(--primary); color: #fff; }
+</style>
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
+</head>
+<body>
+<div class="app">
+    <div class="header">
+        <h1><span class="ht">文件传输</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">已连接</span></span></h1>
+        <div class="info">
+            <span id="fileCount" style="font-size:12px;color:var(--text-light)"></span>
+            <span id="totalSize" style="font-size:12px;color:var(--text-light)"></span>
+            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">亮色</span></button>
+        </div>
+    </div>
+    <div class="nav-bar">
+        <a href="/browse/" class="active">浏览</a>
+        <a href="/gallery" id="galleryNavLink">预览</a>
+        <a href="/url-download" id="navDownloader">下载器</a>
+        <a href="/admin" id="navAdmin">管理</a>
+        <a href="/me">我的</a>
+        <span style="flex:1"></span>
+        <button class="nav-back" onclick="goBack()" id="backBtn">返回上级</button>
+    </div>
+
+    <!-- 默认密码提醒（仅管理员/超管且服务端确认仍为默认口令时显示；改密后自动消失） -->
+    <div id="pwdBanner" style="display:none;margin:0 auto 12px;padding:10px 14px;border-radius:10px;background:rgba(234,179,8,.14);border:1px solid rgba(234,179,8,.55);color:#8a6a00;font-size:13px;line-height:1.7">
+        🔑 当前仍在使用<strong>默认密码</strong>（admin / admin）——知道默认密码的人都能登录管理，请<strong>尽快修改</strong>：
+        <a href="/admin/users" style="color:#0ea5e9;font-weight:600;text-decoration:none">去改密码 →</a>
+        <span style="opacity:.65;font-size:11px">（不强制，改完此提示自动消失）</span>
+    </div>
+
+    <div class="breadcrumb" id="breadcrumb"><a href="/browse/">根目录</a></div>
+    <div class="progress-wrap" id="progressWrap"><div class="bar" id="progressBar"></div></div>
+
+    <div class="upload-zone" id="dropZone">
+        <div class="label" id="uploadLimitLabel">点击上传</div>
+        <div class="sub">支持拖拽文件或文件夹到此处</div>
+        <div class="btns">
+            <button class="btn btn-sm btn-primary" onclick="document.getElementById('fileInput').click()">上传文件</button>
+            <button class="btn btn-sm btn-primary" onclick="document.getElementById('folderInput').click()">上传文件夹</button>
+            <button class="btn btn-sm btn-outline" onclick="createFolder()">新建文件夹</button>
+        </div>
+        <input type="file" id="fileInput" multiple>
+        <input type="file" id="folderInput" webkitdirectory multiple>
+    </div>
+
+    <div class="preview-bar" id="previewBar" style="display:none"></div>
+
+    <div class="toolbar">
+        <button class="btn btn-sm btn-outline" onclick="selectAll(true)">全选</button>
+        <button class="btn btn-sm btn-outline" onclick="selectAll(false)">取消</button>
+        <button class="btn btn-sm btn-success" onclick="downloadSelected()">下载</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteSelected()">删除</button>
+        <button class="btn btn-sm refresh-btn" onclick="loadFiles()">刷新</button>
+        <span class="count">已选 <strong id="selectedCount">0</strong></span>
+        <select class="sort-select" id="sortSelect" onchange="sortFiles()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--card-bg);color:var(--text)">
+            <option value="time_desc" selected>时间 &#8595;</option>
+            <option value="time_asc">时间 &#8593;</option>
+            <option value="name_asc">名称 &#8593;</option>
+            <option value="name_desc">名称 &#8595;</option>
+            <option value="size_asc">大小 &#8593;</option>
+            <option value="size_desc">大小 &#8595;</option>
+        </select>
+        <button class="btn btn-sm btn-outline" onclick="openSearch('local')">本页搜索</button>
+        <button class="btn btn-sm btn-outline" onclick="openSearch('global')">全盘搜索</button>
+        <span style="flex:1"></span>
+        <div class="view-toggle">
+            <button class="active" id="viewGrid" onclick="setViewMode('grid')">网格</button>
+            <button id="viewList" onclick="setViewMode('list')">列表</button>
+        </div>
+    </div>
+
+    <div class="file-grid" id="fileList"></div>
+</div>
+
+<script src="/static/app.js"></script>
+<script src="/static/downloader.js"></script>
+<script src="/static/preview.js"></script>
+<script>
+var myRole = __MY_ROLE__;
+var myUsername = '__MY_USERNAME__';
+// 根据角色显隐导航项
+(function(){
+    var isGuest = myRole === 'guest' || !myRole;
+    var navDownloader = document.getElementById('navDownloader');
+    var navAdmin = document.getElementById('navAdmin');
+    if (navDownloader) navDownloader.style.display = isGuest ? 'none' : '';
+    if (navAdmin) navAdmin.style.display = (myRole === 'admin' || myRole === 'super_admin') ? '' : 'none';
+})();
+
+// 默认密码横幅：管理员/超管且服务端确认仍为默认口令时显示（改密后自动消失）
+if (myRole === 'admin' || myRole === 'super_admin') {
+    fetch('/api/auth/check').then(function(r) { return r.json(); }).then(function(d) {
+        if (d && d.need_change_password) {
+            var b = document.getElementById('pwdBanner');
+            if (b) b.style.display = 'block';
+        }
+    }).catch(function() {});
+}
+
+var files = [], selected = new Set();
+var currentPath = '', searchQuery = '', sortMode = 'time_desc';
+var uploadQueue = [], uploadDone = 0, uploading = false;
+var viewMode = localStorage.getItem('viewMode') || 'grid';
+
+function onWSConnected() { if (files.length === 0) loadFiles(); }
+
+var _currentTotalFiles = 0;
+var _currentTotalSize = 0;
+
+function handleWSMessage(msg) {
+    switch (msg.type) {
+        case 'list':
+            files = msg.files || [];
+            _currentTotalFiles = msg.total_file_count || 0;
+            _currentTotalSize = msg.total_size_sum || 0;
+            render(); updateStats(); updateBreadcrumb(currentPath);
+            break;
+        case 'delete': case 'mkdir': batchToast(msg.success ? '成功' : '失败', msg.success ? 'success' : 'error'); if (msg.success) loadFiles(); break;
+    }
+}
+
+function loadFiles() {
+    if (sendWS({ type: 'list', path: currentPath })) return;
+    apiList(currentPath, function (d) {
+        files = d.files || [];
+        _currentTotalFiles = d.total_file_count || 0;
+        _currentTotalSize = d.total_size_sum || 0;
+        render(); updateStats(); updateBreadcrumb(currentPath);
+    });
+}
+
+function updateBreadcrumb(p) {
+    var isPublic = p && p.indexOf('public') === 0;
+    var display = '';
+    if (p && p.indexOf('users/') === 0) { var parts = p.split('/'); display = parts.length > 2 ? parts.slice(2).join('/') : ''; }
+    else if (isPublic) { display = p.substring('public'.length).replace(/^\//,''); }
+    var loc = isPublic ? '公共目录' : '我的目录';
+    var h = '<span style="font-size:12px;font-weight:600;color:var(--text);margin-right:8px;padding:2px 8px;border-radius:4px;background:var(--bg);border:1px solid var(--border)">' + loc + '</span>';
+    if (p) h += '<a href="/browse/' + p.split('/').slice(0,2).join('/') + '">' + (p.split('/')[1] || '') + '</a>';
+    if (display) {
+        var parts = display.split('/'), acc = '';
+        var prefix = p.split('/').slice(0,2).join('/');
+        parts.forEach(function(part, i) {
+            acc += (i > 0 ? '/' : '') + part;
+            var rp = prefix + '/' + acc;
+            h += ' / ' + (i === parts.length - 1 ? '<span>' + esc(part) + '</span>' : '<a href="/browse/' + encodeURIComponent(rp) + '">' + esc(part) + '</a>');
+        });
+    }
+    // 游客只在公共目录：不显示“我的目录”切换入口（否则点了会进 users/游客 越权 403）
+    if (myRole !== 'guest') {
+        h += ' <span style="margin-left:10px">|</span> <a href="/browse/' + (isPublic ? '' : 'public') + '" style="color:var(--primary);font-size:12px">' + (isPublic ? '我的目录' : '公共目录') + '</a>';
+    }
+    document.getElementById('breadcrumb').innerHTML = h;
+    updateGalleryLinks();
+}
+
+function updateStats() {
+    var fc = 0, foc = 0, ts = 0;
+    files.forEach(function(f) { if (f.type === 'folder') foc++; else fc++; ts += f.size; });
+    // 当前层: 大小 文件夹数 文件数 | 总计: 文件总数  总大小
+    document.getElementById('fileCount').textContent = '当前层: ' + formatSize(ts) + '  ' + foc + '文件夹 ' + fc + ' 文件 | 总计: ' + _currentTotalFiles + ' 个文件';
+    document.getElementById('totalSize').textContent = '';  // 合并到 fileCount 显示了
+}
+
+function getParent() { if (!currentPath) return ''; var p = currentPath.split('/'); p.pop(); return p.join('/'); }
+function goBack() { window.location.href = '/browse/' + encodeURIComponent(getParent()); }
+
+function sortFiles() { sortMode = document.getElementById('sortSelect').value; render(); }
+function getSortKey(f, mode) {
+    var p = mode.split('_'), field = p[0], dir = p[1];
+    var v = field === 'name' ? f.name.toLowerCase() : field === 'size' ? (f.type === 'folder' ? 0 : f.size) : (f.mtime || 0);
+    return [f.type === 'folder' ? 0 : 1, dir === 'asc' ? v : (typeof v === 'number' ? -v : v.split('').reverse().join(''))];
+}
+
+function setViewMode(mode) {
+    viewMode = mode; localStorage.setItem('viewMode', mode);
+    document.getElementById('viewGrid').className = mode === 'grid' ? 'active' : '';
+    document.getElementById('viewList').className = mode === 'list' ? 'active' : '';
+    render();
+}
+
+function render() {
+    var filtered = files.slice();
+    if (searchQuery) filtered = filtered.filter(function(f) { return f.name.toLowerCase().includes(searchQuery); });
+    filtered.sort(function(a,b) { var ka = getSortKey(a, sortMode), kb = getSortKey(b, sortMode); for(var i=0;i<ka.length;i++){if(ka[i]<kb[i])return -1;if(ka[i]>kb[i])return 1;} return 0; });
+
+    var c = document.getElementById('fileList');
+    if (!filtered.length) { c.innerHTML = '<div class="empty" style="padding:60px 20px;color:var(--text-light);font-size:13px;text-align:center"><p>' + (searchQuery ? '没有匹配' : '暂无文件') + '</p></div>'; updateSelected(); return; }
+    c.className = 'file-grid' + (viewMode === 'list' ? ' list-view' : '');
+
+    var h = '';
+    for (var i = 0; i < filtered.length; i++) {
+        var f = filtered[i], checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
+        var sz = formatSize(f.size), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
+        var ep = encodeURIComponent(f.path), en = esc(f.name), sp = safeStr(f.path), ft = fileType(f.name);
+        var acts = isFolder ? '<a href="/browse/' + ep + '" class="btn btn-sm btn-primary">打开</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">删除</button>'
+            : '<a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">下载</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">删除</button>';
+        var thumb = '';
+        if (!isFolder && (ft === 'image' || ft === 'video')) {
+            thumb = '<span class="thumb-wrap"><span class="thumb-loading">加载中…</span><img class="preview-thumb" src="/api/thumb?path=' + ep + '" alt="" loading="lazy" onload="thumbLoaded(this)" onerror="retryThumbOnce(this, thumbGiveUpBlank)" onclick="event.stopPropagation();openPreview(\'' + sp + '\', files)"></span>';
+        } else {
+            thumb = '<span class="icon"' + (!isFolder ? ' onclick="event.stopPropagation();openPreview(\'' + sp + '\', files)"' : '') + '>' + icon + '</span>';
+        }
+
+        h += '<div class="file-card' + (isFolder ? ' folder' : '') + '" data-path="' + esc(f.path) + '"' + (!isFolder ? ' onclick="openPreview(\'' + sp + '\', files)"' : '') + '>';
+        if (isFolder) h += '<a href="/browse/' + ep + '" class="folder-link" style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1" aria-label="打开 ' + en + '"></a>';
+        h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked)">';
+        h += thumb;
+        h += '<div class="name">' + en + '</div>';
+        if (viewMode === 'list') { h += '<div class="meta">' + sz + ' &middot; ' + formatTime(f.mtime) + '</div>'; }
+        else { h += '<div class="meta">' + sz + '</div>'; }
+        h += '<div class="actions">' + acts + '</div></div>';
+    }
+    c.innerHTML = h;
+    updatePreviewBar();
+    updateSelected();
+}
+
+function updatePreviewBar() {
+    var counts = { all: 0, image: 0, video: 0, audio: 0, text: 0, pdf: 0 };
+    files.forEach(function(f) { if (f.type === 'folder') return; counts.all++; var ft = fileType(f.name); if (counts[ft] !== undefined) counts[ft]++; });
+    var bar = document.getElementById('previewBar');
+    if (!counts.all) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    var types = [['all', '全部'], ['image', '图片'], ['video', '视频'], ['audio', '音频'], ['text', '文本'], ['pdf', 'PDF']];
+    var root = getScopeRoot(currentPath), params = root ? '?dir=' + encodeURIComponent(root) : '';
+    bar.innerHTML = types.map(function(t) {
+        var cnt = counts[t[0]] || 0;
+        if (t[0] === 'all') return '<a href="/gallery' + params + '" class="chip active">' + t[1] + ' <span class="cnt">' + cnt + '</span></a>';
+        return '<a href="/gallery' + params + '&type=' + t[0] + '" class="chip">' + t[1] + ' <span class="cnt">' + cnt + '</span></a>';
+    }).join('');
+}
+
+function toggleSelect(p, c) { if (c) selected.add(p); else selected.delete(p); updateSelected(); }
+function selectAll(c) { files.forEach(function(f) { if (c) selected.add(f.path); else selected.delete(f.path); }); render(); }
+function updateSelected() { document.getElementById('selectedCount').textContent = selected.size; }
+
+var MAX_UPLOAD_SIZE = 10 * 1024 * 1024 * 1024;
+(function(){
+    fetch('/api/config/advanced').then(function(r){return r.json()}).then(function(d){
+        var size = d.upload_max_size, lbl = document.getElementById('uploadLimitLabel');
+        if (size === 0) { MAX_UPLOAD_SIZE = Infinity; lbl.textContent = '点击上传'; }
+        else if (size && size > 0) { MAX_UPLOAD_SIZE = size; lbl.textContent = '点击上传 · 最大 ' + Math.round(size / 1073741824) + ' GB'; }
+    }).catch(function(){});
+})();
+
+function uploadFiles(fileList) {
+    if (!fileList.length) return;
+    var queue = [];
+    for (var i = 0; i < fileList.length; i++) {
+        var f = fileList[i];
+        if (f.size > MAX_UPLOAD_SIZE) { batchToast(f.name + ' 超过限制，已跳过', 'error'); continue; }
+        queue.push({ file: f, path: currentPath });
+    }
+    if (!queue.length) return;
+    uploadQueue = uploadQueue.concat(queue);
+    if (!uploading) processUploadQueue();
+}
+
+function processUploadQueue() {
+    if (!uploadQueue.length) { uploading = false; setTimeout(function() { document.getElementById('progressWrap').classList.remove('active'); }, 1500); loadFiles(); return; }
+    uploading = true;
+    var item = uploadQueue.shift(), file = item.file;
+    var fd = new FormData(); fd.append('file', file, file.webkitRelativePath || file.name);
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload?path=' + encodeURIComponent(item.path || ''), true);
+    xhr.upload.onprogress = function(e) { if (e.lengthComputable) { var pct = e.loaded / e.total * 100; updateProgress(pct); } };
+    xhr.onload = function() { uploadDone++; if (xhr.status === 200) batchToast(file.name + ' 上传成功', 'success'); else batchToast(file.name + ' 上传失败', 'error'); processUploadQueue(); };
+    xhr.onerror = function() { uploadDone++; batchToast(file.name + ' 上传失败', 'error'); processUploadQueue(); };
+    xhr.send(fd);
+}
+
+function updateProgress(pct) { document.getElementById('progressWrap').classList.add('active'); document.getElementById('progressBar').style.width = Math.min(pct, 100) + '%'; }
+
+document.getElementById('fileInput').onchange = function() { if (this.files.length) { uploadFiles(this.files); this.value = ''; } };
+document.getElementById('folderInput').onchange = function() { if (this.files.length) { uploadFiles(this.files); this.value = ''; } };
+var drop = document.getElementById('dropZone');
+drop.ondragover = function(e) { e.preventDefault(); drop.classList.add('dragover'); };
+drop.ondragleave = function() { drop.classList.remove('dragover'); };
+drop.ondrop = function(e) { e.preventDefault(); drop.classList.remove('dragover'); if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files); };
+
+function downloadSelected() {
+    var sel = Array.from(selected), files_s = sel.filter(function(p) { var f = files.find(function(f) { return f.path === p; }); return f && f.type !== 'folder'; });
+    var folders = sel.filter(function(p) { var f = files.find(function(f) { return f.path === p; }); return f && f.type === 'folder'; });
+    if (!files_s.length && !folders.length) { batchToast('请先选择', 'info'); return; }
+    if (files_s.length === 1 && !folders.length) { window.open('/download/' + encodeURIComponent(files_s[0]), '_blank'); return; }
+    window.open('/api/zip?files=' + encodeURIComponent(JSON.stringify(sel)) + '&base=' + encodeURIComponent(currentPath), '_blank');
+}
+
+function deleteFile(path) { if (!confirm('删除 "' + path + '" ？')) return; apiDelete([path], function(d) { batchToast(d.success ? '删除成功' : '删除失败', d.success ? 'success' : 'error'); if (d.success) loadFiles(); }); }
+function deleteSelected() { if (!selected.size) { batchToast('请先选择', 'info'); return; } if (!confirm('删除 ' + selected.size + ' 个文件？')) return; var paths = Array.from(selected); apiDelete(paths, function(d) { batchToast(d.success ? '删除成功' : '删除失败', d.success ? 'success' : 'error'); if (d.success) loadFiles(); }); }
+function createFolder() { var name = prompt('文件夹名称：'); if (!name) return; if (sendWS({ type: 'mkdir', path: currentPath, name: name })) return; apiMkdir(currentPath, name, function(d) { batchToast(d.success ? '创建成功' : '创建失败', d.success ? 'success' : 'error'); if (d.success) loadFiles(); }); }
+
+function openSearch(mode) {
+    var overlay = document.createElement('div'); overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:var(--modal-overlay);display:flex;align-items:flex-start;justify-content:center;padding-top:80px';
+    overlay.onclick = function(e) { if (e.target === overlay) document.body.removeChild(overlay); };
+    var box = document.createElement('div'); box.style.cssText = 'background:var(--card-bg);border-radius:12px;padding:20px;max-width:380px;width:90%;box-shadow:var(--shadow-hover)';
+    var title = document.createElement('div'); title.style.cssText = 'font-size:14px;font-weight:600;color:var(--text);margin-bottom:10px'; title.textContent = mode === 'local' ? '本页搜索' : '全盘搜索';
+    var input = document.createElement('input'); input.type = 'text'; input.placeholder = mode === 'local' ? '搜索当前目录...' : '搜索所有目录...';
+    input.style.cssText = 'width:100%;padding:10px 12px;border:2px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--card-bg);color:var(--text);margin-bottom:12px'; input.focus();
+    var br = document.createElement('div'); br.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+    var cb = document.createElement('button'); cb.textContent = '取消'; cb.style.cssText = 'padding:6px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card-bg);color:var(--text-light);font-size:12px;cursor:pointer'; cb.onclick = function() { document.body.removeChild(overlay); };
+    var sb = document.createElement('button'); sb.textContent = '搜索'; sb.style.cssText = 'padding:6px 14px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer'; sb.onclick = function() { doSearch(mode, input.value.trim()); document.body.removeChild(overlay); };
+    input.onkeydown = function(e) { if (e.key === 'Enter') sb.click(); };
+    br.appendChild(cb); br.appendChild(sb); box.appendChild(title); box.appendChild(input); box.appendChild(br); overlay.appendChild(box); document.body.appendChild(overlay);
+    _searchOverlay = overlay;
+}
+
+function doSearch(mode, q) {
+    if (!q) { if (mode === 'local') { searchQuery = ''; loadFiles(); } else { document.getElementById('fileList').innerHTML = '<div class="empty" style="padding:60px 20px;color:var(--text-light);font-size:13px;text-align:center"><p>输入关键词搜索</p></div>'; } return; }
+    if (mode === 'local') { searchQuery = q.toLowerCase(); render(); }
+    else {
+        fetch('/api/search?q=' + encodeURIComponent(q)).then(function(r) { return r.json(); }).then(function(d) {
+            var rf = d.files || []; document.getElementById('fileCount').textContent = rf.length + ' 个结果'; renderSearchResults(rf, q);
+        }).catch(function() { batchToast('搜索失败', 'error'); });
+    }
+}
+
+function renderSearchResults(rf, query) {
+    var c = document.getElementById('fileList');
+    if (!rf.length) { c.innerHTML = '<div class="empty" style="padding:60px 20px;color:var(--text-light);font-size:13px;text-align:center"><p>没有找到 "' + esc(query) + '"</p></div>'; updateSelected(); return; }
+    c.className = 'file-grid list-view';
+    var h = '';
+    for (var i = 0; i < rf.length; i++) {
+        var f = rf[i], checked = selected.has(f.path) ? 'checked' : '', sp = safeStr(f.path), ep = encodeURIComponent(f.path);
+        var nameHtml = esc(f.name), idx = nameHtml.toLowerCase().indexOf(query.toLowerCase());
+        if (idx !== -1) nameHtml = esc(f.name.substring(0, idx)) + '<span class="search-hl">' + esc(f.name.substring(idx, idx + query.length)) + '</span>' + esc(f.name.substring(idx + query.length));
+        var dir = f.path.indexOf('/') !== -1 ? f.path.substring(0, f.path.lastIndexOf('/')) : '';
+        h += '<div class="file-card list-item"><div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1" onclick="openPreview(\'' + sp + '\', rf)"></div>';
+        h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked)">';
+        h += '<span class="icon" onclick="event.stopPropagation();openPreview(\'' + sp + '\', rf)">' + getFileIcon(f.name) + '</span>';
+        h += '<div class="name">' + nameHtml + (dir ? '<span class="item-path">' + esc(dir) + '</span>' : '') + '</div>';
+        h += '<div class="meta">' + formatSize(f.size) + '</div>';
+        h += '<div class="actions"><a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">下载</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">删除</button></div></div>';
+    }
+    c.innerHTML = h; updateSelected();
+}
+
+function getScopeRoot(path) {
+    if (!path) return '';
+    if (path.indexOf('users/') === 0) { var parts = path.split('/'); return parts[0] + '/' + parts[1]; }
+    if (path.indexOf('public') === 0) return 'public';
+    return '';
+}
+
+function updateGalleryLinks() {
+    var root = getScopeRoot(currentPath), params = root ? '?dir=' + encodeURIComponent(root) : '';
+    document.querySelectorAll('#galleryNavLink').forEach(function(l) { l.href = '/gallery' + params; });
+}
+
+if (viewMode === 'list') { document.getElementById('viewGrid').className = ''; document.getElementById('viewList').className = 'active'; }
+var pathMatch = window.location.pathname.match(/^\/browse\/(.*)$/);
+currentPath = pathMatch ? decodeURIComponent(pathMatch[1]) : '';
+updateGalleryLinks();
+connectWS();
+// 初始加载文件列表（WS 连接后也会触发，但此处确保即使 WS 延迟也能立即显示）
+loadFiles();
+</script>
+</body>
+</html>
