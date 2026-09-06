@@ -1,49 +1,21 @@
-LeafFS 软件许可与使用协议
-LeafFS Software License and Usage Agreement
+MIT License
 
 Copyright (c) 2026 ewq2526
-Contact: ewq2526@163.com
 
-本文件适用于本安装包（以下简称"本软件"）的安装、使用与再分发。
-This file applies to the installation, use and redistribution of this package (the "Software").
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-【中文】
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-一、授权
-1. 在满足本协议的前提下，允许任何人在可信局域网环境中安装、运行和使用本软件。
-2. 允许完整复制与再分发本安装包，但必须保留本许可文件、THIRD_PARTY_NOTICES.md 及其引用的全部许可与声明文件，不得删除或修改其中的版权与许可信息。
-
-二、限制
-1. 不得将本软件用于非法用途。
-2. 面向公网部署属于使用者自行决定的行为，相关风险与合规责任由使用者承担，作者不作担保亦不承担责任。
-3. 不得声称本软件可替代或代表其内置第三方组件的作者或 DeepSeek 等第三方作出任何担保。
-4. 对任一随附组件进行修改后再次分发时，必须遵守该组件自身的许可证（详见 THIRD_PARTY_NOTICES.md）。
-
-三、第三方组件与 AI 辅助声明
-本软件为高度 AI 辅助开发的项目（主要使用 DeepSeek V4 Flash）。随附与依赖的第三方组件、其许可证以及 AI 辅助声明见 THIRD_PARTY_NOTICES.md；第三方组件的权利与义务以各自许可证为准。
-
-四、免责
-1. 本软件按"现状"提供，作者不作任何明示或默示担保，包括但不限于适销性、特定用途适用性、正确性与安全性担保。
-2. 在任何情况下，作者均不对因使用或无法使用本软件造成的直接或间接损失承担责任。
-3. 本软件包含大量 AI 生成或辅助编写的代码，可能存在错误或安全缺陷；使用者应自行审阅、测试并在实际环境验证后使用。
-4. 请妥善保管默认口令、账号与数据；重要数据请自行备份。
-
-五、版权与联系
-本软件及其中文与英文文档的版权归 ewq2526 所有。上述授权不转移版权。未在本文明确授予的权利均予保留。如对许可或第三方组件声明有疑问，请联系 ewq2526@163.com。
-
-【English】
-
-1. License Grant
-Subject to this agreement, anyone may install, run and use the Software in a trusted local area network environment. Complete copies of this package may be redistributed provided that this license file, THIRD_PARTY_NOTICES.md and all referenced license and notice files are kept intact and their copyright and license information is not removed or modified.
-
-2. Restrictions
-The Software must not be used for unlawful purposes. Deployment on the public Internet is the user's own decision; related risks and compliance obligations are borne by the user, and the author makes no warranty and accepts no liability for such use. You may not claim that the Software substitutes for, or makes warranties on behalf of, the authors of its bundled third-party components or any third party such as DeepSeek. If you modify and redistribute any bundled component, you must comply with that component's own license (see THIRD_PARTY_NOTICES.md).
-
-3. Third-Party Components and AI Assistance
-The Software is a highly AI-assisted project (primarily using DeepSeek V4 Flash). Bundled and dependent third-party components, their licenses, and the AI assistance notice are described in THIRD_PARTY_NOTICES.md. Rights and obligations of third-party components are governed by their respective licenses.
-
-4. Disclaimer
-The Software is provided "as is" without warranty of any kind, express or implied, including but not limited to merchantability, fitness for a particular purpose, correctness and security. In no event shall the author be liable for any direct or indirect damages arising from the use of, or inability to use, the Software. The Software contains a large amount of AI-generated or AI-assisted code that may contain errors or security defects; users should review, test and validate it in their own environment before use. Please keep credentials, accounts and data safe, and back up important data yourself.
-
-5. Copyright and Contact
-Copyright of the Software and its Chinese and English documentation is retained by ewq2526. The grants above do not transfer ownership. All rights not expressly granted herein are reserved. For questions about this license or the third-party notices, contact ewq2526@163.com.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
