@@ -521,3 +521,109 @@ def _register_cleanup():
         pass
 
 _register_cleanup()
+
+
+# ========== aria2c 守护监控（挂了自动重启 + 状态变化推送） ==========
+
+_status_cb = None                # 状态变化回调（leaffs 注入 _broadcast_download_daemon_status）
+_daemon_watch_started = False
+_daemon_watch_lock = threading.Lock()
+
+
+def set_daemon_status_cb(cb):
+    """注册 aria2c 状态变化回调（无参；服务端注入页面推送）"""
+    global _status_cb
+    _status_cb = cb
+
+
+def start_daemon_watchdog():
+    """启动 aria2c 守护监控线程（幂等）。
+
+    覆盖“RPC 挂了没处理”：周期探测 aria2c 进程/连接状态——
+      * 进程已退出(error)        → 自动强制重启一次；
+      * 进程活着但 RPC 连不上(starting 超 15s，如启动异常/端口被占) → 强制重启一次；
+      * 进程活着且握手成功但标记滞后 → 真实握手后置 ready；
+      * 从未启动(stopped)        → 幂等拉起。
+    状态相对上次有变化时调用 set_daemon_status_cb 注册的回调，驱动页面提示刷新。
+    """
+    global _daemon_watch_started
+    with _daemon_watch_lock:
+        if _daemon_watch_started:
+            return
+        _daemon_watch_started = True
+    threading.Thread(target=_daemon_watch_loop, daemon=True).start()
+
+
+def _restart_aria2c_once(reason):
+    """强制重启一次 aria2c（_restart_in_progress 防多线程并发重启/误杀新进程）"""
+    global _restart_in_progress, _daemon_ready
+    do_it = False
+    with _daemon_lock:
+        if not _restart_in_progress:
+            _restart_in_progress = True
+            do_it = True
+    if not do_it:
+        return  # 其它线程正在重启，交给它
+    try:
+        _log(f'aria2c 守护监控: {reason}，强制重启')
+        _daemon_ready = False
+        _kill_aria2c_force()
+        start_aria2c_daemon()
+    except Exception as e:
+        _log(f'aria2c 守护监控重启失败: {e}')
+    finally:
+        with _daemon_lock:
+            _restart_in_progress = False
+
+
+def _daemon_watch_loop():
+    global _daemon_ready
+    last_pushed = None
+    starting_since = None
+    while True:
+        time.sleep(2.0)
+        try:
+            st = get_aria2c_status()
+            now = time.time()
+            if st == 'ready':
+                starting_since = None
+            elif st == 'starting':
+                # 真实 RPC 握手：_daemon_ready 标记可能滞后（进程已就绪但标记未置）
+                try:
+                    if get_rpc_client().get_version():
+                        _daemon_ready = True
+                        st = 'ready'
+                        starting_since = None
+                        _log('aria2c 守护监控: 真实握手成功，状态置为 ready')
+                except Exception:
+                    pass
+                if st == 'starting':
+                    if starting_since is None:
+                        starting_since = now
+                    elif now - starting_since > 15:
+                        _restart_aria2c_once('进程存活但 RPC 超过 15s 无法连接（启动异常）')
+                        starting_since = None
+                        st = get_aria2c_status()
+            elif st == 'error':
+                # 进程已退出：RPC 挂掉，自动重启（用户诉求核心）
+                _restart_aria2c_once('aria2c 进程已退出')
+                starting_since = None
+                st = get_aria2c_status()
+            elif st == 'stopped':
+                # 从未启动（正常启动流程被跳过等）：幂等拉起
+                try:
+                    start_aria2c_daemon()
+                except Exception:
+                    pass
+                starting_since = None
+                st = get_aria2c_status()
+            if st != last_pushed:
+                last_pushed = st
+                cb = _status_cb
+                if cb is not None:
+                    try:
+                        cb()
+                    except Exception:
+                        pass
+        except Exception:
+            pass

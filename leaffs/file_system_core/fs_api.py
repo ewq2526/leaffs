@@ -567,7 +567,11 @@ def handle_upload(handler, handle_upload_fn, invalidate_folder_cache_smart, UPLO
                 invalidate_folder_cache_smart(target_dir)
             except Exception:
                 pass
-        handler.send_json({'success': True, 'saved': saved, 'errors': errors})
+        # 收口：saved==0 表示本请求没有任何文件落盘（目录不存在/空请求/全部被拒等），
+        # 必须如实返回 success:false，避免前端只看 success 误报“上传成功”。
+        if saved == 0 and not errors:
+            errors.append('未收到任何可保存的文件（请求为空或格式错误）')
+        handler.send_json({'success': saved > 0, 'saved': saved, 'errors': errors})
     except DISCONNECTED_EXCEPTIONS:
         # 客户端中途断连（含读超时/写侧无进展超时，均 ⊂ OSError）：
         # 请求未完成即断开 ≠ 服务器 500 —— 置 close、不补 500 响应、访问日志不记 500；

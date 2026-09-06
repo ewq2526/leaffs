@@ -129,6 +129,57 @@ def _strip_host_port(host):
 
 _LOCAL_HOST_NAMES = frozenset(('localhost', '127.0.0.1', '::1'))
 
+# ---------- 冻结看门狗（随机卡死取证）：有 HTTP 请求在途且连续 15s 无请求完成
+# 即视为疑似卡死，自动把全部线程调用栈写入 config/freeze_dump_*.txt。
+# 仅诊断用、开销可忽略（1 线程每秒醒一次）；长流下载期间无其它请求时可能
+# 误报一次（冷却 120s），文件头会注明现场数据供人工判断。 ----------
+_wd_lock = threading.Lock()
+_wd_inflight = 0        # 在途 HTTP 请求数（线程内 handle 开始 +1 / 结束 -1）
+_wd_last_done = 0.0     # 最近一次请求完成时刻（time.monotonic）
+_wd_ws_last = 0.0       # 最近一次 WS 消息到达时刻（事件循环活性信号）
+_wd_last_dump = 0.0     # 最近一次自动 dump 时刻（冷却用）
+
+def _wd_start():
+    global _wd_inflight
+    with _wd_lock:
+        _wd_inflight += 1
+
+def _wd_finish():
+    global _wd_inflight, _wd_last_done
+    with _wd_lock:
+        _wd_inflight = max(0, _wd_inflight - 1)
+        _wd_last_done = time.monotonic()
+
+def _wd_ws_tick():
+    """WS 每条消息到达时更新活性（事件循环是否还在转）"""
+    global _wd_ws_last
+    _wd_ws_last = time.monotonic()
+
+def _wd_loop():
+    import faulthandler
+    while True:
+        time.sleep(1.0)
+        try:
+            now = time.monotonic()
+            with _wd_lock:
+                ws_alive_recently = _wd_ws_last > 0 and now - _wd_ws_last < 120
+                busy = _wd_inflight > 0 or ws_alive_recently
+                idle = now - max(_wd_last_done, _wd_ws_last)
+            if busy and idle >= 15 and now - _wd_last_dump >= 120:
+                _wd_last_dump = now
+                try:
+                    p = os.path.join(_ut.CONFIG_DIR,
+                                     'freeze_dump_' + time.strftime('%Y%m%d_%H%M%S') + '.txt')
+                    with open(p, 'w', encoding='utf-8') as f:
+                        f.write(f'[watchdog] 在途请求 {_wd_inflight} 条且 {idle:.0f}s 无完成，'
+                                f'疑似卡死，时间 {time.strftime("%Y-%m-%d %H:%M:%S")}\n')
+                        faulthandler.dump_traceback(file=f, all_threads=True)
+                    add_log('看门狗: 疑似服务卡死，全线程栈已写入 ' + os.path.basename(p))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
 # ---------- A-01：管理类 API 统一 admin/super_admin 门槛 ----------
 _ADMIN_ONLY_POST = frozenset((
     '/api/users/add', '/api/users/delete', '/api/users/password', '/api/users/role',
@@ -314,6 +365,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
                 return
             try:
                 try:
+                    _wd_start()
                     super().handle()
                 except TimeoutError:
                     pass
@@ -325,6 +377,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
                     if e.winerror != 10054:  # WSAECONNRESET
                         raise
             finally:
+                _wd_finish()
                 if ip:
                     _http_ip_conn_release(ip)
         finally:
@@ -1642,6 +1695,7 @@ async def ws_handler(websocket):
             pass
         try:
             async for msg in websocket:
+                _wd_ws_tick()
                 # 收到任意消息即刷新最近活跃时刻（配额满时只淘汰真正空闲的最旧连接）
                 _ws_conn_touch(ip, websocket)
                 # A-06：滑动窗口消息限流（每连接 30/10s；每 IP 120/10s；全部消息计数）
@@ -1876,7 +1930,9 @@ async def ws_handler(websocket):
                             failed.append((norm_p, '无权限'))
                             continue
                         try:
-                            cnt, fails = _fs.delete_paths([norm_p])
+                            # 文件删除含 os.walk/rmtree/缩略图清理，可能耗时数秒~数十秒，
+                            # 必须在线程池执行，避免同步阻塞 WS 事件循环（卡死全服务页面）
+                            cnt, fails = await _run_io(_fs.delete_paths, [norm_p])
                         except Exception as e:
                             cnt, fails = 0, [(norm_p, f'删除失败: {e}')]
                         n_deleted += int(cnt or 0)
@@ -1907,7 +1963,7 @@ async def ws_handler(websocket):
                         ws_write_ok = True
                     if not ws_write_ok:
                         await websocket.send(json.dumps({'type': 'error', 'msg': '无权限'})); continue
-                    ok, err = _fs.mkdir(p, n)
+                    ok, err = await _run_io(_fs.mkdir, p, n)
                     await websocket.send(json.dumps({'type': 'mkdir', 'success': ok, 'msg': err}))
                 elif t == 'sub-download':
                     # A-03：WS 下载器订阅门槛（与 HTTP _dl_allowed 同一判定）
@@ -2458,6 +2514,17 @@ def run_cert_remind_http():
 
 
 def start_server():
+    # 临时诊断：设置环境变量 LEAFFS_FAULTDUMP=1 后，卡死时按 Ctrl+Break 会把所有
+    # 线程的调用栈写入项目目录 faulthandler_dump.txt（排查随机卡死用，默认关闭）
+    if os.environ.get('LEAFFS_FAULTDUMP') == '1':
+        try:
+            import faulthandler
+            import signal as _sig
+            _dump_file = open(os.path.join(_ut.PROJECT_DIR, 'faulthandler_dump.txt'),
+                              'w', encoding='utf-8', buffering=1)
+            faulthandler.register(_sig.SIGBREAK, file=_dump_file, all_threads=True)
+        except Exception:
+            pass
     setup_logging()
     _cfg.load_config()
     _ac.load_users()
@@ -2505,6 +2572,8 @@ def start_server():
     ws_thread.start()
     # 启动管理页实时推送线程（每秒一帧，仅在存在订阅者时构建数据）
     threading.Thread(target=_admin_push_loop, daemon=True).start()
+    # 冻结看门狗（疑似卡死自动抓全线程栈，见 _wd_loop 说明）
+    threading.Thread(target=_wd_loop, daemon=True).start()
     # 后台启动 aria2c RPC 守护进程（不再阻塞服务器启动），结束后记录日志并通知下载页
     def _start_daemon_and_notify():
         try:
@@ -2526,6 +2595,13 @@ def start_server():
         except Exception:
             pass
     threading.Thread(target=_start_daemon_and_notify, daemon=True).start()
+    # aria2c 守护监控：进程挂了/连不上自动重启，状态变化推送下载页（RPC 挂掉自愈）
+    try:
+        from leaffs.downloader_core import dl_rpc as _dlr
+        _dlr.set_daemon_status_cb(_broadcast_download_daemon_status)
+        _dlr.start_daemon_watchdog()
+    except Exception:
+        pass
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(('8.8.8.8', 80))

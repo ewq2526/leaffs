@@ -314,7 +314,7 @@ function processUploadQueue() {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload?path=' + encodeURIComponent(item.path || ''), true);
     xhr.upload.onprogress = function(e) { if (e.lengthComputable) { var pct = e.loaded / e.total * 100; updateProgress(pct); } };
-    xhr.onload = function() { uploadDone++; if (xhr.status === 200) batchToast(file.name + ' 上传成功', 'success'); else batchToast(file.name + ' 上传失败', 'error'); processUploadQueue(); };
+    xhr.onload = function() { uploadDone++; var ok = false, msg = ''; try { var d = JSON.parse(xhr.responseText); if (d && d.success && (!d.errors || !d.errors.length)) { ok = true; msg = file.name + ' 上传成功'; } else if (d && d.errors && d.errors.length) { msg = file.name + ' 上传失败：' + d.errors[0]; } else { msg = file.name + ' 上传失败'; } } catch (e) { ok = (xhr.status === 200); msg = ok ? file.name + ' 上传成功' : file.name + ' 上传失败'; } batchToast(msg, ok ? 'success' : 'error'); processUploadQueue(); };
     xhr.onerror = function() { uploadDone++; batchToast(file.name + ' 上传失败', 'error'); processUploadQueue(); };
     xhr.send(fd);
 }

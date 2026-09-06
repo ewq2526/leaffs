@@ -355,6 +355,13 @@ def handle_upload(rfile, content_type, content_length, sub_path, auto_unique=Fal
     """
     boundary = _parse_boundary(content_type)
     if not boundary: return 0, ['Cannot parse Content-Type']
+    # 目标目录不存在时自动创建：前端“选择已有目录”正常流程目录必在，但 API/自定义
+    # 场景可上传到尚未存在的子路径（如 path=xxx/新建目录），不建目录则写 .part 直接失败。
+    # 此处已过 fs_api 的权限/路径校验（write_allowed/_check_path_permission/R2 根权限）。
+    try:
+        os.makedirs(os.path.join(UPLOAD_DIR, sub_path) if sub_path else UPLOAD_DIR, exist_ok=True)
+    except Exception:
+        return 0, [f'无法创建目标目录: {sub_path or "/"}']
     boundary_bytes = ('--' + boundary).encode('latin-1')
     end_boundary = ('--' + boundary + '--').encode('latin-1')
     saved = 0; errors = []; remaining = content_length

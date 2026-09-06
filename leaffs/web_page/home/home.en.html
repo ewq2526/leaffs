@@ -249,7 +249,7 @@ function processUploadQueue() {
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload?path=' + encodeURIComponent(item.path || ''), true);
     xhr.upload.onprogress = function(e) { if (e.lengthComputable) { var pct = e.loaded / e.total * 100; updateProgress(pct); } };
-    xhr.onload = function() { uploadDone++; if (xhr.status === 200) batchToast(file.name + ' uploaded', 'success'); else batchToast(file.name + ' upload failed', 'error'); processUploadQueue(); };
+    xhr.onload = function() { uploadDone++; var ok = false, msg = ''; try { var d = JSON.parse(xhr.responseText); if (d && d.success && (!d.errors || !d.errors.length)) { ok = true; msg = file.name + ' uploaded'; } else if (d && d.errors && d.errors.length) { msg = file.name + ' upload failed: ' + d.errors[0]; } else { msg = file.name + ' upload failed'; } } catch (e) { ok = (xhr.status === 200); msg = ok ? file.name + ' uploaded' : file.name + ' upload failed'; } batchToast(msg, ok ? 'success' : 'error'); processUploadQueue(); };
     xhr.onerror = function() { uploadDone++; batchToast(file.name + ' upload failed', 'error'); processUploadQueue(); };
     xhr.send(fd);
 }
