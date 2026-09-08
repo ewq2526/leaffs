@@ -1491,3 +1491,161 @@ input[type=file] { display: none; }
    ============================================================ */
 *, *::before, *::after { -webkit-user-select: text !important; user-select: text !important; }
 
+
+
+/* ========== 可换主题主色（在“我的”页设置；按账号持久化，服务端注入 data-accent）========== */
+:root[data-accent="green"] { --primary:#17a673; --primary-hover:#12895c; --btn-flow:linear-gradient(90deg,#17a673 0%,#a5e3c6 50%,#17a673 100%); }
+:root[data-accent="purple"] { --primary:#8b5cf6; --primary-hover:#7c3aed; --btn-flow:linear-gradient(90deg,#8b5cf6 0%,#d5c4fb 50%,#8b5cf6 100%); }
+:root[data-accent="orange"] { --primary:#f59e0b; --primary-hover:#d97706; --btn-flow:linear-gradient(90deg,#f59e0b 0%,#fde4b0 50%,#f59e0b 100%); }
+:root[data-accent="red"] { --primary:#ef4444; --primary-hover:#dc2626; --btn-flow:linear-gradient(90deg,#ef4444 0%,#f9b4b4 50%,#ef4444 100%); }
+[data-theme="dark"][data-accent="green"] { --primary:#41d9a8; --primary-hover:#2cc290; --btn-flow:linear-gradient(90deg,#15754f 0%,#74b393 50%,#15754f 100%); }
+[data-theme="dark"][data-accent="purple"] { --primary:#a78bfa; --primary-hover:#8b5cf6; --btn-flow:linear-gradient(90deg,#4c3a8c 0%,#9d8ec9 50%,#4c3a8c 100%); }
+[data-theme="dark"][data-accent="orange"] { --primary:#fbbf24; --primary-hover:#f59e0b; --btn-flow:linear-gradient(90deg,#8a5a10 0%,#c9a35c 50%,#8a5a10 100%); }
+[data-theme="dark"][data-accent="red"] { --primary:#f87171; --primary-hover:#ef4444; --btn-flow:linear-gradient(90deg,#8f2a2a 0%,#cf7f7f 50%,#8f2a2a 100%); }
+
+/* ===== 主题背景族（配合 data-accent 主色；明暗两套） ===== */
+:root[data-accent="green"] {
+    --bg: #e2eee7;
+    --card-bg: rgba(255,255,255,.62);
+    --glass-bg: rgba(255,255,255,.45);
+    --border: rgba(90,160,120,.3);
+    --hover-bg: rgba(60,180,120,.09);
+    --ring: rgba(23,166,115,.35);
+    --ring-soft: rgba(23,166,115,.13);
+    --chip-bg: rgba(80,180,130,.13);
+    --nav-hover: rgba(80,200,140,.14);
+    --upload-zone-bg: rgba(80,180,130,.05);
+    --tint: rgba(60,170,110,.12);
+    --tint-info: rgba(23,166,115,.13);
+    --card-edge1: rgba(20,130,85,.12);
+    --card-edge2: rgba(70,200,150,.1);
+    --card-edge3: rgba(20,130,85,.09);
+    --orb1: rgba(150,220,185,.55);
+    --orb2: rgba(160,230,195,.5);
+    --orb3: rgba(150,220,190,.3);
+}
+
+[data-theme="dark"][data-accent="green"] {
+    --bg: #0b1310;
+    --border: rgba(90,190,135,.18);
+    --hover-bg: rgba(60,190,120,.12);
+    --ring: rgba(65,217,168,.35);
+    --ring-soft: rgba(65,217,168,.13);
+    --chip-bg: rgba(60,150,110,.16);
+    --nav-hover: rgba(60,170,120,.16);
+    --tint: rgba(40,160,110,.14);
+    --tint-info: rgba(65,217,168,.13);
+    --orb1: rgba(40,150,100,.4);
+    --orb2: rgba(50,160,110,.36);
+    --orb3: rgba(40,150,100,.22);
+}
+
+:root[data-accent="purple"] {
+    --bg: #eae4f5;
+    --card-bg: rgba(255,255,255,.62);
+    --glass-bg: rgba(255,255,255,.45);
+    --border: rgba(150,120,210,.3);
+    --hover-bg: rgba(140,100,255,.09);
+    --ring: rgba(139,92,246,.35);
+    --ring-soft: rgba(139,92,246,.13);
+    --chip-bg: rgba(160,130,240,.13);
+    --nav-hover: rgba(170,140,255,.14);
+    --upload-zone-bg: rgba(150,120,240,.05);
+    --tint: rgba(150,120,240,.12);
+    --tint-info: rgba(139,92,246,.13);
+    --card-edge1: rgba(110,70,190,.12);
+    --card-edge2: rgba(180,150,250,.1);
+    --card-edge3: rgba(110,70,190,.09);
+    --orb1: rgba(200,180,255,.55);
+    --orb2: rgba(210,190,255,.5);
+    --orb3: rgba(200,180,255,.3);
+}
+
+[data-theme="dark"][data-accent="purple"] {
+    --bg: #100e1c;
+    --border: rgba(160,130,255,.18);
+    --hover-bg: rgba(150,110,255,.12);
+    --ring: rgba(167,139,250,.35);
+    --ring-soft: rgba(167,139,250,.13);
+    --chip-bg: rgba(110,80,200,.16);
+    --nav-hover: rgba(120,90,220,.16);
+    --tint: rgba(110,80,200,.14);
+    --tint-info: rgba(167,139,250,.13);
+    --orb1: rgba(120,80,220,.4);
+    --orb2: rgba(135,95,235,.36);
+    --orb3: rgba(120,80,220,.22);
+}
+
+:root[data-accent="orange"] {
+    --bg: #f6efe1;
+    --card-bg: rgba(255,255,255,.62);
+    --glass-bg: rgba(255,255,255,.45);
+    --border: rgba(200,150,80,.3);
+    --hover-bg: rgba(240,160,60,.09);
+    --ring: rgba(245,158,11,.35);
+    --ring-soft: rgba(245,158,11,.13);
+    --chip-bg: rgba(230,170,90,.13);
+    --nav-hover: rgba(250,180,90,.14);
+    --upload-zone-bg: rgba(240,170,80,.05);
+    --tint: rgba(240,170,90,.12);
+    --tint-info: rgba(245,158,11,.13);
+    --card-edge1: rgba(190,120,30,.12);
+    --card-edge2: rgba(250,190,120,.1);
+    --card-edge3: rgba(190,120,30,.09);
+    --orb1: rgba(255,215,165,.55);
+    --orb2: rgba(255,225,180,.5);
+    --orb3: rgba(255,215,165,.3);
+}
+
+[data-theme="dark"][data-accent="orange"] {
+    --bg: #171209;
+    --border: rgba(210,160,80,.18);
+    --hover-bg: rgba(210,150,60,.12);
+    --ring: rgba(251,191,36,.35);
+    --ring-soft: rgba(251,191,36,.13);
+    --chip-bg: rgba(160,110,40,.16);
+    --nav-hover: rgba(180,130,55,.16);
+    --tint: rgba(160,110,40,.14);
+    --tint-info: rgba(251,191,36,.13);
+    --orb1: rgba(160,110,40,.4);
+    --orb2: rgba(180,125,45,.36);
+    --orb3: rgba(160,110,40,.22);
+}
+
+:root[data-accent="red"] {
+    --bg: #f6e5e5;
+    --card-bg: rgba(255,255,255,.62);
+    --glass-bg: rgba(255,255,255,.45);
+    --border: rgba(210,120,120,.3);
+    --hover-bg: rgba(240,90,90,.09);
+    --ring: rgba(239,68,68,.35);
+    --ring-soft: rgba(239,68,68,.13);
+    --chip-bg: rgba(235,140,140,.13);
+    --nav-hover: rgba(250,150,150,.14);
+    --upload-zone-bg: rgba(240,110,110,.05);
+    --tint: rgba(240,120,120,.12);
+    --tint-info: rgba(239,68,68,.13);
+    --card-edge1: rgba(200,70,70,.12);
+    --card-edge2: rgba(250,160,160,.1);
+    --card-edge3: rgba(200,70,70,.09);
+    --orb1: rgba(255,180,180,.55);
+    --orb2: rgba(255,195,195,.5);
+    --orb3: rgba(255,180,180,.3);
+}
+
+[data-theme="dark"][data-accent="red"] {
+    --bg: #170b0d;
+    --border: rgba(220,110,120,.18);
+    --hover-bg: rgba(210,80,90,.12);
+    --ring: rgba(248,113,113,.35);
+    --ring-soft: rgba(248,113,113,.13);
+    --chip-bg: rgba(160,60,70,.16);
+    --nav-hover: rgba(180,75,85,.16);
+    --tint: rgba(160,60,70,.14);
+    --tint-info: rgba(248,113,113,.13);
+    --orb1: rgba(160,55,65,.4);
+    --orb2: rgba(180,65,75,.36);
+    --orb3: rgba(160,55,65,.22);
+}
+
+

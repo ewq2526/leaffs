@@ -6,11 +6,11 @@ function toggleDark() {
     if (isDark) {
         html.removeAttribute('data-theme');
         localStorage.setItem('theme', 'light');
-        if (btn) { btn.querySelector('#darkIcon').textContent = '☀'; btn.querySelector('#darkLabel').textContent = '亮色'; }
+        if (btn) { btn.querySelector('#darkIcon').textContent = '☀'; btn.querySelector('#darkLabel').textContent = (window.__LANG__ === 'en') ? 'Light' : '亮色'; }
     } else {
         html.setAttribute('data-theme', 'dark');
         localStorage.setItem('theme', 'dark');
-        if (btn) { btn.querySelector('#darkIcon').textContent = '☾'; btn.querySelector('#darkLabel').textContent = '暗色'; }
+        if (btn) { btn.querySelector('#darkIcon').textContent = '☾'; btn.querySelector('#darkLabel').textContent = (window.__LANG__ === 'en') ? 'Dark' : '暗色'; }
     }
 }
 (function() {
@@ -18,7 +18,7 @@ function toggleDark() {
         document.documentElement.setAttribute('data-theme', 'dark');
         setTimeout(function() {
             var btn = document.getElementById('darkToggle');
-            if (btn) { btn.querySelector('#darkIcon').textContent = '☾'; btn.querySelector('#darkLabel').textContent = '暗色'; }
+            if (btn) { btn.querySelector('#darkIcon').textContent = '☾'; btn.querySelector('#darkLabel').textContent = (window.__LANG__ === 'en') ? 'Dark' : '暗色'; }
         }, 0);
     }
 })();
@@ -240,7 +240,9 @@ function updateWSStatus(connected) {
     var dot = document.getElementById('wsDot');
     var label = document.getElementById('wsLabel');
     if (dot) dot.className = 'dot' + (connected ? ' connected' : '');
-    if (label) label.textContent = connected ? '已连接' : '断开重连...';
+    if (label) label.textContent = connected
+        ? (window.__LANG__ === 'en' ? 'Connected' : '已连接')
+        : (window.__LANG__ === 'en' ? 'Reconnecting…' : '断开重连...');
 }
 
 function sendWS(data) {
@@ -295,7 +297,7 @@ function apiList(path, callback) {
     fetch('/api/files?path=' + encodeURIComponent(path || ''))
         .then(function (r) { return r.json(); })
         .then(callback)
-        .catch(function () { batchToast('加载失败', 'error'); });
+        .catch(function () { batchToast((window.__LANG__ === 'en') ? 'Failed to load' : '加载失败', 'error'); });
 }
 
 function apiDelete(paths, callback) {

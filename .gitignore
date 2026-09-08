@@ -7,9 +7,9 @@ __pycache__/
 *.egg-info/
 
 # 运行数据（含口令哈希、证书私钥、本机令牌等敏感内容，禁止上传）
-config/
-shared_files/
-.cache/
+/config/
+/shared_files/
+/.cache/
 
 # 日志
 *.log
@@ -43,3 +43,5 @@ Desktop.ini
 *.swp
 ~$*
 .rnd
+
+.pytest_cache/

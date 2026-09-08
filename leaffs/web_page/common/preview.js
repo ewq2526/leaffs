@@ -1,5 +1,7 @@
 // ========== 预览弹窗系统 ==========
 
+var _UI_EN = window.__LANG__ === 'en';
+
 var previewData = {
     currentIndex: -1,
     files: [],
@@ -44,8 +46,8 @@ function openPreview(path, files) {
     header.className = 'modal-header';
     header.innerHTML = '<span class="modal-title">' + esc(f.name) + '</span>' +
         '<div class="modal-actions">' +
-        '<a href="/download/' + encodeURIComponent(f.path) + '" class="btn btn-xs btn-success" onclick="event.stopPropagation()">⬇ 下载</a>' +
-        '<button class="btn btn-xs btn-danger" onclick="event.stopPropagation();deleteFromPreview()">🗑 删除</button>' +
+        '<a href="/download/' + encodeURIComponent(f.path) + '" class="btn btn-xs btn-success" onclick="event.stopPropagation()">' + (_UI_EN ? '⬇ Download' : '⬇ 下载') + '</a>' +
+        '<button class="btn btn-xs btn-danger" onclick="event.stopPropagation();deleteFromPreview()">' + (_UI_EN ? '🗑 Delete' : '🗑 删除') + '</button>' +
         '<button class="modal-close-btn" onclick="closePreview()">✕</button>' +
         '</div>';
     content.appendChild(header);
@@ -110,7 +112,7 @@ function openPreview(path, files) {
     } else if (ft === 'text') {
         var pre = document.createElement('pre');
         pre.className = 'preview-text';
-        pre.textContent = '加载中...';
+        pre.textContent = _UI_EN ? 'Loading…' : '加载中...';
         body.appendChild(pre);
         fetch('/api/raw?path=' + encodeURIComponent(f.path))
             .then(function (r) {
@@ -122,7 +124,7 @@ function openPreview(path, files) {
                 var xhr = new XMLHttpRequest();
                 xhr.open('GET', '/download/' + encodeURIComponent(f.path), true);
                 xhr.onload = function () { pre.textContent = xhr.responseText; };
-                xhr.onerror = function () { pre.textContent = '[加载失败]'; };
+                xhr.onerror = function () { pre.textContent = _UI_EN ? '[Load failed]' : '[加载失败]'; };
                 xhr.send();
             });
     } else if (ft === 'pdf') {
@@ -131,7 +133,7 @@ function openPreview(path, files) {
         iframe.src = '/download/' + encodeURIComponent(f.path);
         body.appendChild(iframe);
     } else {
-        body.innerHTML = '<div class="empty"><span class="icon">📄</span><p>此文件类型不支持直接预览，请下载查看</p></div>';
+        body.innerHTML = '<div class="empty"><span class="icon">📄</span><p>' + (_UI_EN ? 'Preview not supported for this file type. Download to view.' : '此文件类型不支持直接预览，请下载查看') + '</p></div>';
     }
 
     content.appendChild(body);
@@ -188,12 +190,12 @@ function deleteFromPreview() {
     if (previewData.currentIndex < 0) return;
     var f = previewData.files[previewData.currentIndex];
     if (!f) return;
-    if (!confirm('删除 "' + f.name + '" ？')) return;
+    if (!confirm(_UI_EN ? ('Delete "' + f.name + '" ?') : ('删除 "' + f.name + '" ？'))) return;
 
     var oldHandler = window.handleWSMessage;
     window.handleWSMessage = function (msg) {
         if (msg.type === 'delete' && msg.success) {
-            batchToast('✅ 删除成功', 'success');
+            batchToast(_UI_EN ? '✅ Deleted' : '✅ 删除成功', 'success');
             closePreview();
             if (typeof loadFiles === 'function') loadFiles();
         }
@@ -202,7 +204,9 @@ function deleteFromPreview() {
 
     if (sendWS({ type: 'delete', paths: [f.path] })) return;
     apiDelete([f.path], function (d) {
-        batchToast(d.success ? '✅ 删除成功' : '❌ 删除失败', d.success ? 'success' : 'error');
+        batchToast(d.success
+            ? (_UI_EN ? '✅ Deleted' : '✅ 删除成功')
+            : (_UI_EN ? '❌ Delete failed' : '❌ 删除失败'), d.success ? 'success' : 'error');
         if (d.success) { closePreview(); if (typeof loadFiles === 'function') loadFiles(); }
     });
 }

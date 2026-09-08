@@ -4,6 +4,30 @@
 
 Author: ewq2526. Version format: major.minor.patch. There were no earlier versions or change records; this file records changes starting from 1.0.3.
 
+## 1.0.5 - 2026-09-07
+
+### Features
+
+- Reworked the My Account page: change your own password (the old password must be verified; after a change, other devices of the account are signed out), list this account's signed-in devices and sign out all other devices with one click, show current-device info and storage usage (admins: server total; regular users: own folder; guests: public folder), and show the LAN server address with one-click copy.
+- Interface language and theme color (blue/green/purple/orange/red) are chosen on the My Account page and also saved to the signed-in account on the server; after the built-in window (an incognito session) restarts and signs in again, the account's choices are restored. Browsers with a language cookie keep using their own choice.
+- The whole UI supports swappable theme colors, each with matching background colors for light and dark mode.
+- aria2c (the process used for magnet/torrent downloads) is restarted automatically when it exits unexpectedly or becomes unreachable, and the page status refreshes accordingly.
+- Folder deletion and creation over WebSocket now run in background threads, so deleting a large directory no longer blocks live page communication.
+- When the service appears frozen, evidence is collected automatically: a watchdog detects stalled requests and writes all thread stacks to config/freeze_dump_*.txt for troubleshooting.
+- In English mode, dynamic data texts on admin pages (stats, connection list, status indicators, QR descriptions, etc.) now follow the interface language.
+
+### Fixes
+
+- The upload target directory is created automatically when missing; if no file is saved at all, the request now honestly returns failure with reasons instead of falsely reporting success.
+- Fixed occasional startup failure with HTTPS enabled and no visible cause: TLS context build errors are now logged.
+- Fixed server-wide and parent-directory storage stats not refreshing after changes in subdirectories: folder-size cache invalidation now also invalidates ancestor aggregates.
+- The server address on the My Account page no longer shows localhost; it shows the LAN address instead.
+
+### Architecture
+
+- Code structure refactor: HTTP, WebSocket, push notifications, TLS, and runtime path resolution were split into separate layered modules, and controllers were moved into their domain packages; external interfaces, configuration, and data files are unchanged.
+- Added automated regression tests (tests/): they start the real service and cover sign-in, permissions, upload/download, and account APIs on key paths.
+
 ## 1.0.4 - 2026-09-05
 
 ### Features

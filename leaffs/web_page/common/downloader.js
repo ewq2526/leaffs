@@ -1,6 +1,8 @@
 // ========== 断点续传下载管理器 ==========
 // 基于 localStorage 持久化任务状态，支持暂停/继续/取消
 
+var _UI_EN = window.__LANG__ === 'en';
+
 var DL = {
     STORAGE_KEY: 'dl_tasks',
     tasks: {},
@@ -106,7 +108,7 @@ DL._downloadChunk = function (id) {
         if (xhr.status === 200 || xhr.status === 206) {
             var data = xhr.response;
             if (!data) {
-                DL._onError(id, '无数据返回');
+                DL._onError(id, _UI_EN ? 'No data returned' : '无数据返回');
                 return;
             }
             var contentRange = xhr.getResponseHeader('Content-Range');
@@ -121,7 +123,7 @@ DL._downloadChunk = function (id) {
 
             DL._writeChunk(task, data, function (success) {
                 if (!success) {
-                    DL._onError(id, '写入文件失败');
+                    DL._onError(id, _UI_EN ? 'Failed to write file' : '写入文件失败');
                     return;
                 }
                 task.downloaded += data.byteLength;
@@ -143,14 +145,14 @@ DL._downloadChunk = function (id) {
                 DL._save();
                 DL._finalize(task);
             } else {
-                DL._onError(id, 'Range 错误 (416)');
+                DL._onError(id, _UI_EN ? 'Range error (416)' : 'Range 错误 (416)');
             }
         } else {
             DL._onError(id, 'HTTP ' + xhr.status);
         }
     };
 
-    xhr.onerror = function () { DL._onError(id, '网络错误'); };
+    xhr.onerror = function () { DL._onError(id, _UI_EN ? 'Network error' : '网络错误'); };
     xhr.onprogress = function (e) { if (e.total > 0) task.totalSize = e.total; DL._save(); };
     xhr.send();
 };
@@ -165,7 +167,7 @@ DL._writeChunk = function (task, data, callback) {
 
 DL._finalize = function (task) {
     var parts = DL._blobs[task.id];
-    if (!parts || !parts.length) { DL._onError(task.id, '没有数据'); return; }
+    if (!parts || !parts.length) { DL._onError(task.id, _UI_EN ? 'No data' : '没有数据'); return; }
     var blob = new Blob(parts, { type: 'application/octet-stream' });
     delete DL._blobs[task.id];
     var url = URL.createObjectURL(blob);
@@ -233,10 +235,10 @@ function startResumeDownload(name, path) {
     var tasks = DL.getTasks();
     for (var i = 0; i < tasks.length; i++) {
         if (tasks[i].path === path && tasks[i].status !== 'completed' && tasks[i].status !== 'error') {
-            batchToast('⏳ 已在下载队列中', 'info');
+            batchToast(_UI_EN ? '⏳ Already in the download queue' : '⏳ 已在下载队列中', 'info');
             return;
         }
     }
-    batchToast('📥 添加下载: ' + name, 'info');
+    batchToast(_UI_EN ? ('📥 Added download: ' + name) : ('📥 添加下载: ' + name), 'info');
     DL.addTask(name, path, 0);
 }

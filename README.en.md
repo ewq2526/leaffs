@@ -8,9 +8,10 @@ LeafFS is a LAN file sharing/download server implemented in Python 3.12. It runs
 
 - File services: a Public directory and a private directory per account; browsing, upload, download, folder archive download, and online preview (Gallery).
 - Access control: three roles, User, Admin and Super Admin; optional guest mode; quotas and speed limits.
-- Download tasks: HTTP/HTTPS direct links, magnet links, torrents and m3u8, downloaded by the server and recorded in the library. By default only public-network targets are allowed, and Guests cannot use it by default.
+- Download tasks: HTTP/HTTPS direct links, magnet links, torrents and m3u8, downloaded by the server and recorded in the library. By default only public-network targets are allowed, and Guests cannot use it by default; aria2c (the process used for magnet/torrent downloads) is restarted automatically when it exits unexpectedly.
 - Others: QR-code sign-in, local passwordless token, automatic generation of self-signed HTTPS certificates, adjustable connection and concurrency limits, sign-in rate limiting and account lockout.
-- Multilingual: the UI provides Chinese and English; the language is chosen on the My Account page and remembered by the browser. The English versions are hand-written page files (`*.en.html`); the server returns them according to the language cookie (`leaf_lang`) and falls back to Chinese when no English file exists. The English content is AI-translated (differences may exist); unified terminology is described in `TRANSLATION_GLOSSARY.md`.
+- Multilingual: the UI provides Chinese and English. The language is chosen on the My Account page and saved to the signed-in account on the server; when the browser has a language cookie, the cookie wins. The English versions are hand-written page files (`*.en.html`); the server returns them accordingly and falls back to Chinese when no English file exists. The English content is AI-translated (differences may exist); unified terminology is described in `TRANSLATION_GLOSSARY.md`.
+- Look & feel: the theme color is swappable (blue/green/purple/orange/red), each with matching background colors for light and dark mode; it is chosen on the My Account page and saved to the account.
 
 ## 2. Running
 
@@ -31,7 +32,7 @@ LeafFS is a LAN file sharing/download server implemented in Python 3.12. It runs
   - Admin page `/admin`: guest mode, quotas, speed limits, connection limits (whole machine, per device, WebSocket), connected users, log preview.
   - Advanced Settings `/admin/advanced`: ports, TLS, cache, upload and preview size limits, ZIP packaging mode and limit.
   - Deep Config `/admin/deep`: password hash iterations and salt length, thumbnail parameters, session lifetime, guest write and downloader switches, access log, connection idle timeout, certificate notice page bind address, compatibility archives.
-  - User info `/me`: current account information and Sign Out.
+  - User info `/me`: current account and role, storage usage, current device and signed-in device management (sign out other devices), change your own password, language and theme-color settings, and server address copy.
 - ZIP packaging is fully streamed by default (compressed and sent on the fly, no temporary disk usage); it can be switched in Advanced Settings to pack-then-send mode (includes the total size, but large files occupy temporary disk space).
 
 ## 4. HTTPS and Certificates
@@ -63,14 +64,14 @@ LeafFS is a LAN file sharing/download server implemented in Python 3.12. It runs
 
 ## 7. Development Notes
 
-- Main entry `leaffs/leaffs.py`; the main modules are the subpackages under `leaffs/`.
+- Main entry `leaffs/leaffs.py` (a compatibility shim pointing to the startup assembly in `leaffs/app.py`); server code is organized by domain: `auth` (accounts & sessions), `files`, `config`, `dl` (downloader), `web` (page rendering), `server` (HTTP/WebSocket/push/TLS/host utilities), `utils` (common utilities).
 - Data directory rule: equals the project root when running from source, and the main program directory when running the packaged build.
 - Main config keys: `http_port`, `ws_port`, `tls_trust_port`, `tls_enabled`, `tls_cert`, `tls_key`, `trust_bind_host`, `guest_mode`, `guest_public_write`, `downloader_guest_allowed`, `max_total_conns` (default 256), `max_conn_per_ip` (default 20), `ws_max_conn_per_ip` (default 8), `io_idle_timeout_secs` (default 120), `zip_max_files`, `zip_streaming` (default true), `pbkdf2_iterations`, `salt_length`, `access_log`.
 - Account password hash format: iterations, Base64 salt and Base64 digest, separated by `$`.
 - Bundled external programs: `openssl.exe`, `aria2c.exe`, `ffmpeg.exe`; their purpose and licenses are described in Section 8 and the third-party notices file.
 - API requests carrying an invalid session cookie uniformly return 401 before routing; anonymous paths such as `/api/qrlogin` are on the exemption list.
 - All page text can be selected and copied; the QR code color changes with the light/dark theme.
-- Multilingual implementation: the Chinese and English versions of each page live in the same directory, and English files end with `.en.html`; the server reads the `leaf_lang` cookie from the request and returns the English file when it is `en` and that file exists, otherwise Chinese. The language selector is on the My Account page; switching writes the cookie and refreshes the page. English is AI-translated, and terminology consistency is ensured by `TRANSLATION_GLOSSARY.md`.
+- Multilingual implementation: the Chinese and English versions of each page live in the same directory, and English files end with `.en.html`. Language is resolved in this order: the request `leaf_lang` cookie wins; without a cookie, the language preference saved on the server for the signed-in account (in users.json) is used, so incognito sessions such as the built-in window restore their language after a restart. The language selector is on the My Account page; switching writes the cookie, saves the account preference, and refreshes the page. English is AI-translated, and terminology consistency is ensured by `TRANSLATION_GLOSSARY.md`.
 - Comment conventions: code comments are uniformly **bilingual Chinese and English** (one Chinese line plus an adjacent English line, or both languages in a single line); only informative comments are kept, and duplicated, outdated or meaningless comments are removed; English parts may be marked as AI-translated. The whole repository is being cleaned up in batches under this convention.
 - AI-assisted development: this project is heavily AI-assisted, mainly using DeepSeek V4 Flash; see `THIRD_PARTY_NOTICES.md`.
 

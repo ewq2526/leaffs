@@ -33,6 +33,8 @@ function _wsDebugBind(sock) {
 // ========== WS 显式 sid 认证 + 管理订阅（共享助手见 common/app.js: wsAdminAuthAndSubscribe）==========
 // 本页面对当前 WS 连接是否已成功发出 admin-sub。false 期间即使 wsConnected==true
 // 也允许 HTTP 兜底轮询，避免“连接了但没订阅/收不到推送”时页面永久空转。
+// 管理页界面语言（zh/en 模板各自注入 window.__LANG__；仅影响动态渲染文案）
+var _UI_EN = window.__LANG__ === 'en';
 var _wsAdminReady = false;
 // 当前连接已发出的 auth sid（诊断/匹配用）
 var _wsAuthSid = '';
@@ -49,7 +51,7 @@ function setAuthState(on) {
     var el = document.getElementById('authState');
     if (!el) return;
     _guestModeKnown = !!on;
-    el.textContent = on ? '开启中' : '已关闭';
+    el.textContent = _UI_EN ? (on ? 'Enabled' : 'Disabled') : (on ? '开启中' : '已关闭');
     el.className = 'auth-state ' + (on ? 'enabled' : 'disabled');
 }
 
@@ -58,6 +60,11 @@ function fmtUptime(secs) {
     secs = Math.max(0, Math.floor(secs));
     var d = Math.floor(secs / 86400), h = Math.floor(secs % 86400 / 3600);
     var m = Math.floor(secs % 3600 / 60), s = secs % 60;
+    if (_UI_EN) {
+        if (d > 0) return 'Up ' + d + 'd ' + h + 'h ' + m + 'm';
+        if (h > 0) return 'Up ' + h + 'h ' + m + 'm';
+        return 'Up ' + m + 'm ' + s + 's';
+    }
     if (d > 0) return '已运行 ' + d + ' 天 ' + h + ' 小时 ' + m + ' 分';
     if (h > 0) return '已运行 ' + h + ' 小时 ' + m + ' 分';
     return '已运行 ' + m + ' 分 ' + s + ' 秒';
@@ -66,6 +73,12 @@ function fmtUptime(secs) {
 // 相对时间（秒 → 天/小时/分钟/秒前）
 function fmtAgo(secs) {
     secs = Math.max(0, Math.floor(secs));
+    if (_UI_EN) {
+        if (secs >= 86400) return Math.floor(secs / 86400) + 'd ago';
+        if (secs >= 3600) return Math.floor(secs / 3600) + 'h ago';
+        if (secs >= 60) return Math.floor(secs / 60) + 'm ago';
+        return secs + 's ago';
+    }
     if (secs >= 86400) return Math.floor(secs / 86400) + ' 天前';
     if (secs >= 3600) return Math.floor(secs / 3600) + ' 小时前';
     if (secs >= 60) return Math.floor(secs / 60) + ' 分钟前';
@@ -82,7 +95,7 @@ function renderServerLogs(logs) {
     var area = document.getElementById('logArea');
     if (!area) return;
     logs = logs || [];
-    if (!logs.length) { area.innerHTML = '<div style="color:var(--text-light);font-size:11px">暂无日志</div>'; return; }
+    if (!logs.length) { area.innerHTML = '<div style="color:var(--text-light);font-size:11px">' + (_UI_EN ? 'No logs' : '暂无日志') + '</div>'; return; }
     var h = '';
     var start = Math.max(0, logs.length - LOG_PREVIEW_MAX);
     // 最新在前（logs 为时间正序，倒序输出后第一条即最新），并停在顶部让最新可见
@@ -126,9 +139,9 @@ function resetCerts() {
     fetch('/api/certs/reset', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
     }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d && d.success) batchToast(d.message || '操作成功', 'success');
-        else batchToast((d && d.error) || '重置失败', 'error');
-    }).catch(function() { batchToast('请求失败', 'error'); });
+        if (d && d.success) batchToast(d.message || (_UI_EN ? 'Operation successful' : '操作成功'), 'success');
+        else batchToast((d && d.error) || (_UI_EN ? 'Reset failed' : '重置失败'), 'error');
+    }).catch(function() { batchToast(_UI_EN ? 'Request failed' : '请求失败', 'error'); });
 }
 
 // ========== 配置输入框专用刷新（从 /api/config 与 /api/config/deep 获取，编辑时跳过）=========
@@ -181,11 +194,18 @@ function applyStats(d) {
         ? d.uptime : Math.floor((Date.now() - startTime) / 1000);
     document.getElementById('startTime').textContent = fmtUptime(uptime);
     document.getElementById('localIp').textContent = d.server_ip || window.location.hostname;
-    document.getElementById('fileTotal').textContent = d.file_count + ' 个文件, ' + d.folder_count + ' 个文件夹';
     document.getElementById('shareTotalSize').textContent = formatSize(d.total_size);
-    document.getElementById('ffmpegStatus').textContent = d.ffmpeg ? '可用' : '未安装';
-    document.getElementById('aria2cStatus').textContent = d.aria2c ? '可用' : '未安装';
-    document.getElementById('connCount').textContent = d.active_connections + ' 个在线';
+    if (_UI_EN) {
+        document.getElementById('fileTotal').textContent = d.file_count + ' files, ' + d.folder_count + ' folders';
+        document.getElementById('ffmpegStatus').textContent = d.ffmpeg ? 'Available' : 'Not installed';
+        document.getElementById('aria2cStatus').textContent = d.aria2c ? 'Available' : 'Not installed';
+        document.getElementById('connCount').textContent = d.active_connections + ' online';
+    } else {
+        document.getElementById('fileTotal').textContent = d.file_count + ' 个文件, ' + d.folder_count + ' 个文件夹';
+        document.getElementById('ffmpegStatus').textContent = d.ffmpeg ? '可用' : '未安装';
+        document.getElementById('aria2cStatus').textContent = d.aria2c ? '可用' : '未安装';
+        document.getElementById('connCount').textContent = d.active_connections + ' 个在线';
+    }
     document.getElementById('userQuotaInfo').textContent = formatSize(d.users_used || 0) + '  / ' + formatSize(d.user_quota || 5368709120);
     document.getElementById('publicQuotaInfo').textContent = formatSize(d.public_used || 0) + '  / ' + formatSize(d.public_quota || 5368709120);
     document.getElementById('totalQuotaInfo').textContent = formatSize(d.total_used || 0) + '  / ' + formatSize(d.total_quota || 53687091200);
@@ -245,32 +265,58 @@ document.addEventListener('focusout', function(e) {
 document.addEventListener('visibilitychange', _onVisibilityChange);
 
 // ========== 连接用户列表 ==========
+var _ROLE_EN = { super_admin: ['Super Admin', 'var(--danger)'],
+                 admin: ['Admin', 'var(--primary)'],
+                 user: ['User', 'var(--success)'],
+                 guest: ['Guest', 'var(--muted)'] };
+
+function _roleZh(roleCode) {
+    if (roleCode === 'super_admin') return ['超级管理员', 'var(--danger)'];
+    if (roleCode === 'admin') return ['管理员', 'var(--primary)'];
+    if (roleCode === 'user') return ['用户', 'var(--success)'];
+    return ['游客', 'var(--muted)'];
+}
+
 function renderConnections(list) {
     list = list || [];
     var html = '';
     if (!list.length) {
-        html = '<div style="color:var(--text-light);font-size:11px;padding:10px 0">暂无连接</div>';
+        html = '<div style="color:var(--text-light);font-size:11px;padding:10px 0">'
+            + (_UI_EN ? 'No connections' : '暂无连接') + '</div>';
     } else {
         // 表头
         html += '<div style="display:flex;align-items:center;gap:12px;padding:5px 2px;font-size:11px;color:var(--text-light);border-bottom:1px solid var(--border);line-height:1.6">';
-        html += '<span style="min-width:80px;font-weight:600">用户名</span>';
-        html += '<span style="min-width:80px;text-align:center;font-weight:600">身份</span>';
-        html += '<span style="flex:1;text-align:center;font-weight:600">IP</span>';
-        html += '<span style="min-width:60px;text-align:right;font-weight:600">最近一次活动</span>';
+        if (_UI_EN) {
+            html += '<span style="min-width:80px;font-weight:600">Username</span>';
+            html += '<span style="min-width:80px;text-align:center;font-weight:600">Role</span>';
+            html += '<span style="flex:1;text-align:center;font-weight:600">IP</span>';
+            html += '<span style="min-width:60px;text-align:right;font-weight:600">Last activity</span>';
+        } else {
+            html += '<span style="min-width:80px;font-weight:600">用户名</span>';
+            html += '<span style="min-width:80px;text-align:center;font-weight:600">身份</span>';
+            html += '<span style="flex:1;text-align:center;font-weight:600">IP</span>';
+            html += '<span style="min-width:60px;text-align:right;font-weight:600">最近一次活动</span>';
+        }
         html += '</div>';
         for (var i = 0; i < Math.min(list.length, 50); i++) {
             var c = list[i];
             var timeStr = fmtAgo(c.active_secs || 0);
-            var user = c.username || '游客';
-            var role = c.role || '';
-            var roleColor = '';
-            if (role === '超级管理员') { roleColor = 'var(--danger)'; }
-            else if (role === '管理员') { roleColor = 'var(--primary)'; }
-            else if (role === '用户') { roleColor = 'var(--success)'; }
-            else { role = '游客'; roleColor = 'var(--muted)'; }
+            var user = c.username || (_UI_EN ? 'Guest' : '游客');
+            var roleCode = c.role_code || '';
+            var rp = null;
+            if (_UI_EN) {
+                rp = _ROLE_EN[roleCode] || _ROLE_EN.guest;
+            } else {
+                // 旧数据无 role_code 时按原中文显示串兼容
+                if (c.role === '超级管理员') rp = _roleZh('super_admin');
+                else if (c.role === '管理员') rp = _roleZh('admin');
+                else if (c.role === '用户') rp = _roleZh('user');
+                else rp = _roleZh(roleCode);
+            }
+            var roleLabel = rp[0], roleColor = rp[1];
             html += '<div style="display:flex;align-items:center;gap:12px;padding:5px 2px;font-size:12px;border-bottom:1px solid var(--border);line-height:1.6">';
             html += '<span style="font-weight:600;color:var(--text);white-space:nowrap;min-width:80px">' + esc(user) + '</span>';
-            html += '<span style="color:' + roleColor + ';font-weight:600;font-size:11px;min-width:80px;text-align:center">[' + role + ']</span>';
+            html += '<span style="color:' + roleColor + ';font-weight:600;font-size:11px;min-width:80px;text-align:center">[' + roleLabel + ']</span>';
             html += '<span style="color:var(--text-light);flex:1;text-align:center;white-space:nowrap">' + esc(c.ip) + '</span>';
             html += '<span style="color:var(--text-light);min-width:60px;text-align:right;white-space:nowrap">' + timeStr + '</span>';
             html += '</div>';
@@ -326,7 +372,7 @@ function genQR(name) {
     fetch('/api/qrcode?name=' + encodeURIComponent(name) + '&embed=1')
         .then(function(r) { return r.json(); })
         .then(function(d) {
-            if (!d.qr_url) { batchToast('生成二维码失败', 'error'); return; }
+            if (!d.qr_url) { batchToast(_UI_EN ? 'Failed to generate QR code' : '生成二维码失败', 'error'); return; }
             var sid = d.sid;
             var qrUrl = d.qr_url;
 
@@ -343,11 +389,13 @@ function genQR(name) {
 
             var title = document.createElement('div');
             title.style.cssText = 'font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px';
-            title.textContent = '扫码连接';
+            title.textContent = _UI_EN ? 'Scan to sign in' : '扫码连接';
 
             var sub = document.createElement('div');
             sub.style.cssText = 'font-size:12px;color:var(--muted);margin-bottom:16px';
-            sub.textContent = '扫描后自动登录（' + name + '）';
+            sub.textContent = _UI_EN
+                ? ('Signs in as ' + name + ' after scanning')
+                : ('扫描后自动登录（' + name + '）');
 
             var qrWrap = document.createElement('div');
             qrWrap.style.cssText = 'text-align:center;padding:12px 0';
@@ -360,12 +408,12 @@ function genQR(name) {
             var statusMsg = document.createElement('div');
             statusMsg.id = 'embedQrStatus';
             statusMsg.style.cssText = 'font-size:12px;font-weight:600;color:var(--success);margin-top:10px;display:none';
-            statusMsg.textContent = '已扫码登录成功';
+            statusMsg.textContent = _UI_EN ? 'Signed in successfully' : '已扫码登录成功';
 
             var expiredMsg = document.createElement('div');
             expiredMsg.id = 'embedQrExpired';
             expiredMsg.style.cssText = 'font-size:12px;font-weight:600;color:var(--danger);margin-top:10px;display:none';
-            expiredMsg.textContent = '二维码已失效';
+            expiredMsg.textContent = _UI_EN ? 'QR code expired' : '二维码已失效';
 
             card.appendChild(closeBtn);
             card.appendChild(title);
@@ -439,7 +487,7 @@ function initQR() {
         var _qg = { text: url, width: 105, height: 105 };
         if (typeof qrThemeColors === 'function') { var _qgc = qrThemeColors(); _qg.colorDark = _qgc.colorDark; _qg.colorLight = _qgc.colorLight; }
         new QRCode(container, _qg);
-        setCap(cap || '手机扫码访问文件服务');
+        setCap(cap || (_UI_EN ? 'Scan to open the file service' : '手机扫码访问文件服务'));
     }
     Promise.all([
         fetch('/api/stats').then(function(r) { return r.json(); }).catch(function() { return {}; }),
@@ -451,18 +499,21 @@ function initQR() {
         var url, cap;
         if (ad.tls_enabled) {
             var tp = ad.tls_trust_port || 8082;
-            url = 'http://' + serverIp + (String(tp) === '80' ? '' : ':' + tp);
-            cap = 'HTTPS 已开启：扫码先到证书提示页（http:' + (String(tp) === '80' ? '' : ':' + tp) + '），已登录会自动跳转主站';
+            var tpStr = String(tp) === '80' ? '' : ':' + tp;
+            url = 'http://' + serverIp + tpStr;
+            cap = _UI_EN
+                ? ('HTTPS is on: scanning goes to the certificate notice page (http' + tpStr + '). Signed-in browsers jump to the main site automatically.')
+                : ('HTTPS 已开启：扫码先到证书提示页（http' + tpStr + '），已登录会自动跳转主站');
         } else {
             url = window.location.protocol + '//' + serverIp
                 + (window.location.port ? ':' + window.location.port : '');
-            cap = '手机扫码直接进入文件服务';
+            cap = _UI_EN ? 'Scan to open the file service directly' : '手机扫码直接进入文件服务';
         }
         draw(url, cap);
     })
     .catch(function() {
         var url = window.location.protocol + '//' + window.location.host;
-        draw(url, '手机扫码直接进入文件服务');
+        draw(url, _UI_EN ? 'Scan to open the file service directly' : '手机扫码直接进入文件服务');
     });
 }
 
