@@ -26,9 +26,10 @@ def serve_admin_page(handler, BASE_DIR, read_file_cached, is_default_admin_passw
         handler.send_error(404)
         return
     role_code = 'super_admin' if handler.role == 'super_admin' else 'admin'
+    _ck = handler.headers.get('Cookie', '')
     _u = handler._get_username_from_session()
     html = data.decode('utf-8').replace('__MY_ROLE__', role_code)
-    html = _inject_theme(html, _user_accent(_u))
+    html = _inject_theme(html, _effective_accent(_ck, _u))
     need_change = 'false'
     if handler.role in ('admin', 'super_admin'):
         if is_default_admin_password():
@@ -65,7 +66,7 @@ def serve_admin_users_page(handler, get_session, get_session_username, read_file
     html = data.decode('utf-8')
     html = html.replace('__MY_ROLE__', role_code)
     html = html.replace('__MY_USERNAME__', username)
-    html = _inject_theme(html, _user_accent(username))
+    html = _inject_theme(html, _effective_accent(cookie, username))
     html = _inject_ws_port(html)
     data = html.encode('utf-8')
     handler.send_response(200)
@@ -89,6 +90,27 @@ def _user_accent(username):
         except Exception:
             pass
     return ''
+
+
+def _cookie_accent(cookie):
+    """请求 cookie 里的主题主色偏好（leaf_accent；供游客/未登录浏览器记住颜色）"""
+    try:
+        from leaffs.auth import core as _ac
+        for part in (cookie or '').split(';'):
+            k, _, v = part.strip().partition('=')
+            if k == 'leaf_accent' and v and v in _ac._ACCENT_COLORS:
+                return v
+    except Exception:
+        pass
+    return ''
+
+
+def _effective_accent(cookie, username=''):
+    """页面主题主色：登录账号服务端偏好优先，其次浏览器 cookie，最后默认蓝。"""
+    acc = _user_accent(username)
+    if acc:
+        return acc
+    return _cookie_accent(cookie)
 
 
 def _inject_theme(html, accent):
@@ -159,7 +181,7 @@ def serve_file(handler, filename, content_type, BASE_DIR,
     # 注入角色信息（用于前端显隐导航项）
     role_json = f'"{role}"' if role else 'null'
     html = html.replace('__MY_ROLE__', role_json)
-    html = _inject_theme(html, _user_accent(username))
+    html = _inject_theme(html, _effective_accent(cookie, username))
     html = _inject_ws_port(html)
     data = html.encode('utf-8')
     handler.send_response(200)

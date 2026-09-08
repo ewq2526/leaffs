@@ -322,6 +322,8 @@ function setAccent(a) {
     a = a || '';
     document.documentElement.setAttribute('data-accent', a);
     markAccent(a);
+    // Remember in the browser (also works for guests); the account preference below overrides it.
+    try { document.cookie = 'leaf_accent=' + a + '; path=/; max-age=31536000'; } catch (e) {}
     // Persist to the server account (incognito/webview cannot keep client storage)
     if (!IS_GUEST && window.fetch) {
         fetch('/api/account/theme', {
@@ -385,7 +387,7 @@ function loadMe() {
                 var w = document.getElementById('accWarn');
                 if (w) w.style.display = 'block';
             }
-            markAccent(d.accent || '');
+            markAccent(document.documentElement.getAttribute('data-accent') || '');
             applyLangUi();
         })
         .catch(function () { applyLangUi(); });

@@ -323,6 +323,8 @@ function setAccent(a) {
     a = a || '';
     document.documentElement.setAttribute('data-accent', a);
     markAccent(a);
+    // 浏览器记住（游客/未登录也能持久；账号登录时下方再写服务端偏好）
+    try { document.cookie = 'leaf_accent=' + a + '; path=/; max-age=31536000'; } catch (e) {}
     // 持久化到服务端账号（webview 无痕会话存不住客户端存储，重启登录后仍生效）
     if (!IS_GUEST && window.fetch) {
         fetch('/api/account/theme', {
@@ -388,7 +390,7 @@ function loadMe() {
                 var w = document.getElementById('accWarn');
                 if (w) w.style.display = 'block';
             }
-            markAccent(d.accent || '');
+            markAccent(document.documentElement.getAttribute('data-accent') || '');
             applyLangUi();
         })
         .catch(function () { applyLangUi(); });
