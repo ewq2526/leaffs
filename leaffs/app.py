@@ -14,7 +14,6 @@ import socket
 import webbrowser
 import urllib.parse
 import asyncio
-import websockets
 import threading
 import time
 import logging
