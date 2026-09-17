@@ -6,7 +6,7 @@ import time
 
 
 def _archive_user_dir(username):
-    """把被删用户的家目录**改名归档**到 `users/.deleted/<name>-<时间戳>/`。
+    """把被删用户的家目录**改名归档**到 `users/.deleted/<name>-<时间戳>[-序号]/`。
 
     返回 `(归档相对路径 or None, 错误文案 or None)`。没目录可归档不算错（用户从没登过录）
     → `(None, None)`。
@@ -28,10 +28,21 @@ def _archive_user_dir(username):
         return None, None
     stamp = time.strftime('%Y%m%d-%H%M%S', time.localtime())
     dest_dir = os.path.join(UPLOAD_DIR, 'users', '.deleted')
-    dest = os.path.join(dest_dir, '%s-%s' % (username, stamp))
     try:
         os.makedirs(dest_dir, exist_ok=True)
+        # 时间戳只到秒，而**同一秒内删两次同名用户**是真会发生的：删掉 → 同名重建 → 再删，
+        # 或者第一次失败后**立刻重试**。撞名时 os.rename 不是"覆盖"而是直接抛 ——
+        # Windows 上 rename 到已存在目录必然 FileExistsError（WinError 183），
+        # 于是整个删账号操作失败（账号没删、分享码与映射也没清，因为清理排在归档之后），
+        # 而返回的文案还写着"可重试"—— 同秒重试**必然**再失败。
+        # 所以唯一性不能指望时间戳：撞了就往后加序号。
+        dest = os.path.join(dest_dir, '%s-%s' % (username, stamp))
+        n = 1
+        while os.path.exists(dest):
+            n += 1
+            dest = os.path.join(dest_dir, '%s-%s-%d' % (username, stamp, n))
         os.rename(src, dest)
+        archived = 'users/.deleted/%s' % os.path.basename(dest)
     except Exception as e:
         from leaffs.runtime_log import log_exception
         log_exception('归档被删用户的家目录', e)
@@ -40,7 +51,7 @@ def _archive_user_dir(username):
         invalidate_folder_cache(os.path.join(UPLOAD_DIR, 'users'), recursive=True)
     except Exception:
         pass
-    return 'users/.deleted/%s-%s' % (username, stamp), None
+    return archived, None
 
 
 def _caller_sid(handler):
