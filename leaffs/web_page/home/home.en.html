@@ -235,10 +235,10 @@ function render() {
     for (var i = 0; i < filtered.length; i++) {
         var f = filtered[i], checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
         var sz = formatSize(f.size), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
-        var ep = encodeURIComponent(f.path), en = esc(f.name), sp = safeStr(f.path), ft = fileType(f.name);
+        var ep = encodeURIComponent(f.path), en = esc(f.name), sp = jsAttr(f.path), ft = fileType(f.name);
         // Attributes need the HTML-escaped path; getAttribute() reads the raw value back,
         // which is exactly the key _thumbOk uses
-        var eh = esc(f.path);
+        var eh = escAttr(f.path);   // only used in data-path="..." ⇒ quotes must be escaped
         var pv = (!isFolder && ['image', 'video', 'audio', 'text', 'pdf'].indexOf(ft) >= 0)
             ? '<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();openPreview(\'' + sp + '\', files)">Preview</button>' : '';
         var acts = isFolder ? '<a href="/browse/' + ep + '" class="btn btn-sm btn-primary">Open</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">Delete</button>'
@@ -502,7 +502,7 @@ function renderSearchResults(rf, query) {
     c.className = 'file-grid list-view';
     var h = '';
     for (var i = 0; i < rf.length; i++) {
-        var f = rf[i], checked = selected.has(f.path) ? 'checked' : '', sp = safeStr(f.path), ep = encodeURIComponent(f.path);
+        var f = rf[i], checked = selected.has(f.path) ? 'checked' : '', sp = jsAttr(f.path), ep = encodeURIComponent(f.path);
         var nameHtml = esc(f.name), idx = nameHtml.toLowerCase().indexOf(query.toLowerCase());
         if (idx !== -1) nameHtml = esc(f.name.substring(0, idx)) + '<span class="search-hl">' + esc(f.name.substring(idx, idx + query.length)) + '</span>' + esc(f.name.substring(idx + query.length));
         var dir = f.path.indexOf('/') !== -1 ? f.path.substring(0, f.path.lastIndexOf('/')) : '';

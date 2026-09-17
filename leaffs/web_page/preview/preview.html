@@ -267,10 +267,10 @@ function renderGallery() {
     for (var i = 0; i < filtered.length; i++) {
         var f = filtered[i];
         var encodedPath = encodeURIComponent(f.path);
-        var sname = safeStr(f.path);
+        var sname = jsAttr(f.path);   // 只用于 onclick="openPreview('...')" ⇒ 两道转义都要
         var ename = esc(f.name);
         // 属性里放 HTML 转义的路径；data-path 读回来是原始值，与 _thumbOk 的键一致
-        var eh = esc(f.path);
+        var eh = escAttr(f.path);   // 只用于 data-path="..." 属性位置 ⇒ 必须转引号
         var ft = fileType(f.name);
         var iconFallback = ft === 'video' ? '&#127916;' : '&#128444;';
 
@@ -288,7 +288,7 @@ function renderGallery() {
 
         html += '<div class="gallery-item" onclick="openPreview(\'' + sname + '\', allFiles)">';
         html += thumbHtml;
-        html += '<div class="item-name" title="' + ename + '">' + ename + '</div>';
+        html += '<div class="item-name" title="' + escAttr(f.name) + '">' + ename + '</div>';
         html += '<div style="font-size:11px;color:var(--muted)">' + formatSize(f.size) + '</div>';
         html += '</div>';
     }

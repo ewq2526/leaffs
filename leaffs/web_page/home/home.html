@@ -250,9 +250,10 @@ function render() {
     for (var i = 0; i < filtered.length; i++) {
         var f = filtered[i], checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
         var sz = formatSize(f.size), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
-        var ep = encodeURIComponent(f.path), en = esc(f.name), sp = safeStr(f.path), ft = fileType(f.name);
+        var ep = encodeURIComponent(f.path), en = esc(f.name), sp = jsAttr(f.path), ft = fileType(f.name);
         // 属性里要放 HTML 转义的路径；data-path 读回来是原始值，正好与 _thumbOk 的键一致
-        var eh = esc(f.path);
+        // ⚠️ 必须用 escAttr：这是**属性位置**，esc 不转引号 ⇒ 路径含 `"` 就能闭合属性
+        var eh = escAttr(f.path);
         var pv = (!isFolder && ['image', 'video', 'audio', 'text', 'pdf'].indexOf(ft) >= 0)
             ? '<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();openPreview(\'' + sp + '\', files)">预览</button>' : '';
         var acts = isFolder ? '<a href="/browse/' + ep + '" class="btn btn-sm btn-primary">打开</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">删除</button>'
@@ -514,7 +515,7 @@ function renderSearchResults(rf, query) {
     c.className = 'file-grid list-view';
     var h = '';
     for (var i = 0; i < rf.length; i++) {
-        var f = rf[i], checked = selected.has(f.path) ? 'checked' : '', sp = safeStr(f.path), ep = encodeURIComponent(f.path);
+        var f = rf[i], checked = selected.has(f.path) ? 'checked' : '', sp = jsAttr(f.path), ep = encodeURIComponent(f.path);
         var nameHtml = esc(f.name), idx = nameHtml.toLowerCase().indexOf(query.toLowerCase());
         if (idx !== -1) nameHtml = esc(f.name.substring(0, idx)) + '<span class="search-hl">' + esc(f.name.substring(idx, idx + query.length)) + '</span>' + esc(f.name.substring(idx + query.length));
         var dir = f.path.indexOf('/') !== -1 ? f.path.substring(0, f.path.lastIndexOf('/')) : '';

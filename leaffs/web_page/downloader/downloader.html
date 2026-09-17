@@ -175,6 +175,14 @@ function esc(str) {
     div.appendChild(document.createTextNode(str));
     return div.innerHTML;
 }
+// 属性值专用转义（2026-09-18 修 XSS）：esc() 是**文本上下文**的转义，只处理 & < >，
+// **不转义引号**（文本节点里引号本来不用转义）。一旦把 esc() 的结果放进属性值，
+// 数据里一个 `"` 就能闭合属性、再注入 onmouseover 之类 —— 下载任务的 URL 就是
+// 用户可控的（magnet 的 dn= 参数能带引号），实测可穿过校验存进任务列表。
+// 顺序有讲究：先 esc() 把 & 转成 &amp;，**再**补引号 —— 这样插入的 &quot; 不会被二次转义。
+function escAttr(str) {
+    return esc(str).replace(/"/g, '&quot;');
+}
 function formatSize(b) {
     if (!b || b === 0) return '0 B';
     var u = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -373,15 +381,19 @@ function showDirPicker(startPath, rootPath) {
 function loadDirList(path, rootPath, listEl, bcEl) {
     fetch('/api/files?path=' + encodeURIComponent(path)).then(function(r) { return r.json(); }).then(function(d) {
         var items = d.files || []; bcEl.textContent = '当前位置: ' + (path || '根目录'); var html = '';
-        var safeStr = function(s) { return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); };
+        // onclick="f('...')" 要过两道：JS 单引号 + HTML 双引号属性 —— 只做前者时，
+        // 路径里一个 `"` 就能闭合 onclick、注入新属性（2026-09-18 修）
+        // onclick="f('...')" 要过两道：JS 单引号 + HTML 双引号属性 —— 只做前者时，
+        // 路径里一个 `"` 就能闭合 onclick、注入新属性（2026-09-18 修）
+        var jsAttr = function(s) { return escAttr(s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")); };
         if (path && path !== rootPath) {
             var parent = path.indexOf('/') >= 0 ? path.substring(0, path.lastIndexOf('/')) : '';
             if (!parent || parent === rootPath) parent = rootPath;
-            html += '<div class="dir-item" onclick="loadDirList(\'' + safeStr(parent) + '\', \'' + safeStr(rootPath) + '\', document.getElementById(\'dirList\'), document.getElementById(\'dirBreadcrumb\'))">.. (返回上级)</div>';
+            html += '<div class="dir-item" onclick="loadDirList(\'' + jsAttr(parent) + '\', \'' + jsAttr(rootPath) + '\', document.getElementById(\'dirList\'), document.getElementById(\'dirBreadcrumb\'))">.. (返回上级)</div>';
         }
         var folders = items.filter(function(f) { return f.type === 'folder'; });
         if (folders.length === 0) html += '<div class="empty"><p>此目录下没有子文件夹</p></div>';
-        else { for (var i = 0; i < folders.length; i++) { html += '<div class="dir-item" onclick="loadDirList(\'' + safeStr(folders[i].path) + '\', \'' + safeStr(rootPath) + '\', document.getElementById(\'dirList\'), document.getElementById(\'dirBreadcrumb\'))">' + esc(folders[i].name) + '</div>'; } }
+        else { for (var i = 0; i < folders.length; i++) { html += '<div class="dir-item" onclick="loadDirList(\'' + jsAttr(folders[i].path) + '\', \'' + jsAttr(rootPath) + '\', document.getElementById(\'dirList\'), document.getElementById(\'dirBreadcrumb\'))">' + esc(folders[i].name) + '</div>'; } }
         listEl.innerHTML = html;
     }).catch(function() { listEl.innerHTML = '<div class="empty"><p>加载失败</p></div>'; });
 }
@@ -493,15 +505,17 @@ function loadInlineDirList(path, rootPath) {
     if (!listEl || !bcEl) return; _inlineCurrentDir = path;
     fetch('/api/files?path=' + encodeURIComponent(path)).then(function(r) { return r.json(); }).then(function(d) {
         var items = d.files || []; bcEl.textContent = '当前位置: ' + (path || '根目录'); var html = '';
-        var safeStr = function(s) { return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); };
+        // onclick="f('...')" 要过两道：JS 单引号 + HTML 双引号属性 —— 只做前者时，
+        // 路径里一个 `"` 就能闭合 onclick、注入新属性（2026-09-18 修）
+        var jsAttr = function(s) { return escAttr(s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")); };
         if (path && path !== rootPath) {
             var parent = path.indexOf('/') >= 0 ? path.substring(0, path.lastIndexOf('/')) : '';
             if (!parent || parent === rootPath) parent = rootPath;
-            html += '<div class="dir-item" onclick="loadInlineDirList(\'' + safeStr(parent) + '\', \'' + safeStr(rootPath) + '\')">.. (返回上级)</div>';
+            html += '<div class="dir-item" onclick="loadInlineDirList(\'' + jsAttr(parent) + '\', \'' + jsAttr(rootPath) + '\')">.. (返回上级)</div>';
         }
         var folders = items.filter(function(f) { return f.type === 'folder'; });
         if (folders.length === 0) html += '<div class="empty"><p>此目录下没有子文件夹</p></div>';
-        else { for (var i = 0; i < folders.length; i++) { html += '<div class="dir-item" onclick="loadInlineDirList(\'' + safeStr(folders[i].path) + '\', \'' + safeStr(rootPath) + '\')">' + esc(folders[i].name) + '</div>'; } }
+        else { for (var i = 0; i < folders.length; i++) { html += '<div class="dir-item" onclick="loadInlineDirList(\'' + jsAttr(folders[i].path) + '\', \'' + jsAttr(rootPath) + '\')">' + esc(folders[i].name) + '</div>'; } }
         listEl.innerHTML = html;
     });
 }
@@ -696,7 +710,7 @@ function renderTasks(tasks) {
             var displayName = t.filename || t.url.split('/').pop() || t.url;
             var cardHtml = '<div class="dl-task-card" id="task_' + t.id + '">';
             cardHtml += '<div class="dl-task-header">';
-            cardHtml += '<div class="dl-task-name" title="' + esc(t.url) + '"><span class="dl-task-type">' + typeLabel + '</span>' + esc(displayName) + '</div>';
+            cardHtml += '<div class="dl-task-name" title="' + escAttr(t.url) + '"><span class="dl-task-type">' + typeLabel + '</span>' + esc(displayName) + '</div>';
             cardHtml += '<div style="display:flex;gap:6px;align-items:center">';
             cardHtml += '<span class="dl-task-status ' + t.status + '">' + statusText + '</span>';
             if (t.status === 'downloading') {

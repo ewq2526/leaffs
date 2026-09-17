@@ -18,9 +18,26 @@ function esc(str) {
     return div.innerHTML;
 }
 
+// 属性值专用转义（2026-09-18 修 XSS）：esc() 是**文本上下文**的转义，只处理 & < >，
+// **不转义引号**（文本节点里本来不需要）。一旦把 esc() 的结果放进属性值，数据里一个 `"`
+// 就能闭合属性、再注入 onmouseover 之类 —— 文件名/路径/下载 URL 都允许含引号
+// （`sanitize_entry_name` 只拒 / \ : 与控制字符）。
+// 顺序有讲究：先 esc() 把 & 转成 &amp;、**再**补引号 —— 这样插入的 &quot; 不会被二次转义。
+// ⚠️ 只在**属性位置**用它；文本位置仍用 esc()。
+function escAttr(str) {
+    return esc(str).replace(/"/g, '&quot;');
+}
+
 // 安全的 JS 字符串
 function safeStr(str) {
     return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+// "HTML 属性里的 JS 字符串"专用（2026-09-18 修 XSS）：onclick="f('...')" 这种位置要**同时**
+// 过两道 —— safeStr 管 JS 单引号，escAttr 管 HTML 双引号属性。只做 safeStr 时，
+// 数据里一个 `"` 就能闭合 onclick 属性、注入新的属性事件。
+function jsAttr(str) {
+    return escAttr(safeStr(str));
 }
 
 // 文件类型正则（集中定义，供 getFileIcon / fileType 共用）

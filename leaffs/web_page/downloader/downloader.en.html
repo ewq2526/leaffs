@@ -176,6 +176,14 @@ function esc(str) {
     div.appendChild(document.createTextNode(str));
     return div.innerHTML;
 }
+// Attribute-value escaping (XSS fix, 2026-09-18): esc() escapes the **text** context
+// (& < >) and deliberately leaves quotes alone — inside an attribute value a single `"`
+// then closes the attribute and lets the data inject e.g. onmouseover. Download task URLs
+// are user-controlled (a magnet `dn=` may contain quotes) and were verified to reach the
+// task list. Order matters: esc() first (so `&` becomes `&amp;`), then add the quote.
+function escAttr(str) {
+    return esc(str).replace(/"/g, '&quot;');
+}
 function formatSize(b) {
     if (!b || b === 0) return '0 B';
     var u = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -374,15 +382,17 @@ function showDirPicker(startPath, rootPath) {
 function loadDirList(path, rootPath, listEl, bcEl) {
     fetch('/api/files?path=' + encodeURIComponent(path)).then(function(r) { return r.json(); }).then(function(d) {
         var items = d.files || []; bcEl.textContent = 'Current location: ' + (path || 'Home'); var html = '';
-        var safeStr = function(s) { return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); };
+        // onclick="f('...')" needs BOTH escapes: JS single quotes and the HTML double-quoted
+        // attribute — with only the former, a `"` in the path closes the attribute (fix 2026-09-18)
+        var jsAttr = function(s) { return escAttr(s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")); };
         if (path && path !== rootPath) {
             var parent = path.indexOf('/') >= 0 ? path.substring(0, path.lastIndexOf('/')) : '';
             if (!parent || parent === rootPath) parent = rootPath;
-            html += '<div class="dir-item" onclick="loadDirList(\'' + safeStr(parent) + '\', \'' + safeStr(rootPath) + '\', document.getElementById(\'dirList\'), document.getElementById(\'dirBreadcrumb\'))">.. (Back)</div>';
+            html += '<div class="dir-item" onclick="loadDirList(\'' + jsAttr(parent) + '\', \'' + jsAttr(rootPath) + '\', document.getElementById(\'dirList\'), document.getElementById(\'dirBreadcrumb\'))">.. (Back)</div>';
         }
         var folders = items.filter(function(f) { return f.type === 'folder'; });
         if (folders.length === 0) html += '<div class="empty"><p>No subfolders here</p></div>';
-        else { for (var i = 0; i < folders.length; i++) { html += '<div class="dir-item" onclick="loadDirList(\'' + safeStr(folders[i].path) + '\', \'' + safeStr(rootPath) + '\', document.getElementById(\'dirList\'), document.getElementById(\'dirBreadcrumb\'))">' + esc(folders[i].name) + '</div>'; } }
+        else { for (var i = 0; i < folders.length; i++) { html += '<div class="dir-item" onclick="loadDirList(\'' + jsAttr(folders[i].path) + '\', \'' + jsAttr(rootPath) + '\', document.getElementById(\'dirList\'), document.getElementById(\'dirBreadcrumb\'))">' + esc(folders[i].name) + '</div>'; } }
         listEl.innerHTML = html;
     }).catch(function() { listEl.innerHTML = '<div class="empty"><p>Failed to load</p></div>'; });
 }
@@ -494,15 +504,17 @@ function loadInlineDirList(path, rootPath) {
     if (!listEl || !bcEl) return; _inlineCurrentDir = path;
     fetch('/api/files?path=' + encodeURIComponent(path)).then(function(r) { return r.json(); }).then(function(d) {
         var items = d.files || []; bcEl.textContent = 'Current location: ' + (path || 'Home'); var html = '';
-        var safeStr = function(s) { return s.replace(/\\/g, '\\\\').replace(/'/g, "\\'"); };
+        // onclick="f('...')" needs BOTH escapes: JS single quotes and the HTML double-quoted
+        // attribute — with only the former, a `"` in the path closes the attribute (fix 2026-09-18)
+        var jsAttr = function(s) { return escAttr(s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")); };
         if (path && path !== rootPath) {
             var parent = path.indexOf('/') >= 0 ? path.substring(0, path.lastIndexOf('/')) : '';
             if (!parent || parent === rootPath) parent = rootPath;
-            html += '<div class="dir-item" onclick="loadInlineDirList(\'' + safeStr(parent) + '\', \'' + safeStr(rootPath) + '\')">.. (Back)</div>';
+            html += '<div class="dir-item" onclick="loadInlineDirList(\'' + jsAttr(parent) + '\', \'' + jsAttr(rootPath) + '\')">.. (Back)</div>';
         }
         var folders = items.filter(function(f) { return f.type === 'folder'; });
         if (folders.length === 0) html += '<div class="empty"><p>No subfolders here</p></div>';
-        else { for (var i = 0; i < folders.length; i++) { html += '<div class="dir-item" onclick="loadInlineDirList(\'' + safeStr(folders[i].path) + '\', \'' + safeStr(rootPath) + '\')">' + esc(folders[i].name) + '</div>'; } }
+        else { for (var i = 0; i < folders.length; i++) { html += '<div class="dir-item" onclick="loadInlineDirList(\'' + jsAttr(folders[i].path) + '\', \'' + jsAttr(rootPath) + '\')">' + esc(folders[i].name) + '</div>'; } }
         listEl.innerHTML = html;
     });
 }
@@ -697,7 +709,7 @@ function renderTasks(tasks) {
             var displayName = t.filename || t.url.split('/').pop() || t.url;
             var cardHtml = '<div class="dl-task-card" id="task_' + t.id + '">';
             cardHtml += '<div class="dl-task-header">';
-            cardHtml += '<div class="dl-task-name" title="' + esc(t.url) + '"><span class="dl-task-type">' + typeLabel + '</span>' + esc(displayName) + '</div>';
+            cardHtml += '<div class="dl-task-name" title="' + escAttr(t.url) + '"><span class="dl-task-type">' + typeLabel + '</span>' + esc(displayName) + '</div>';
             cardHtml += '<div style="display:flex;gap:6px;align-items:center">';
             cardHtml += '<span class="dl-task-status ' + t.status + '">' + statusText + '</span>';
             if (t.status === 'downloading') {

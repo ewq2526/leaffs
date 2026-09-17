@@ -271,11 +271,11 @@ function renderGallery() {
     for (var i = 0; i < filtered.length; i++) {
         var f = filtered[i];
         var encodedPath = encodeURIComponent(f.path);
-        var sname = safeStr(f.path);
+        var sname = jsAttr(f.path);   // only used in onclick="openPreview('...')" ⇒ both escapes
         var ename = esc(f.name);
         // Attributes carry the HTML-escaped path; getAttribute() reads the raw value back,
         // which is exactly the key _thumbOk uses
-        var eh = esc(f.path);
+        var eh = escAttr(f.path);   // only used in data-path="..." ⇒ quotes must be escaped
         var ft = fileType(f.name);
         var iconFallback = ft === 'video' ? '&#127916;' : '&#128444;';
 
@@ -294,7 +294,7 @@ function renderGallery() {
 
         html += '<div class="gallery-item" onclick="openPreview(\'' + sname + '\', allFiles)">';
         html += thumbHtml;
-        html += '<div class="item-name" title="' + ename + '">' + ename + '</div>';
+        html += '<div class="item-name" title="' + escAttr(f.name) + '">' + ename + '</div>';
         html += '<div style="font-size:11px;color:var(--muted)">' + formatSize(f.size) + '</div>';
         html += '</div>';
     }
