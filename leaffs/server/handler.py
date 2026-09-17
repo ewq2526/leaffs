@@ -101,6 +101,8 @@ class _CountingReader:
 
     def __getattr__(self, name):
         return getattr(self._raw, name)
+
+
 PREVIEW_MAX_SIZE = 10 * 1024 * 1024   # 在线预览大小上限（可由 cfg_core 动态覆盖，见 sync_all_constants）
 
 # ---------- A-01：管理类 API 统一 admin/super_admin 门槛 ----------
