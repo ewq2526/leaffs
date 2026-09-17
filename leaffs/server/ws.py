@@ -21,6 +21,11 @@ from collections import deque
 from http import HTTPStatus
 
 import websockets
+# 显式导入：下方 695 行的 `websockets.exceptions.ConnectionClosed` 原本靠
+# `websockets/__init__.py` 里 `from .exceptions import ...` 顺带设的包属性。
+# 而 except 的类型表达式只在异常真发生时求值 —— 那个属性一旦消失，坏的是
+# "每次客户端断开"那一刻（1011 关连接 + 堆栈），而不是启动，最难查。
+import websockets.exceptions
 
 import leaffs.auth.core as _ac
 import leaffs.config.core as _cfg
