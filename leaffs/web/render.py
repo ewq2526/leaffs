@@ -3,6 +3,7 @@
 import os
 
 from leaffs.config import core as _cfg
+from leaffs.utils.core import parse_cookies
 
 
 def _inject_ws_port(html):
@@ -147,28 +148,27 @@ def serve_admin_users_page(handler, get_session, get_session_username, read_file
 
 
 def _cookie_accent(cookie):
-    """请求 cookie 里的主题主色偏好（leaf_accent）；缺失或非法值返回 ''（默认蓝）"""
+    """请求 cookie 里的主题主色偏好（leaf_accent）；缺失或非法值返回 ''（默认蓝）
+
+    解析口径全仓一份（`utils/core.parse_cookies`，同名 Cookie 取**最后一个**）。
+    ⚠️ 原来这里是"取第一个**合法**值" —— 两个同名值都合法时会挑前面那个，
+    与"最后写下的生效"相反；非法值会被跳过这一点保持不变。
+    """
     try:
         from leaffs.ui_theme import ACCENTS as _ACCENTS
-        for part in (cookie or '').split(';'):
-            k, _, v = part.strip().partition('=')
-            if k == 'leaf_accent' and v in _ACCENTS:
-                return v
+        v = parse_cookies(cookie).get('leaf_accent', '')
+        return v if v in _ACCENTS else ''
     except Exception:
-        pass
-    return ''
+        return ''
 
 
 def _cookie_theme(cookie):
-    """请求 cookie 里的亮/暗偏好（leaf_theme）"""
+    """请求 cookie 里的亮/暗偏好（leaf_theme）—— 口径同 `_cookie_accent`"""
     try:
-        for part in (cookie or '').split(';'):
-            k, _, v = part.strip().partition('=')
-            if k == 'leaf_theme' and v in ('dark', 'light'):
-                return v
+        v = parse_cookies(cookie).get('leaf_theme', '')
+        return v if v in ('dark', 'light') else ''
     except Exception:
-        pass
-    return ''
+        return ''
 
 
 def _inject_theme(html, accent, theme=''):

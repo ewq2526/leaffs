@@ -495,21 +495,19 @@ class HTTPHandler(BaseHTTPRequestHandler):
     def _has_invalid_session_cookie(self):
         """Cookie 携带 wifi_session 但服务端解析不到有效会话（无效/过期/非本机 IP）→ True。
 
-        解析语义与 ac_core.get_session 一致（同名 cookie 取最后一个）；有效游客会话
-        （role=guest）视为有效不在此列；未带 Cookie 的纯匿名不受影响。
+        解析与 `ac_core.get_session` 用的是**同一份实现**（`utils/core.parse_cookies`，
+        同名 Cookie 取最后一个）—— 两边口径一旦不同，就会出现"预检放行、会话解析成匿名"
+        （或反过来）这种自相矛盾的请求。有效游客会话（role=guest）视为有效不在此列；
+        未带 Cookie 的纯匿名不受影响。
         """
         cookie = self.headers.get('Cookie', '')
         if not cookie:
             return False
-        sid = ''
-        found = False
-        for part in cookie.split(';'):
-            part = part.strip()
-            if part.startswith(_ac.AUTH_COOKIE + '='):
-                found = True
-                sid = part[len(_ac.AUTH_COOKIE) + 1:]
-        if not found:
+        # "带了这个名字"与"值是不是空"要分开判：显式带空值（登出残留/伪造）按无效处理
+        cookies = _ut.parse_cookies(cookie)
+        if _ac.AUTH_COOKIE not in cookies:
             return False
+        sid = cookies[_ac.AUTH_COOKIE]
         if not sid:
             return True  # 显式携带空值 cookie（登出残留/伪造）按无效处理
         try:

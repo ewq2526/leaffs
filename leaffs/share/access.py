@@ -31,6 +31,7 @@ import time
 
 from leaffs.auth.core import PBKDF2_ITERATIONS, SALT_LENGTH   # 与登录口令同一套参数
 from leaffs.paths import CONFIG_DIR
+from leaffs.utils.core import parse_cookies
 from leaffs.runtime_log import add_log
 
 _ACCESS_FILE = os.path.join(CONFIG_DIR, 'share_access.json')
@@ -369,14 +370,8 @@ def _cookie_ok(username, cookie_header, ip=''):
         if not u or not u.get('code_hash'):
             return True          # 未设码 → 无需授权
         cname = cookie_name(username)
-        got = ''
-        try:
-            for seg in (cookie_header or '').split(';'):
-                k, _, v = seg.strip().partition('=')
-                if k == cname:
-                    got = v
-        except Exception:
-            got = ''
+        # 解析口径全仓一份（utils/core.parse_cookies）：同名 Cookie 取最后一个
+        got = parse_cookies(cookie_header).get(cname, '')
         tbl = _CACHE.setdefault('tickets', {})
         tk = tbl.get(got) if got else None
         ok = bool(isinstance(tk, dict) and tk.get('user') == username

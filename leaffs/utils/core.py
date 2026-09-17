@@ -42,6 +42,36 @@ THUMB_SCAN_INTERVAL = 0.5         # 每批间隔（秒）
 # ========== 防抖缓存失效常量 ==========
 DEBOUNCE_DELAY = 2.0  # 防抖延迟（秒），上传停止后等待 2 秒执行最终清除
 
+# ========== 请求头工具 ==========
+
+def parse_cookies(raw):
+    """把请求头里的 `Cookie` 串解析成 {名字: 值}（同名取**最后一个**）。
+
+    **全仓只此一份**：会话解析（`auth/core.get_session`）、无效会话预检
+    （`server/handler._has_invalid_session_cookie`）、分享码票据
+    （`share/access._cookie_ok`）、页面主题偏好（`web/render._cookie_accent` /
+    `_cookie_theme`）现在都调它。
+
+    为什么必须收成一份：这五处原本各写一遍，而且**已经不一致了** —— 会话那三处取
+    "最后一个"，主题那两处取"第一个**合法**值"，同名且都合法时结果就不同。
+    两份实现必然漂移（LF-27 的列表构建就是这么来的），所以把"同名谁说了算"
+    这个语义钉在一个地方。
+
+    取最后一个与 RFC 6265 及浏览器行为一致（同名 Cookie 以最后写下的为准）。
+    没有 `=` 的畸形段跳过；非字符串输入当空 —— 这是原来那几处各自的容错语义
+    （`share/access` 的 try/except、`render` 的 `cookie or ''`）搬到这里的，不是新加的保险。
+    """
+    if not isinstance(raw, str):
+        return {}
+    out = {}
+    for seg in raw.split(';'):
+        k, sep, v = seg.partition('=')
+        if not sep:
+            continue
+        out[k.strip()] = v.strip()
+    return out
+
+
 # ========== 路径工具 ==========
 def safe_path(base, target):
     """确保 target 在 base 目录下（带路径边界，防止 base 前缀被仿冒）"""

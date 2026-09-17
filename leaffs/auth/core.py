@@ -14,7 +14,7 @@ import time
 import hashlib
 import hmac
 import base64
-from leaffs.utils.core import CONFIG_DIR
+from leaffs.utils.core import CONFIG_DIR, parse_cookies
 
 AUTH_COOKIE = 'wifi_session'
 SESSION_EXPIRY_DAYS = 30
@@ -210,15 +210,12 @@ def get_session(cookie_header, client_ip=''):
     `if not auth_enabled: return 'super_admin', ''` —— 传 False 直接变超级管理员、
     连 Cookie 都不看。那是历史遗留的调试口子，已删除：这种开关只会在某天被人
     顺手传成 False，然后整站鉴权当场消失，而且看不出是故意的还是手滑。
+
+    Cookie 解析口径全仓只有一份（`utils/core.parse_cookies`）：同名 Cookie 取**最后一个**，
+    `server/handler._has_invalid_session_cookie` 的预检必须与这里保持一致。
     """
     if not cookie_header: return None, ''
-    cookies = {}
-    for part in cookie_header.split(';'):
-        part = part.strip()
-        if '=' in part:
-            k, v = part.split('=', 1)
-            cookies[k.strip()] = v.strip()
-    sid = cookies.get(AUTH_COOKIE, '')
+    sid = parse_cookies(cookie_header).get(AUTH_COOKIE, '')
     if not sid: return None, ''
     with _sessions_lock:
         info = _sessions.get(sid)
