@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 应用主题：与网页视觉对齐（浅底 + 天蓝主色） -->
+    <style name="Theme.LeafFS" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/lf_primary</item>
+        <item name="android:colorPrimaryDark">@color/lf_primary_hover</item>
+        <item name="android:colorAccent">@color/lf_primary</item>
+        <item name="android:windowBackground">@color/lf_bg</item>
+        <!-- 系统栏底色一行都不写：写了会被记成 forcedNavigationBarColor，平时边到边不用它，
+             卡片（子窗口）一出现就被启用 —— 导航栏变成这个色，图标再被反推成白色。
+             边到边下底色本来就该由网页内容铺满。 -->
+        <!-- 系统栏图标深浅不在这里写死：它跟随的是系统深色模式，会和网页主题打架，
+             由 MainActivity.applyBarsAppearance 按网页实际背景色动态设置 -->
+        <item name="android:textColorPrimary">@color/lf_text</item>
+        <item name="android:textColorSecondary">@color/lf_text_light</item>
+        <!-- 所有 AlertDialog（JS confirm/prompt/alert、长按菜单）统一走这个样式 -->
+        <item name="android:alertDialogTheme">@style/Theme.LeafFS.Dialog</item>
+        <!-- 内核的文本选择浮条：主色背景，与网页主色一致 -->
+        <item name="android:actionModeBackground">@color/lf_primary</item>
+    </style>
+
+    <style name="Theme.LeafFS.Dialog" parent="@android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">@color/lf_primary</item>
+        <item name="android:colorPrimary">@color/lf_primary</item>
+        <item name="android:textColorPrimary">@color/lf_text</item>
+        <item name="android:textColorSecondary">@color/lf_text_light</item>
+    </style>
+</resources>

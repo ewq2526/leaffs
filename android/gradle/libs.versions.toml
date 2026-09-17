@@ -1,0 +1,9 @@
+[versions]
+agp = "9.3.0"
+chaquopy = "17.0.0"
+
+[libraries]
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+chaquopy = { id = "com.chaquo.python", version.ref = "chaquopy" }

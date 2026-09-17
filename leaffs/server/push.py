@@ -30,6 +30,9 @@ _admin_lock = threading.Lock()
 _qr_waiters = {}          # sid -> set(websocket)
 _qr_waiters_lock = threading.Lock()
 
+_gallery_subscribers = set()   # 预览页订阅：文件树变化通知
+_gallery_lock = threading.Lock()
+
 _main_loop = None
 _main_loop_lock = threading.Lock()
 
@@ -92,6 +95,18 @@ def qr_cleanup_ws(ws):
                 del _qr_waiters[sid]
 
 
+# ---------- 文件树变化订阅（预览页；用 WS 推送代替前端轮询） ----------
+
+def gallery_sub_add(ws):
+    with _gallery_lock:
+        _gallery_subscribers.add(ws)
+
+
+def gallery_sub_remove(ws):
+    with _gallery_lock:
+        _gallery_subscribers.discard(ws)
+
+
 # ========== 广播 ==========
 
 async def safe_send(ws, msg):
@@ -124,6 +139,21 @@ def broadcast_qr_consumed(sid):
             _schedule_send(ws, text)
 
 
+def broadcast_gallery_changed():
+    """文件树有变化（上传/删除/新建目录…）→ 通知预览页重新拉一次列表。
+
+    只发信号不带列表：列表由页面按自身权限自己拉（游客只看公共目录），
+    服务端不必给每个订阅者各算一遍全树，也不会把无权看的路径推出去。
+    """
+    with _gallery_lock:
+        wss = list(_gallery_subscribers)
+    if not wss:
+        return
+    text = json.dumps({'type': 'gallery'})
+    for ws in wss:
+        _schedule_send(ws, text)
+
+
 def build_connections_payload():
     """构造连接用户列表快照（供 /api/connections 与 WebSocket 管理推送共用）"""
     conns = _cfg.get_connections()
@@ -148,6 +178,7 @@ def admin_snapshot_payload():
     try:
         stats = _fs_api.build_stats_data(
             _fs.get_server_stats, _fs.get_folder_size, _fs.has_ffmpeg,
+            _fs.thumbnail_backend,
             _cfg.get_max_concurrent, _cfg.COPY_BUFFER_SIZE, _cfg.get_speed_limit,
             _cfg.get_connections, _cfg.PORT, _cfg.get_guest_mode,
             _cfg.get_default_user_quota, _cfg.get_public_quota,

@@ -58,7 +58,8 @@ function openPreview(path, files) {
         var img = document.createElement('img');
         img.className = 'preview-img';
         img.src = '/download/' + encodeURIComponent(f.path);
-        img.alt = f.name;
+        // 不设 alt：图片旁边就有文件名，且加载中/失败时会把 alt 文本画出来
+        // （长文件名没有断词机会，会直接穿出图片框）
         img.style.cursor = 'zoom-in';
         img.dataset.zoomed = 'false';
         img.onclick = function (e) {

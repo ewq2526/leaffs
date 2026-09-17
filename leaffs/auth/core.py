@@ -17,11 +17,6 @@ import base64
 from leaffs.utils.core import CONFIG_DIR
 
 AUTH_COOKIE = 'wifi_session'
-# “已登录”标记 Cookie（非 Secure、HttpOnly、SameSite=Lax，值恒 1）。
-# 用途：8082 是明文 HTTP 证书提示页，而 HTTPS 下发的主会话 Cookie 带 Secure、
-# 浏览器不会经明文 http 发回 —— 该标记让 8082 能识别“本浏览器已登录”并 302 回
-# https 主站。标记不含任何凭证/会话标识，仅泄露登录状态这一最弱信息。
-LOGIN_MARKER = 'lf_ui'
 SESSION_EXPIRY_DAYS = 30
 USERS_FILE = os.path.join(CONFIG_DIR, 'users.json')
 PBKDF2_ITERATIONS = 600000
@@ -66,6 +61,10 @@ def _is_legacy_plaintext(password):
 
 def _migrate_password(user_data):
     pwd = user_data.get('password', '')
+    if not pwd:
+        # 没有口令（首启的超管就是这样）：不是待迁移的明文。
+        # 空串若被当明文去哈希，就得到 hash('')，而空串比空串是能通过的 —— 等于空密码可登录。
+        return False
     if _is_legacy_plaintext(pwd):
         user_data['password'] = _hash_password(pwd)
         return True
@@ -75,10 +74,32 @@ def hash_password(password):
     return _hash_password(password)
 
 def is_default_admin_password():
+    """是否**还有超级管理员没设过自己的口令**（首启不写口令，只能靠本机一次性令牌登录）。
+
+    原来这里是"密码是否等于 admin"，而建号时写死的就是 admin/admin —— 等于把超管
+    敞在局域网里，而且那个口令还绕过了 8 位下限。现在首启不写口令，用户自己设过就有口令了。
+
+    ⚠️ **按角色找、不按用户名**（`issues.md` §二 第 8 条）：原实现是 `_users.get('admin')`
+    —— 硬编码用户名。超管**改名**、或**删掉 admin 另建一个超管**之后，这个判断就指向一个
+    不存在的账号 ⇒ 恒为 False ⇒ 真正"还没设口令"的超管**再也提醒不到**
+    （登录页与管理页那条"请尽快设置密码"的横幅不会出现）。
+    口径与 `get_super_admin_name()` / `_ensure_super_admin()` 一致：超管 = `role == 'super_admin'`。
+    只要**存在任一**没口令的超管就返回 True（也覆盖"有多个超管、其中一个没设"的情况）。
+    """
     with _users_lock:
-        user = _users.get('admin')
-        if not user: return False
-        return _verify_password('admin', user.get('password', ''))
+        for user in (_users or {}).values():
+            if not isinstance(user, dict):
+                continue
+            if user.get('role') == 'super_admin' and not user.get('password'):
+                return True
+    return False
+
+
+def has_password(username):
+    """该账号是否已经设过口令（首启的超管没有口令，只能靠本机一次性令牌登录）"""
+    with _users_lock:
+        user = _users.get(username)
+        return bool(user and user.get('password'))
 
 _sessions = {}
 _sessions_lock = threading.Lock()
@@ -118,8 +139,15 @@ def create_session(username, role, client_ip=''):
         _enforce_session_caps(username, client_ip, keep_sid=sid)   # B-06/B-07
     return sid
 
-def get_session(cookie_header, auth_enabled, client_ip=''):
-    if not auth_enabled: return 'super_admin', ''
+def get_session(cookie_header, client_ip=''):
+    """从 Cookie 解出会话，返回 (role, sid)；无 Cookie / 会话无效 / IP 不符 → (None, '')
+
+    ⚠️ 这里**故意没有**"关闭鉴权"的开关。早先签名是
+    `get_session(cookie_header, auth_enabled, client_ip)`，函数第一行就是
+    `if not auth_enabled: return 'super_admin', ''` —— 传 False 直接变超级管理员、
+    连 Cookie 都不看。那是历史遗留的调试口子，已删除：这种开关只会在某天被人
+    顺手传成 False，然后整站鉴权当场消失，而且看不出是故意的还是手滑。
+    """
     if not cookie_header: return None, ''
     cookies = {}
     for part in cookie_header.split(';'):
@@ -131,10 +159,18 @@ def get_session(cookie_header, auth_enabled, client_ip=''):
     if not sid: return None, ''
     with _sessions_lock:
         info = _sessions.get(sid)
-        if info and info['expiry'] > time.time() and _same_client(info.get('ip', ''), client_ip):
-            return info['role'], sid
-        _sessions.pop(sid, None)
-        return None, ''
+        if not info:
+            return None, ''
+        if info['expiry'] <= time.time():
+            _sessions.pop(sid, None)    # 过期：清掉
+            return None, ''
+        if not _same_client(info.get('ip', ''), client_ip):
+            # 来源 IP 不符：**只拒绝这一次，不删会话**。
+            # 旧写法在这里 pop —— 任何人只要拿到别人的 sid、从别的 IP 打一次请求，
+            # 就能把对方踢下线（不需要会用它，只要毁掉它），是零成本的 DoS。
+            # 而已绑 IP 的会话本来也认 IP：泄漏的 sid 换台机器本来就用不了。
+            return None, ''
+        return info['role'], sid
 
 def _clean_sessions():
     now = time.time()
@@ -204,11 +240,6 @@ def refresh_session_role(sid, ip=''):
         return None
     return user.get('role', 'guest'), username
 
-def get_all_sessions():
-    with _sessions_lock:
-        _clean_sessions()
-        return dict(_sessions)
-
 def remove_session(sid):
     with _sessions_lock:
         _sessions.pop(sid, None)
@@ -257,7 +288,9 @@ def _ensure_super_admin():
             first = next(iter(_users))
             _users[first]['role'] = 'super_admin'
         else:
-            _users['admin'] = {'password': _hash_password('admin'), 'role': 'super_admin'}
+            # 首次启动：admin **不写口令** —— 初始只能靠本机一次性令牌登录（/login?leaf=）。
+            # 没有口令就没有"默认弱口令"这回事；想用密码登录，用户自己去设一个。
+            _users['admin'] = {'role': 'super_admin'}
         _save_users_locked()
 
 def _save_users():
@@ -287,6 +320,10 @@ def verify_login(username, password):
                 pass
             return None
         stored = user.get('password', '')
+        if not stored:
+            # 该账号没有口令（首启的超管）：密码登录一律失败，只能用本机一次性令牌。
+            # 不拦住的话，空串会被下面按"遗留明文"比较 —— compare_digest('', '') 是能过的。
+            return None
         if _is_legacy_plaintext(stored):
             # 存量明文口令比较同样恒定时间（B-05），迁移窗口内防时序侧信道
             try:
@@ -358,28 +395,6 @@ def get_user_quota(username):
         if user: return user.get('quota', 0)
     return 0
 
-_ACCENT_COLORS = ('green', 'purple', 'orange', 'red')  # 可换主题主色（空=默认蓝）
-
-def get_user_accent(username):
-    """用户服务端主题主色偏好（可换主色；空=默认蓝色）。"""
-    with _users_lock:
-        user = _users.get(username)
-        if user:
-            v = str(user.get('accent', '') or '')
-            if v in _ACCENT_COLORS:
-                return v
-    return ''
-
-def set_user_accent(username, accent):
-    """持久化用户主题主色到服务端账号；非法值落空（默认蓝）。"""
-    if accent not in _ACCENT_COLORS:
-        accent = ''
-    with _users_lock:
-        if username not in _users:
-            return False
-        _users[username]['accent'] = accent
-        _save_users_locked()
-    return True
 
 def get_user_ui_lang(username):
     """用户的服务端界面语言偏好（'en'/'zh'/'')——供无语言 cookie 的客户端
@@ -503,6 +518,22 @@ def add_user(username, password, role='user', caller_role='admin'):
         _users[username] = {'password': _hash_password(password), 'role': role}
         _save_users()
     return True, ''
+
+def precheck_user_delete(username, caller_role='admin'):
+    """删除用户的**前置校验**（不落盘）：角色门槛 / 存在性 / 最后一个超管。
+
+    与 rename 的 `precheck_user_rename` 同模式：校验通过后调用方先去动目录
+    （把家目录归档），目录动完再调 `delete_user` 提交 —— 免得"账号删了才发现目录搬不动"。
+    """
+    ok, err = _check_caller_can_manage(caller_role, username)
+    if not ok: return False, err
+    with _users_lock:
+        if username not in _users: return False, 'User not found'
+        if _users[username].get('role') == 'super_admin':
+            super_count = sum(1 for u in _users.values() if u.get('role') == 'super_admin')
+            if super_count <= 1: return False, 'Cannot delete last super admin'
+    return True, ''
+
 
 def delete_user(username, caller_role='admin'):
     ok, err = _check_caller_can_manage(caller_role, username)
@@ -642,13 +673,6 @@ def qr_login_status(sid):
             if info.get('_qr_sid') == sid:
                 return 'consumed'
         return 'expired'
-
-def revoke_session_by_prefix(prefix):
-    with _sessions_lock:
-        for sid in list(_sessions.keys()):
-            if sid.startswith(prefix): del _sessions[sid]; return True
-    return False
-
 
 # 登录页 UI 已按架构独立迁移到 web_page/login/login.html（由 ac_auth.serve_login_page 读取渲染，不再内嵌于本模块）
 

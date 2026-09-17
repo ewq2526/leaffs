@@ -6,6 +6,17 @@ import traceback
 
 logger = logging.getLogger('wifi_convey')
 
+# 深度配置里**只有超管**能改的字段（安全相关）：审计日志开关、会话寿命、口令哈希强度，
+# 以及证书/绑定的信任面。普通 admin 能改这些 = 能抹掉自己的痕迹、能削弱口令。
+_DEEP_SUPER_ONLY = {
+    'access_log',            # 关掉全部访问日志
+    'session_expiry_days',   # 会话寿命（无上下限）
+    'pbkdf2_iterations',     # 口令哈希强度
+    'salt_length',
+    'auto_trust_ca',
+    'trust_bind_host',
+}
+
 
 def get_config(handler, get_max_concurrent, get_speed_limit, get_guest_mode,
                get_default_user_quota, get_public_quota, get_total_quota):
@@ -35,21 +46,37 @@ def set_config(handler, add_log, update_concurrent_limit, set_speed_limit,
         elif not caller_user:
             caller_user = '未登录'
         changed = []
+        save_failed = []
         if 'max_concurrent' in data:
-            update_concurrent_limit(int(data['max_concurrent']))
+            ok, msg = update_concurrent_limit(int(data['max_concurrent']))
+            if not ok:
+                # "保存失败" 是服务器侧问题（500），其余是参数问题（400）
+                handler.send_json({'success': False, 'error': msg},
+                                  500 if msg.startswith('保存失败') else 400)
+                return
             changed.append(f'并发数={data["max_concurrent"]}')
         if 'download_speed_limit' in data:
-            set_speed_limit(int(data['download_speed_limit']))
+            if not set_speed_limit(int(data['download_speed_limit'])):
+                save_failed.append('限速')
             changed.append(f'限速={data["download_speed_limit"]}KB/s')
         if 'guest_mode' in data:
-            set_guest_mode(data['guest_mode'])
+            if not set_guest_mode(data['guest_mode']):
+                save_failed.append('游客模式')
             changed.append('游客模式=' + ('开' if data['guest_mode'] else '关'))
         if 'user_quota' in data or 'public_quota' in data or 'total_quota' in data:
             uq = data.get('user_quota')
             pq = data.get('public_quota')
             tq = data.get('total_quota')
-            set_quotas(user_q=uq, public_q=pq, total_q=tq)
+            if not set_quotas(user_q=uq, public_q=pq, total_q=tq):
+                save_failed.append('配额')
             changed.append('配额更新')
+        if save_failed:
+            # 落盘失败必须说出来：改动只在内存里，重启就没了 —— 回 success 就是骗人
+            add_log(f'配置保存失败 [{caller_user}({caller_role})]: {", ".join(save_failed)}', 'err')
+            handler.send_json({'success': False,
+                               'error': '保存失败（改动只在内存里，重启后会丢）：'
+                                        + '、'.join(save_failed)}, 500)
+            return
         if changed:
             add_log(f'配置更新 [{caller_user}({caller_role})]: {", ".join(changed)}', 'ok')
         handler.send_json({'success': True})
@@ -125,7 +152,10 @@ def set_config_advanced(handler, add_log, set_ports, get_deep_config_dict, apply
                 handler.send_json({'success': False, 'error': '关闭 HTTPS 需确认（confirm_tls_off:true）'}, 400)
                 return
             from leaffs.config import core as _cc
-            _cc.set_tls_enabled(on)
+            if not _cc.set_tls_enabled(on):
+                handler.send_json({'success': False,
+                                   'error': '保存失败：TLS 开关只在内存里，重启后仍是原值'}, 500)
+                return
             changed.append('HTTPS(TLS)=' + ('开启' if on else '关闭') + '（重启后生效）')
             if not on:
                 # 高危事件（B-12）：关闭 TLS = 切换明文传输，单独记高危日志（含操作者/来源 IP）
@@ -159,8 +189,8 @@ def set_config_advanced(handler, add_log, set_ports, get_deep_config_dict, apply
                 except Exception:
                     continue
         if patch:
-            # B-11：apply_deep_config 返回 (ok, err)；下限违规等失败 → 400（不回显内部异常）
-            ok, err = apply_deep_config(patch)
+            # apply_deep_config 返回 (ok, err, changed)；未知键 / 越界 / 下限违规 → 400
+            ok, err, _changed = apply_deep_config(patch)
             if not ok:
                 handler.send_json({'success': False, 'error': err}, 400)
                 return
@@ -205,10 +235,24 @@ def set_config_deep(handler, add_log, apply_deep_config):
             caller_user = '服务端(' + (caller_user or '本地') + ')'
         elif not caller_user:
             caller_user = '未登录'
+        # 安全相关字段只有 super_admin 能改：关审计日志、改会话寿命、下调口令哈希强度 ——
+        # 落到普通 admin 手里等于"能抹自己的痕迹、能把会话挂更久、能削弱口令"。
+        # （tls_enabled 早就单独收到超管了，这里跟它对齐。）
+        if caller_role != 'super_admin' and isinstance(data, dict):
+            hit = sorted(k for k in data if k in _DEEP_SUPER_ONLY)
+            if hit:
+                handler.send_json({'success': False,
+                                   'error': '这些字段只有超管能改：' + '、'.join(hit)}, 403)
+                return
         # B-11：低于下限（pbkdf2_iterations < 100000 / salt_length < 16）整体失败 → 400 带具体文案
-        ok, err = apply_deep_config(data)
+        ok, err, changed = apply_deep_config(data)
         if not ok:
             handler.send_json({'success': False, 'error': err}, 400)
+            return
+        if not changed:
+            # 键都合法、但值跟当前一样：别谎报"配置已更新"
+            add_log(f'配置更新 [{caller_user}({caller_role})]: 深度配置（无变化）', 'ok')
+            handler.send_json({'success': True, 'msg': '没有变化'})
             return
         add_log(f'配置更新 [{caller_user}({caller_role})]: 深度配置', 'ok')
         handler.send_json({'success': True, 'msg': '配置已更新'})

@@ -16,7 +16,7 @@ def _self_session(handler):
     try:
         import leaffs.auth.core as _ac
         cookie = handler.headers.get('Cookie', '')
-        role, sid = _ac.get_session(cookie, True, handler.client_address[0])
+        role, sid = _ac.get_session(cookie, handler.client_address[0])
         if not role or not sid:
             return None, '', ''
         return role, _ac.get_session_username(sid), sid
@@ -101,12 +101,21 @@ def account_me(handler):
     sessions.sort(key=lambda s: (not s.get('current', False), -(s.get('expiry') or 0)))
 
     # 服务器地址（供展示/复制：局域网 IP 而非 localhost/127.0.0.1，手机可直接访问）
+    # 与 /api/stats 的 server_ip 用同一份实现，两端显示一致
     server_url = ''
+    server_has_lan = False
     try:
         import leaffs.server.hosts as _hosts
-        scheme = 'https' if _cc.get_tls_enabled() else 'http'
-        _sip = _hosts.primary_lan_ip()
-        server_url = f'{scheme}://{_sip}:{_cc.PORT}' if _cc.PORT != 80 else f'{scheme}://{_sip}'
+        _sip, server_has_lan = _hosts.lan_status()
+        if _cc.get_tls_enabled():
+            # TLS 开着时对外入口是明文引导页（8082），不是 https 主站：
+            # 直接给 https://<ip>:8080，对方先撞一次证书警告；就算点过去了，
+            # 实时通道（8081）还得再单独放行一次 —— 浏览器是按 host:port 记例外的。
+            # 引导页会把这两步一次做完（与游客卡片的二维码保持一致）。
+            _tp = int(_cc.get_tls_trust_port())
+            server_url = f'http://{_sip}' if _tp == 80 else f'http://{_sip}:{_tp}'
+        else:
+            server_url = f'http://{_sip}:{_cc.PORT}' if _cc.PORT != 80 else f'http://{_sip}'
     except Exception:
         pass
 
@@ -117,7 +126,7 @@ def account_me(handler):
         'guest_mode': bool(_cc.get_guest_mode()),
         'need_change_password': need_change,
         'server_url': server_url,
-        'accent': _ac.get_user_accent(username),
+        'server_has_lan': server_has_lan,
         'current': {'ip': ip, 'ua': (ua or '')[:120], 'expiry': expiry_ts},
         'quota': {'used': used, 'quota': quota},
         'sessions': sessions,
@@ -140,14 +149,17 @@ def account_password(handler):
             data = {}
         old_pw = data.get('old_password', '')
         new_pw = data.get('new_password', '')
-        if not isinstance(old_pw, str) or not isinstance(new_pw, str) \
-                or not old_pw or not new_pw:
+        if not isinstance(new_pw, str) or not new_pw:
             handler.send_json({'success': False, 'error': '参数错误'}, 400)
             return
         import leaffs.auth.core as _ac
-        if _ac.verify_login(username, old_pw) is None:
-            handler.send_json({'success': False, 'error': '原密码不正确'}, 403)
-            return
+        # 当前**没有口令**（首启的超管就是这样）→ 这是"设置口令"，不校验原口令；
+        # 已经有口令的，改密仍必须给对原口令。
+        if _ac.has_password(username):
+            if not isinstance(old_pw, str) or _ac.verify_login(username, old_pw) is None:
+                handler.send_json({'success': False, 'error': '原密码不正确'}, 403,
+                                  exempt=True)
+                return
         ok, err = _ac.self_change_password(username, new_pw, keep_sid=sid)
         if not ok:
             handler.send_json({'success': False, 'error': err}, 400)
@@ -219,32 +231,4 @@ def account_set_lang(handler):
         handler.send_json({'error': '请求体必须是合法 JSON'}, 400)
     except Exception:
         # B-15：内部错误不回显细节
-        handler.send_json({'error': '服务器内部错误'}, 500)
-
-
-def account_set_accent(handler):
-    """POST /api/account/theme —— 持久化当前账号的主题主色到服务端。
-
-    与语言偏好同机制：本机 webview 无痕会话存不住客户端存储，主题主色存服务端
-    账号后跨启动（重新登录本账号）仍能恢复；游客不保存。
-    """
-    role, username, sid = _self_session(handler)
-    if not role:
-        handler.send_json({'error': '未登录或会话已失效'}, 401)
-        return
-    if role == 'guest' or username == '游客':
-        handler.send_json({'success': False, 'error': '游客账号不保存主题设置'}, 403)
-        return
-    try:
-        length = int(handler.headers.get('Content-Length', 0))
-        data = json.loads(handler.rfile.read(length).decode())
-        if not isinstance(data, dict):
-            data = {}
-        import leaffs.auth.core as _ac
-        accent = str(data.get('accent', '') or '')
-        _ac.set_user_accent(username, accent)
-        handler.send_json({'success': True, 'accent': _ac.get_user_accent(username)})
-    except json.JSONDecodeError:
-        handler.send_json({'error': '请求体必须是合法 JSON'}, 400)
-    except Exception:
         handler.send_json({'error': '服务器内部错误'}, 500)

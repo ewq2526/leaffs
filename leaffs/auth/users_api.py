@@ -2,6 +2,45 @@
 
 import json
 import os
+import time
+
+
+def _archive_user_dir(username):
+    """把被删用户的家目录**改名归档**到 `users/.deleted/<name>-<时间戳>/`。
+
+    返回 `(归档相对路径 or None, 错误文案 or None)`。没目录可归档不算错（用户从没登过录）
+    → `(None, None)`。
+
+    为什么归档而不是删除：删账号是管理员**一个操作**，但删目录会永久毁掉那个用户的
+    全部文件 —— 真机上救不回来。归档之后就没事了：
+      * 同名重建拿到的是**空目录**（原来会继承旧内容，那是个真缺陷）；
+      * 文件还在，名字改回去就能恢复；
+      * 不占额外空间（只是 rename）。
+    """
+    try:
+        from leaffs.utils.core import UPLOAD_DIR, invalidate_folder_cache
+    except Exception as e:
+        from leaffs.runtime_log import log_exception
+        log_exception('归档被删用户的家目录（取路径工具）', e)
+        return None, '服务器内部错误'
+    src = os.path.join(UPLOAD_DIR, 'users', username)
+    if not os.path.isdir(src):
+        return None, None
+    stamp = time.strftime('%Y%m%d-%H%M%S', time.localtime())
+    dest_dir = os.path.join(UPLOAD_DIR, 'users', '.deleted')
+    dest = os.path.join(dest_dir, '%s-%s' % (username, stamp))
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        os.rename(src, dest)
+    except Exception as e:
+        from leaffs.runtime_log import log_exception
+        log_exception('归档被删用户的家目录', e)
+        return None, '用户目录归档失败（账号未删除，可重试）'
+    try:
+        invalidate_folder_cache(os.path.join(UPLOAD_DIR, 'users'), recursive=True)
+    except Exception:
+        pass
+    return 'users/.deleted/%s-%s' % (username, stamp), None
 
 
 def _caller_sid(handler):
@@ -9,7 +48,7 @@ def _caller_sid(handler):
     try:
         import leaffs.auth.core as _ac
         cookie = handler.headers.get('Cookie', '')
-        _, sid = _ac.get_session(cookie, True, handler.client_address[0])
+        _, sid = _ac.get_session(cookie, handler.client_address[0])
         return sid or ''
     except Exception:
         return ''
@@ -54,7 +93,7 @@ def users_add(handler, add_user):
 
 
 def users_delete(handler, delete_user):
-    """删除用户"""
+    """删除用户（家目录**归档**到 `users/.deleted/`，文件不删）"""
     try:
         length = int(handler.headers.get('Content-Length', 0))
         data = json.loads(handler.rfile.read(length).decode())
@@ -62,9 +101,32 @@ def users_delete(handler, delete_user):
             data = {}
         username = data.get('username', '').strip()
         caller = handler._get_current_caller_role()
+        import leaffs.auth.core as _ac
+        # 1) 前置校验（不落盘）：角色门槛 / 存在性 / 最后一个超管
+        ok, err = _ac.precheck_user_delete(username, caller)
+        if not ok:
+            handler.send_json({'success': False, 'error': err}, 400); return
+        # 2) 先把家目录归档；动不了就整体失败，账号一个字节都不动
+        archived, aerr = _archive_user_dir(username)
+        if aerr:
+            handler.send_json({'success': False, 'error': aerr}, 500); return
+        # 2.5) T-1：级联清理该用户的**分享**记录 —— 分享码/错误计数/两类锁/授权票据
+        #      （share_access.json）与全部分享映射（share_mappings.json）。
+        # 顺序是有意的：这两步不可逆但**危害小**（用户重设码即可），而"账号删了、码还在"
+        # 会让重建的同名账号继承旧码（没人知道它 → 分享直接废掉）。宁可留下
+        # "账号还在、码被清"，也不要留下"账号没了、码还在"。
+        try:
+            import leaffs.share.access as _sacc
+            import leaffs.share.mappings as _smap
+            _sacc.purge_user(username)
+            _smap.remove_by_owner(username)
+        except Exception as e:
+            from leaffs.runtime_log import log_exception
+            log_exception('删除用户时清理分享记录', e)
+        # 3) 提交：删账号 + 踢掉该用户全部会话
         ok, err = delete_user(username, caller)
         if ok:
-            handler.send_json({'success': True})
+            handler.send_json({'success': True, 'archived_dir': archived})
         else:
             handler.send_json({'success': False, 'error': err}, 400)
     except json.JSONDecodeError:
@@ -190,7 +252,9 @@ def users_rename(handler, update_user_name, add_log, UPLOAD_DIR):
                 from leaffs.utils.core import invalidate_folder_cache
                 invalidate_folder_cache(os.path.join(UPLOAD_DIR, 'users'), recursive=True)
             except Exception as e:
-                handler.send_json({'success': False, 'error': f'用户目录改名失败: {e}'}, 500); return
+                from leaffs.runtime_log import log_exception
+                log_exception('用户目录改名', e)
+                handler.send_json({'success': False, 'error': '用户目录改名失败'}, 500); return
         # 3) 提交记录 + 撤销旧用户名全部会话（B-10：改名后需重新登录）
         ok, err = update_user_name(old_name, new_name, caller)
         if not ok:

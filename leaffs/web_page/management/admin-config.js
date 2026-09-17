@@ -1,5 +1,26 @@
 // ========== 配置管理（zh/en 动态文案随页面注入的 window.__LANG__） ==========
 
+/**
+ * 读输入框里的数值（支持小数）；空 / 非数字 / 负数返回 null。
+ *
+ * 这里曾经用 `parseInt(x) || 默认值`：parseInt('0.001') 得 0，再被兜底成默认值 ——
+ * 用户填 0.001（GB，约 1MB）想设个小配额，结果原样存回 5GB，界面还提示"已更新"。
+ * 也刻意不再兜底：静默替用户填一个数比报错更糟，非法值交给调用方提示失败并恢复原值。
+ */
+function numValue(id) {
+    var el = document.getElementById(id);
+    var v = parseFloat(el ? el.value : '');
+    return isNaN(v) || v < 0 ? null : v;
+}
+
+/** 非法输入时的统一处理：提示失败 + 把输入框恢复成当前生效值 */
+function invalidNumber(id, msg) {
+    batchToast(msg, 'error');
+    updateConfigInputs();
+    var el = document.getElementById(id);
+    if (el) el.focus();
+}
+
 // 游客模式切换
 function toggleAuth() {
     var btn = document.getElementById('authToggleBtn');
@@ -30,11 +51,17 @@ function toggleAuth() {
 
 // 限速设置
 function applySpeed() {
-    var val = parseInt(document.getElementById('speedInput').value) || 0;
+    var val = numValue('speedInput');
+    if (val === null) {
+        invalidNumber('speedInput', _UI_EN
+            ? 'Please enter a valid number (decimals such as 0.5 are fine)'
+            : '请输入有效数字（可填小数，如 0.5）');
+        return;
+    }
     fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ download_speed_limit: val * 1024 })
+        body: JSON.stringify({ download_speed_limit: Math.round(val * 1024) })
     }).then(function(r) { return r.json(); }).then(function(d) {
         if (d.success) {
             batchToast(_UI_EN ? ('Speed limit updated: ' + val + ' KB/s') : ('限速已更新: ' + val + ' KB/s'), 'success');
@@ -48,15 +75,21 @@ function applySpeed() {
 
 // 配额设置
 function applyQuotas() {
-    var uq = parseInt(document.getElementById('userQuotaInput').value) || 5;
-    var pq = parseInt(document.getElementById('publicQuotaInput').value) || 5;
-    var tq = parseInt(document.getElementById('totalQuotaInput').value) || 50;
+    var uq = numValue('userQuotaInput');
+    var pq = numValue('publicQuotaInput');
+    var tq = numValue('totalQuotaInput');
+    if (uq === null || pq === null || tq === null) {
+        invalidNumber('userQuotaInput', _UI_EN
+            ? 'Please enter valid numbers (decimals such as 0.001 are fine)'
+            : '请输入有效数字（可填小数，如 0.001 约等于 1MB）');
+        return;
+    }
     fetch('/api/config', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            user_quota: uq * 1073741824,
-            public_quota: pq * 1073741824,
-            total_quota: tq * 1073741824
+            user_quota: Math.round(uq * 1073741824),
+            public_quota: Math.round(pq * 1073741824),
+            total_quota: Math.round(tq * 1073741824)
         })
     }).then(function(r) { return r.json(); }).then(function(d) {
         if (d.success) {
@@ -123,8 +156,8 @@ function applyConnPerIp() {
 function applyConnLimit() {
     var el = document.getElementById('connLimitInput');
     var val = parseInt(el ? el.value : '', 10);
-    if (isNaN(val) || val < 1 || val > 20000) {
-        batchToast(_UI_EN ? 'Concurrent connections must be an integer 1~20000' : '同时服务连接数需为 1~20000 的整数', 'error');
+    if (isNaN(val) || val < 8 || val > 20000) {
+        batchToast(_UI_EN ? 'Concurrent connections must be an integer 8~20000' : '同时服务连接数需为 8~20000 的整数', 'error');
         return;
     }
     fetch('/api/config/deep', {

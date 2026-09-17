@@ -6,10 +6,12 @@ LEAFFS_PROJECT_ROOT 重定向到临时目录，LEAFFS_NO_WEBVIEW 关闭桌面窗
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 import httpx
 import pytest
@@ -21,6 +23,42 @@ if PROJ_ROOT not in sys.path:
 HTTP_PORT = 8090
 WS_PORT = 8091
 BASE_URL = 'http://127.0.0.1:%d' % HTTP_PORT
+
+TEST_RUNS_DIR = os.path.join(PROJ_ROOT, '.cache', 'test_runs')
+STALE_ROOT_AGE = 24 * 3600      # 秒：超过这个岁数的残留一定是"死运行"留下的
+
+
+def new_data_root(prefix='run_'):
+    """在 .cache/test_runs 下建一个独立数据根（config/ 一并建好）并返回路径。
+
+    放工作区 .cache 下、用 os.makedirs 逐层创建，是为了避开沙箱对 mkdtemp 产物的限制
+    （系统临时目录在受限沙箱里可能写不进去），所以**不用** pytest 的 tmp_path_factory。
+    """
+    root = os.path.join(TEST_RUNS_DIR, prefix + uuid.uuid4().hex[:12])
+    os.makedirs(os.path.join(root, 'config'), exist_ok=True)
+    return root
+
+
+def sweep_stale_roots():
+    """清掉 .cache/test_runs 下**超过 24 小时**的残留。
+
+    一次测试会话不可能跑 24 小时，所以 24h 前的条目一定是**被中断的运行**留下的
+    （夹具 teardown 的 rmtree 没跑到）。按岁数筛，就不会碰到并发运行中的根。
+    """
+    if not os.path.isdir(TEST_RUNS_DIR):
+        return
+    now = time.time()
+    for name in os.listdir(TEST_RUNS_DIR):
+        path = os.path.join(TEST_RUNS_DIR, name)
+        try:
+            if now - os.path.getmtime(path) < STALE_ROOT_AGE:
+                continue
+            if os.path.isdir(path):
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                os.remove(path)
+        except OSError:
+            pass
 
 
 def _tail(path, n=3000):
@@ -34,17 +72,20 @@ def _tail(path, n=3000):
 @pytest.fixture(scope='session')
 def data_root():
     """临时数据根（config/shared_files/.cache 全部落这里；放工作区 .cache 下，
-    用 os.makedirs 逐层创建以避开沙箱对 mkdtemp 产物的限制）"""
-    import shutil
-    import uuid
-    tmp_base = os.path.join(PROJ_ROOT, '.cache', 'test_runs')
-    root = os.path.join(tmp_base, 'run_' + uuid.uuid4().hex[:12])
-    os.makedirs(os.path.join(root, 'config'), exist_ok=True)
+    用 os.makedirs 逐层创建以避开沙箱对 mkdtemp 产物的限制）。
+
+    建根之前先 `sweep_stale_roots()`：把被中断的运行留下的旧残留按岁数扫掉。
+    """
+    sweep_stale_roots()
+    root = new_data_root('run_')
     cfg = {
         'http_port': HTTP_PORT,
         'ws_port': WS_PORT,
         'tls_enabled': False,          # 测试走明文，避免自签证书流程
         'guest_mode': True,
+        # 显式打开"游客可写 public"：这是测试要覆盖的行为（test_guest_upload_public 等），
+        # 不跟着产品默认值走 —— 产品的默认值已改成关
+        'guest_public_write': True,
         'access_log': False,
         'folder_size_ttl': 60,
         'upload_max_size': 104857600,
@@ -55,13 +96,46 @@ def data_root():
     with open(os.path.join(root, 'config', 'server_config.json'),
               'w', encoding='utf-8') as f:
         json.dump(cfg, f)
+    # 账号文件也预置成已知口令：首启现在是**随机初始口令**（没人知道，服务端本机即超管），
+    # 测试要能确定地登录，所以这里直接给出 admin/admin（明文形态，服务端启动会自动哈希）
+    with open(os.path.join(root, 'config', 'users.json'), 'w', encoding='utf-8') as f:
+        json.dump({'admin': {'password': 'admin', 'role': 'super_admin'}}, f)
     yield root
     shutil.rmtree(root, ignore_errors=True)
 
 
+@pytest.fixture(scope='module')
+def data_root_factory():
+    """自建数据根 + 模块结束时统一清掉（谁造谁登记）。
+
+    来由：原来是三条路各自 `makedirs`、teardown 只 terminate 服务进程**不删目录**
+    （`test_config_load_clamp.py` 的 clamp_/savefail_、`test_access_log_sanitize.py` 的 log_），
+    全量跑一轮就多 3 个残留，累积到 69 个 0.2 MB。会话级 `data_root` 一直是清的，
+    漏的只有"自建数据根"这一路 —— 所以把"造 + 清"收到这里，谁造谁登记。
+    """
+    made = []
+
+    def _make(prefix='tmp_'):
+        root = new_data_root(prefix)
+        made.append(root)
+        return root
+
+    yield _make
+    for root in made:
+        shutil.rmtree(root, ignore_errors=True)
+
+
 @pytest.fixture(scope='session')
 def server(data_root):
-    """启动真实服务子进程；就绪后 yield BASE_URL；teardown 终止"""
+    """启动真实服务子进程；就绪后 yield BASE_URL；teardown 终止
+
+    范围 session：全部测试共享一个服务进程（登录/游客登录有进程内频控，
+    如游客 10 次/分钟；新增用例若需 guest 会话需控制总量，勿改为 module 级——
+    module 重启边界存在连接重置竞态，曾致 test_guest_upload_own_dir_forbidden
+    偶发 httpx.ReadError）。
+    """
+    # 注：data_root 为 session 级；server 按文件重启时使用同一 data_root，
+    # 服务端配置（server_config.json）与账号文件保持一次会话内一致。
     env = dict(os.environ)
     env['LEAFFS_PROJECT_ROOT'] = data_root
     env['LEAFFS_NO_WEBVIEW'] = '1'
@@ -92,6 +166,13 @@ def server(data_root):
         except Exception:
             proc.kill()
         logf.close()
+        # 排障：保留最近一次服务端日志副本（data_root 会话结束即删除）
+        try:
+            import shutil
+            keep = os.path.join(PROJ_ROOT, '.cache', 'last_server.log')
+            shutil.copyfile(log_path, keep)
+        except Exception:
+            pass
 
 
 @pytest.fixture()

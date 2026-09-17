@@ -13,7 +13,7 @@
     <div class="header">
         <h1><span class="ht">Admin</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting…</span></span></h1>
         <div class="info">
-            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">Light</span></button>
+            <!--THEME_TOGGLE-->
         </div>
     </div>
 
@@ -21,6 +21,7 @@
         <a href="/browse/">Browse</a>
         <a href="/gallery">Gallery</a>
         <a href="/url-download">Downloader</a>
+        <a href="/share">Share</a>
         <a href="/admin" class="active">Admin</a>
         <a href="/me">My Account</a>
         <span style="flex:1"></span>
@@ -149,8 +150,8 @@
             <div class="config-group">
                 <label>Maximum connections the whole machine serves at the same time (browser, download and phone app connections each count as one)</label>
                 <div class="config-row">
-                    <input type="number" id="connLimitInput" min="1" max="20000" step="1" value="256" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">Default 256 (1~20000)</span>
+                    <input type="number" id="connLimitInput" min="8" max="20000" step="1" value="256" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">Default 256 (8~20000; below 8 starves the server of connection slots)</span>
                     <button class="btn-admin primary" onclick="applyConnLimit()">Save</button>
                 </div>
                 <div class="config-hint">Takes effect immediately after saving, no restart needed; new connections beyond the limit are <strong>rejected immediately</strong> instead of queued</div>

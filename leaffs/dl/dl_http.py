@@ -380,9 +380,11 @@ class HttpDownloader:
 
         except Exception as e:
             if not cancel_flag.is_set():
+                from leaffs.runtime_log import log_exception
+                log_exception('下载器：任务执行', e)
                 task_info['status'] = 'error'
-                task_info['error'] = str(e)
+                task_info['error'] = '下载失败'
                 _notify()
-                return {'success': False, 'error': str(e), 'status': 'error'}
+                return {'success': False, 'error': '下载失败', 'status': 'error'}
 
         return {'success': False, 'error': '已取消', 'status': 'cancelled'}

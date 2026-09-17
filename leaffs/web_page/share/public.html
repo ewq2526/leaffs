@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>分享 - LeafFS</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif;
+    color:var(--text,#22305c);line-height:1.6;-webkit-font-smoothing:antialiased;min-height:100vh;
+    background:var(--bg,#e8eef8);
+    background-image:
+      radial-gradient(720px 460px at 8% -8%,rgba(125,190,255,.32),transparent 60%),
+      radial-gradient(640px 420px at 104% 12%,rgba(150,220,255,.28),transparent 62%),
+      radial-gradient(560px 380px at 50% 115%,rgba(125,170,255,.18),transparent 60%);
+    background-attachment:fixed;
+  }
+  .wrap{max-width:600px;margin:0 auto;padding:38px 16px 56px}
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  .brand .logo{width:44px;height:44px;border-radius:13px;flex:none;display:flex;align-items:center;justify-content:center;font-size:22px;
+    background:linear-gradient(135deg,var(--primary,#0ea5e9),#38bdf8);color:#fff;box-shadow:0 8px 20px rgba(14,165,233,.32)}
+  .brand .t1{font-size:17px;font-weight:800;letter-spacing:.2px}
+  .brand .t2{font-size:11.5px;color:#6b7ba6;letter-spacing:1.6px;text-transform:uppercase;margin-top:-2px}
+  .who{margin:22px 0 6px;font-size:15px;color:#6b7ba6}
+  .who b{color:var(--text,#22305c);font-size:18px}
+  .sub{font-size:12.5px;color:#8a97bd;margin-bottom:18px}
+  .files{display:flex;flex-direction:column;gap:10px}
+  .frow{display:flex;align-items:center;gap:13px;padding:13px 15px;border-radius:15px;
+    background:var(--card-bg,#fff);border:1px solid var(--border,#e2e8f5);
+    box-shadow:0 3px 12px rgba(96,120,210,.07);transition:transform .15s ease,box-shadow .15s ease}
+  .frow:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(96,120,210,.14)}
+  .fic{width:44px;height:44px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center;font-size:21px;background:var(--chip-bg,#eef3fd)}
+  .fname{font-size:14.5px;font-weight:650;word-break:break-all}
+  .fmeta{font-size:11.5px;color:#8a97bd;margin-top:1px}
+  .fmid{flex:1;min-width:0}
+  .dbtn{flex:none;text-decoration:none;color:#fff;font-size:13px;font-weight:700;
+    background:linear-gradient(90deg,var(--primary,#0ea5e9),#38bdf8);padding:9px 20px;border-radius:999px;
+    box-shadow:0 6px 16px rgba(14,165,233,.28);transition:filter .15s ease,transform .12s ease}
+  .dbtn:active{transform:scale(.96)}
+  .empty{text-align:center;padding:52px 18px;color:#8a97bd;font-size:14px;
+    background:var(--card-bg,#fff);border:1px dashed var(--border,#dbe4f5);border-radius:18px}
+  .empty .eic{font-size:34px;display:block;margin-bottom:10px;opacity:.85}
+  .foot{text-align:center;font-size:11px;color:#a9b4d4;margin-top:30px;letter-spacing:.4px}
+  .ld{margin:40px 0;text-align:center;color:#8a97bd;font-size:13px}
+  .codebox{margin:26px 0 6px;padding:26px 20px;border-radius:18px;text-align:center;
+    background:var(--card-bg,#fff);border:1px solid var(--border,#e2e8f5);box-shadow:0 6px 22px rgba(96,120,210,.10)}
+  .codebox .lock{font-size:30px;display:block;margin-bottom:6px}
+  .codebox h2{font-size:16px;margin:4px 0 2px;font-weight:750}
+  .codebox p{font-size:12.5px;color:#8a97bd;margin:6px auto 14px;max-width:340px;line-height:1.7}
+  .cin{width:100%;max-width:300px;padding:11px 14px;font-size:15px;letter-spacing:2px;text-align:center;
+    border:1.5px solid var(--border,#d4dff2);border-radius:12px;outline:none;background:var(--bg,#f4f7fd);color:var(--text)}
+  .cin:focus{border-color:var(--primary,#0ea5e9)}
+  .cbtn{margin-top:14px;display:inline-block;border:0;cursor:pointer;color:#fff;font-size:14px;font-weight:700;
+    background:linear-gradient(90deg,var(--primary,#0ea5e9),#38bdf8);padding:11px 34px;border-radius:999px;
+    box-shadow:0 6px 16px rgba(14,165,233,.28)}
+  .cmsg{font-size:12px;margin-top:12px;min-height:16px}
+  .cmsg.err{color:#cf5266}
+  .cmsg.warn{color:#c0861f}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="logo">📦</div>
+    <div>
+      <div class="t1">LeafFS</div>
+      <div class="t2">File Share</div>
+    </div>
+  </div>
+  <div class="who"><b id="whoName">…</b> <span data-i="shared"></span></div>
+  <div class="sub" data-i="sub"></div>
+
+  <div class="ld" id="loading" data-i="loading"></div>
+
+  <div class="codebox" id="codeBox" style="display:none">
+    <span class="lock">🔒</span>
+    <h2 data-i="needCode"></h2>
+    <p data-i="codeTip"></p>
+    <input class="cin" id="codeInput" type="text" autocomplete="off" maxlength="32" enterkeyhint="go">
+    <br>
+    <button class="cbtn" id="codeBtn" data-i="confirm"></button>
+    <div class="cmsg" id="codeMsg"></div>
+  </div>
+
+  <div class="files" id="files"></div>
+  <div class="empty" id="emptyBox" style="display:none"><span class="eic">📭</span><span data-i="empty"></span></div>
+  <div class="empty" id="errBox" style="display:none"><span class="eic">🔗</span><span data-i="bad"></span></div>
+
+  <div class="foot">LeafFS · <span data-i="foot"></span></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var T = {
+    zh: { shared: '分享的文件', sub: '无需登录，点开即可下载 · 请只转发给需要的人',
+          loading: '加载中…', empty: '暂时没有可下载的内容', bad: '链接无效',
+          foot: '让文件简单流动', at: '更新于',
+          needCode: '该分享需要访问码', codeTip: '输入分享者提供的访问码后即可查看与下载', confirm: '确认',
+          wrong: '访问码不正确', remain: '还可尝试', times: '次', sending: '验证中…',
+          lockedIp: '尝试次数过多，本机今日已被限制，请稍后再试或联系分享者',
+          lockedAll: '该分享页当前已锁定，请联系分享者解锁' },
+    en: { shared: 'shared files', sub: 'No login needed — tap to download · only forward to those you trust',
+          loading: 'Loading…', empty: 'Nothing available yet', bad: 'Invalid link',
+          foot: 'making files easy to move', at: 'updated',
+          needCode: 'Access code required', codeTip: 'Enter the access code from the sharer to view and download', confirm: 'Confirm',
+          wrong: 'Wrong access code', remain: 'attempts left', times: '', sending: 'Verifying…',
+          lockedIp: 'Too many attempts — this device is limited for today, ask the sharer for help',
+          lockedAll: 'This share is currently locked, please contact the sharer' }
+  };
+  var zh = ((navigator.language || 'zh').toLowerCase().indexOf('zh') === 0);
+  var I = T[zh ? 'zh' : 'en'];
+  document.documentElement.lang = zh ? 'zh-CN' : 'en';
+  if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+  document.querySelectorAll('[data-i]').forEach(function (el) {
+    el.textContent = I[el.getAttribute('data-i')];
+  });
+
+  var $ = function (id) { return document.getElementById(id); };
+  var m = location.pathname.match(/^\/p\/([^/]+)\/?$/);
+  if (!m) { $('loading').style.display = 'none'; $('errBox').style.display = ''; return; }
+  var who = decodeURIComponent(m[1]);
+  $('whoName').textContent = who;
+
+  function fmtSize(n) {
+    if (n < 1024) return n + ' B';
+    var u = ['KB', 'MB', 'GB', 'TB'], i = -1;
+    do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
+    return (n >= 100 ? n.toFixed(0) : n.toFixed(1)) + ' ' + u[i];
+  }
+  function iconFor(name) {
+    var ext = (name.split('.').pop() || '').toLowerCase();
+    if (['jpg','jpeg','png','gif','webp','bmp','heic'].indexOf(ext) >= 0) return '🖼️';
+    if (['mp4','mov','mkv','avi','webm','3gp','ts','flv','m3u8'].indexOf(ext) >= 0) return '🎬';
+    if (['mp3','wav','flac','aac','ogg','m4a'].indexOf(ext) >= 0) return '🎵';
+    if (['zip','rar','7z','tar','gz'].indexOf(ext) >= 0) return '🗜️';
+    if (['doc','docx','pdf','xls','xlsx','ppt','pptx','txt','md'].indexOf(ext) >= 0) return '📄';
+    return '📁';
+  }
+
+  function showErr() {
+    $('loading').style.display = 'none';
+    $('codeBox').style.display = 'none';
+    $('errBox').style.display = '';
+  }
+  function codeMsg(t, cls) {
+    var el = $('codeMsg');
+    el.textContent = t;
+    el.className = 'cmsg ' + (cls || '');
+  }
+  function showCodeBox() {
+    $('loading').style.display = 'none';
+    $('codeBox').style.display = '';
+    $('codeInput').focus();
+  }
+
+  function submitCode() {
+    var inp = $('codeInput');
+    var code = inp.value.trim();
+    if (!code) { codeMsg(I.empty, 'err'); return; }
+    var btn = $('codeBtn');
+    btn.disabled = true;
+    codeMsg(I.sending, '');
+    fetch('/api/share/auth', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: who, code: code })
+    }).then(function (r) {
+      return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+    }).then(function (res) {
+      btn.disabled = false;
+      var d = res.d || {};
+      if (res.ok && d.ok) { location.reload(); return; }
+      if (d.error === 'locked') {
+        codeMsg(d.reason === 'global' ? I.lockedAll : I.lockedIp, 'err');
+        inp.disabled = true;
+        return;
+      }
+      if (d.error === 'incorrect') {
+        var left = (typeof d.remaining === 'number') ? d.remaining : 0;
+        if (left > 0) codeMsg(I.wrong + '（' + I.remain + ' ' + left + ' ' + I.times + '）', 'err');
+        else { codeMsg(I.lockedIp, 'err'); inp.disabled = true; }
+        inp.select();
+        return;
+      }
+      codeMsg(I.wrong, 'err');
+    }).catch(function () { btn.disabled = false; codeMsg(I.bad, 'err'); });
+  }
+  $('codeBtn').onclick = submitCode;
+  $('codeInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') submitCode();
+  });
+
+  function render(d) {
+    var files = (d && d.files) || [];
+    $('loading').style.display = 'none';
+    if (!files.length) { $('emptyBox').style.display = ''; return; }
+    var box = $('files');
+    files.forEach(function (f) {
+      var row = document.createElement('div');
+      row.className = 'frow';
+      var ic = document.createElement('div');
+      ic.className = 'fic';
+      ic.textContent = iconFor(f.name);
+      var mid = document.createElement('div');
+      mid.className = 'fmid';
+      var nm = document.createElement('div');
+      nm.className = 'fname';
+      nm.textContent = f.name;
+      var mt = document.createElement('div');
+      mt.className = 'fmeta';
+      mt.textContent = fmtSize(f.size) + ' · ' + I.at + ' ' + new Date(f.mtime * 1000).toLocaleDateString();
+      mid.appendChild(nm);
+      mid.appendChild(mt);
+      var a = document.createElement('a');
+      a.className = 'dbtn';
+      a.href = f.url;
+      a.textContent = zh ? '下载' : 'Download';
+      row.appendChild(ic);
+      row.appendChild(mid);
+      row.appendChild(a);
+      box.appendChild(row);
+    });
+  }
+
+  fetch('/p/' + encodeURIComponent(who) + '/api').then(function (r) {
+    if (r.status === 403) {
+      return r.json().then(function (d) {
+        if (d && d.error === 'code_required') { showCodeBox(); return null; }
+        showErr();
+        return null;
+      });
+    }
+    if (!r.ok) throw new Error('bad');
+    return r.json();
+  }).then(function (d) {
+    if (d) render(d);
+  }).catch(function () { showErr(); });
+})();
+</script>
+</body>
+</html>

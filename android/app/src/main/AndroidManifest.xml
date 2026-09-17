@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 局域网访问：Android 17(API 37) 起由 ACCESS_LOCAL_NETWORK（"本地网络"）管 -->
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <!-- Android 16(API 36) 起局域网访问已被 RESTRICT_LOCAL_NETWORK 拦，但 36 上系统还不认识
+         ACCESS_LOCAL_NETWORK（dumpsys 查无此权限），只声明那个等于没声明 —— 36 及 13~15 上
+         管这件事的是"附近的设备"权限组。不声明的话，NetworkInterface 只返回回环网卡，
+         局域网里别的设备也连不上（现象：服务在跑、本机能打开、外面连不上）。 -->
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 前台服务：退到后台后继续共享（常驻通知） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- dataSync 留给低版本；specialUse 给 API 34+ —— Android 15 起 dataSync 有累计时长
+         上限（约 6 小时）会被系统停掉，而"开着共享"是长期驻留的 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- API 28 及以下：DownloadManager 写入公共下载目录需要存储权限（29 起免申请） -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- PyApplication：进程启动即初始化 Chaquopy Python 运行时 -->
+    <application
+        android:name="com.chaquo.python.android.PyApplication"
+        android:allowBackup="true"
+        android:label="LeafFS"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:usesCleartextTraffic="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="stateUnspecified|adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density|fontScale"
+            android:theme="@style/Theme.LeafFS">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 前台服务：保证服务在后台继续运行（API 29+ 使用声明的类型，低版本忽略该属性） -->
+        <service
+            android:name=".LeafService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|specialUse">
+            <!-- specialUse 必须说明用途（Play 上架会审核；本应用走内部/自行分发） -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="局域网文件共享服务：常驻本机 HTTP/WebSocket 服务，供同一局域网内的设备浏览与传输文件" />
+        </service>
+    </application>
+
+</manifest>

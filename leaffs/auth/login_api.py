@@ -230,6 +230,8 @@ def serve_login_page(handler, base_dir, read_file_cached, get_guest_mode):
     本函数仅负责读取页面文件并注入游客模式开关（__GUEST_DISPLAY__）。
     """
     filepath = os.path.join(base_dir, 'web_page', 'login', 'login.html')
+    used_en = False
+    ck = ''
     # 语言 cookie 为 en 且存在英文版页面时，直接返回英文版
     try:
         ck = handler.headers.get('Cookie', '') or ''
@@ -237,6 +239,7 @@ def serve_login_page(handler, base_dir, read_file_cached, get_guest_mode):
             en_path = os.path.join(base_dir, 'web_page', 'login', 'login.en.html')
             if os.path.isfile(en_path):
                 filepath = en_path
+                used_en = True
     except Exception:
         pass
     raw = read_file_cached(filepath)
@@ -245,15 +248,17 @@ def serve_login_page(handler, base_dir, read_file_cached, get_guest_mode):
         return
     guest_display = '' if get_guest_mode() else 'none'
     html = raw.decode('utf-8').replace('__GUEST_DISPLAY__', guest_display)
+    # 亮暗与主题按钮：与站内其它页同一份（服务端只按 cookie 渲染色，不存主题）；
+    # 登录页不注入主色，因此 accent 用默认空值
+    from leaffs.web.render import inject_page_theme
+    html = inject_page_theme(html, ck, used_en)
     data = html.encode('utf-8')
     handler.send_response(200)
     handler.send_header('Content-Type', 'text/html; charset=utf-8')
     handler.send_header('Content-Length', str(len(data)))
     # B-14：登录页安全响应头（登录页可含口令输入框 → no-store；wm_page 静态部分由 B2 负责）
     handler.send_header('Cache-Control', 'no-store')
-    handler.send_header('X-Content-Type-Options', 'nosniff')
-    handler.send_header('X-Frame-Options', 'DENY')
-    handler.send_header('Referrer-Policy', 'no-referrer')
+    # 公共头（nosniff / XFO / Referrer / HSTS）由 handler.end_headers 统一补，不手写（会重复）
     handler.end_headers()
     handler.wfile.write(data)
 
@@ -282,7 +287,8 @@ def auth_login(handler, add_log, logger, UPLOAD_DIR, verify_login,
         if _is_login_locked(client_ip, raw_user):
             if _LOCK_RESPONSE_UNIFORM:
                 # 开关开：与「用户名或密码错误」完全同形态（403+同文案），消除状态码差异面
-                handler.send_json({'success': False, 'error': '用户名或密码错误'}, 403)
+                handler.send_json({'success': False, 'error': '用户名或密码错误'}, 403,
+                                  exempt=True)
             else:
                 handler.send_json({'success': False, 'error': '尝试次数过多，请稍后再试'}, 429)
             return
@@ -319,6 +325,8 @@ def auth_login(handler, add_log, logger, UPLOAD_DIR, verify_login,
             handler._set_session_cookie(sid)
             handler.send_header('Content-Type', 'application/json')
             handler.send_header('Access-Control-Allow-Origin', '*')
+            # LF-10：登录响应含身份信息，绝不缓存（安全头由 handler.end_headers 统一补）
+            handler.send_header('Cache-Control', 'no-store')
             handler.end_headers()
             handler.wfile.write(json.dumps({'success': True, 'role': role}).encode('utf-8'))
         else:
@@ -328,7 +336,8 @@ def auth_login(handler, add_log, logger, UPLOAD_DIR, verify_login,
             logger.warning(f'登录失败: {safe_user} ({client_ip})')
             if locked:
                 _warn_account_lock(safe_user, client_ip, add_log)
-            handler.send_json({'success': False, 'error': '用户名或密码错误'}, 403)
+            handler.send_json({'success': False, 'error': '用户名或密码错误'}, 403,
+                              exempt=True)
     except json.JSONDecodeError:
         # B-15：畸形请求体不回显内部解析错误
         handler.send_json({'error': '请求体必须是合法 JSON'}, 400)
@@ -341,7 +350,7 @@ def auth_check(handler, get_session, get_session_username,
                is_default_admin_password, get_guest_mode, _sessions, _sessions_lock):
     """检查登录状态"""
     cookie = handler.headers.get('Cookie', '')
-    role, sid = get_session(cookie, True, handler.client_address[0])
+    role, sid = get_session(cookie, handler.client_address[0])
     username = ''
     need_change_password = False
     if sid:
@@ -363,7 +372,7 @@ def auth_check(handler, get_session, get_session_username,
 def auth_logout(handler, get_session, remove_session, AUTH_COOKIE):
     """登出（仅 POST 语义；方法校验在路由层，本函数不关心方法）"""
     cookie = handler.headers.get('Cookie', '')
-    _, sid = get_session(cookie, True, handler.client_address[0])   # 同 IP 校验
+    _, sid = get_session(cookie, handler.client_address[0])   # 同 IP 校验
     if sid:
         remove_session(sid)
     # B-08：TLS 下登出 Set-Cookie 补 Secure（用 handler.server.is_secure，不猜测协议）
@@ -374,13 +383,6 @@ def auth_logout(handler, get_session, remove_session, AUTH_COOKIE):
     handler.send_response(302)
     handler.send_header('Location', '/login')
     handler.send_header('Set-Cookie', sc)
-    # 同步清除“已登录”标记（ac_core.LOGIN_MARKER），避免登出后 8082 仍误判为已登录
-    try:
-        from leaffs.auth import core as _ac_mod
-        handler.send_header('Set-Cookie',
-                            f'{_ac_mod.LOGIN_MARKER}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax')
-    except Exception:
-        pass
     handler.end_headers()
 
 
@@ -388,7 +390,8 @@ def guest_login(handler, create_session, get_guest_mode=None):
     """游客登录（游客模式关闭时拒绝，防止直接构造请求绕过 UI 进入公共目录）"""
     try:
         if get_guest_mode is not None and not get_guest_mode():
-            handler.send_json({'success': False, 'error': '游客模式已关闭'}, 403)
+            handler.send_json({'success': False, 'error': '游客模式已关闭'}, 403,
+                              exempt=True)
             return
         # B-07：单 IP 每分钟 guest_login 次数上限（滑动窗口），超限 429
         ip = handler.client_address[0]
@@ -400,6 +403,8 @@ def guest_login(handler, create_session, get_guest_mode=None):
         handler._set_session_cookie(sid)
         handler.send_header('Content-Type', 'application/json')
         handler.send_header('Access-Control-Allow-Origin', '*')
+        # LF-10：游客登录响应同样含身份信息，绝不缓存
+        handler.send_header('Cache-Control', 'no-store')
         handler.end_headers()
         handler.wfile.write(json.dumps({'success': True, 'role': 'guest'}).encode('utf-8'))
     except Exception:
@@ -427,7 +432,11 @@ def auth_toggle(handler, add_log, set_guest_mode, get_guest_mode, revoke_guest_s
                 data = {}
         enabled = data.get('enabled')
         on = bool(enabled) if isinstance(enabled, bool) else not get_guest_mode()
-        set_guest_mode(on)
+        if not set_guest_mode(on):
+            # 保存失败必须说：开关只在内存里，重启后就还原了
+            handler.send_json({'success': False,
+                               'error': '保存失败：游客模式开关只在内存里，重启后会还原'}, 500)
+            return
         if not on and revoke_guest_sessions:
             try: revoke_guest_sessions()
             except Exception: pass

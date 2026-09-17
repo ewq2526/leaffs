@@ -2,24 +2,27 @@
 """WebSocket 传输层 —— 连接注册/限流/消息分发（原 leaffs.py 内 ws 区间，重构抽出）。
 
 包含：WS 连接登记与每 IP 配额（registry）、消息级/IP 级限流、Origin/Host 同源校验、
-会话解析（_ws_get_session）、ws_handler 消息分发（auth/admin-sub/list/delete/mkdir/
+会话解析（_ws_get_session）、ws_handler 消息分发（admin-sub/list/delete/mkdir/
 sub-download/qr/ping）、事件循环承载（run_ws/run_ws_sync）。
 
-订阅集合与广播在 leaffs.server.push；本机令牌在 leaffs.auth.local_token。
+订阅集合与广播在 leaffs.server.push。
+（本机一次性令牌只走 HTTP 的 `/login?leaf=`；**WS 的 `auth` 消息分支已于 2026-09-16 删除**
+—— 全仓无发送方，是死代码，而它还是"环回但漏查 Host"的那条路。）
 """
 import asyncio
 import concurrent.futures
 import json
+import logging
 import os
 import threading
 import time
 import urllib.parse
 from collections import deque
+from http import HTTPStatus
 
 import websockets
 
 import leaffs.auth.core as _ac
-import leaffs.auth.local_token as _lt
 import leaffs.config.core as _cfg
 import leaffs.dl.manager as _dl_mgr
 import leaffs.files.api as _fs_api
@@ -28,6 +31,9 @@ import leaffs.runtime_log
 import leaffs.server.hosts as _hosts
 import leaffs.server.push as _push
 import leaffs.server.tls as _tls
+# LF-27：分享码判定与 HTTP 侧**共用一份**（share/access.code_gate）——
+# WS 的列表也要按分享码过滤，不能自己再写一套"谁算解锁"。
+import leaffs.share.access as _sacc
 from leaffs.watchdog import _wd_ws_tick
 from leaffs.runtime_log import add_log
 
@@ -46,8 +52,12 @@ def _ws_get_session(websocket):
 
     websockets ≥14（本项目 16.0）握手头在 websocket.request.headers，
     不再有 request_headers 属性；legacy 版本用 websocket.request_headers。
-    与 _ws_origin_ok 相同的双来源读取，避免新版库下 Cookie 解析恒为空、
+    这里保留双来源读取，避免新版库下 Cookie 解析恒为空、
     纯 cookie 会话的 WS 连接被当成匿名（admin-sub 等一律 Unauthorized）。
+
+    返回 **(role, username, sid, cookies_raw)** —— 第 4 项是给分享码判定用的：
+    LF-27 之后 WS 的列表也要按分享码过滤，而判定必须看**握手时的 Cookie**
+    （票据与 HTTP 侧同一套）；调用方负责缓存到 `websocket.cached_cookie`。
     """
     try:
         cookies_raw = ''
@@ -73,37 +83,75 @@ def _ws_get_session(websocket):
                 except Exception:
                     cookies_raw = ''
         ws_ip = getattr(websocket, 'remote_address', ('', 0))[0]
-        role, sid = _ac.get_session(cookies_raw, True, ws_ip)
+        role, sid = _ac.get_session(cookies_raw, ws_ip)
         username = _ac.get_session_username(sid) if sid else ''
-        return role, username, sid
+        return role, username, sid, cookies_raw
     except Exception:
-        return None, '', ''
+        return None, '', '', ''
 
 
 def _normalize_ws_rel_path(rel_path):
-    """规范化 WebSocket 中的相对路径并禁止路径穿越"""
-    if not rel_path:
-        return ''
-    # 先检查原始路径中是否包含 ..（必须在 normpath 之前检查）
-    raw_parts = rel_path.replace('\\', '/').split('/')
-    if '..' in raw_parts:
-        return None
-    if raw_parts and raw_parts[0] in ('..', '.'):
-        return None
-    norm = os.path.normpath(rel_path).replace('\\', '/')
-    if norm.startswith('/'):
-        return None
-    if norm in ('..', '../') or norm.startswith('../'):
-        return None
-    return norm
+    """规范化 WebSocket 中的相对路径并禁止路径穿越
+
+    **实现只有一份**：转调 `files/api.py` 的 `_normalize_rel_path`（HTTP 侧一直用的那个）。
+    这两个原本是**两份拷贝**，差异是 api 那份多拒一类 Windows 盘符（`C:/x`，
+    `os.path.join(UPLOAD_DIR, 'C:/x')` 在 Windows 上会直接跳出共享根）——
+    统一到这里等于**只变严不变松**。留着两份迟早再漂移（LF-27 就是这么来的）。
+    """
+    return _fs_api._normalize_rel_path(rel_path)
+
+
+def _ws_str(data, key, default=''):
+    """从 WS 消息里取**字符串**字段：非字符串一律当空值。
+
+    为什么需要：消息循环外面只兜了 `ConnectionClosed`，其它异常会冒到 websockets
+    那里、以 **1011** 关掉整条连接并刷一段堆栈日志。而 `json.loads` 之后各分支直接
+    假定字段是 str —— 实测这些输入会把连接打崩：
+    `"abc"`/`123`/`[1]`/`null`（非对象 JSON）、`{"token":123}`、`{"sid":123}`、
+    `{"type":"list","path":123}`、`{"type":"delete","paths":123}`。
+
+    当空之后走的是**既有的正常分支**（token 空 → 认证失败；path 空 → 路径不合法），
+    客户端能拿到明确应答，比"静默忽略"好。
+    """
+    v = data.get(key, default)
+    return v if isinstance(v, str) else default
+
+
+def _ws_str_list(data, key):
+    """从 WS 消息里取**字符串列表**字段：非列表当空，列表里的非字符串元素剔掉。
+
+    原来直接 `for p in paths`：传数字 → TypeError 崩；传**字符串** → 逐字符当路径
+    （不崩但语义错 —— 会拿 "a"/"b"/"c" 去逐个判权限/删除）。
+    """
+    v = data.get(key, [])
+    if not isinstance(v, list):
+        return []
+    return [x for x in v if isinstance(x, str)]
+
+
+async def _ws_proto_error(websocket, why):
+    """帧级/信封级的格式问题 → 回一条明确错误（**不断连接**）。
+
+    为什么不静默忽略：客户端无法区分"服务端不支持这条消息"与"服务端卡住/没理我"
+    （外部测试者的反馈）。
+    为什么不按 RFC 6455 回 1003/1007 关闭：那是**主动关闭连接**，等于把"连接被打断"
+    换个规范的码还回来 —— 而这段代码的目标恰恰是"别因为一条错消息让客户端掉线、丢订阅"。
+    应答不放大流量（1:1），且外面有每连接 30/10s、每 IP 120/10s 的滑动窗口限流兜底。
+    """
+    try:
+        await websocket.send(json.dumps({'type': 'error', 'msg': '消息格式不合法：' + why}))
+    except Exception:
+        pass          # 发送失败说明连接已断，无需再管
 
 
 # WS 敏感消息类型：会话被撤销/过期后这些操作必须逐条实时复查（见 ws_handler），
-# 未显式 auth（纯 cookie 会话）的连接已在每条消息的“获取会话”段实时复查，无需重复。
-_WS_REVALIDATE_TYPES = ('admin-sub', 'list', 'delete', 'mkdir', 'sub-download', 'upload')
+# 仅凭 cookie 会话的连接已在每条消息的“获取会话”段实时复查，无需重复。
+_WS_REVALIDATE_TYPES = ('admin-sub', 'gallery-sub', 'list', 'delete', 'mkdir', 'sub-download', 'upload')
 
 # A-17：未认证（ws_role 为空）连接仅放行的最小消息集
-_WS_ANON_ALLOWED = frozenset(('auth', 'ping', 'qr-sub', 'qr-unsub', 'admin-unsub', 'unsub-download'))
+# 2026-09-16：去掉 'auth' —— 那条消息分支是**死代码**（全仓无发送方），已整体删除；
+# 认证只走握手 Cookie（`_ws_get_session`）。未认证连接发 auth 现在按"白名单外消息"拒。
+_WS_ANON_ALLOWED = frozenset(('ping', 'qr-sub', 'qr-unsub', 'admin-unsub', 'unsub-download'))
 
 # A-06：WS 连接/消息限流参数（单 IP 活跃连接、滑动窗口消息速率）
 # 单 IP 活跃连接上限改由配置键 ws_max_conn_per_ip 提供（默认 8），本常量仅作 cfg 不可用时兜底；
@@ -215,32 +263,27 @@ def _ws_ip_msg_ok(ip):
         return len(q) <= _WS_MSG_PER_IP
 
 
-def _ws_origin_ok(websocket):
-    """WS Origin/Host 同源校验（A-06）。
+def _ws_origin_host_ok(headers):
+    """WS Host/Origin 同源校验（A-06）。**在握手前调用**，不过就回 HTTP 403。
 
-    Host 必须为本机 host/IP/localhost（端口剥离后比对）；Origin（如存在）的
-    scheme+host 必须同站。无 Origin 的原生客户端放行但照常计入限流。
+    Host（如存在）剥离端口后必须落在本机地址白名单里；Origin（如存在）必须来自
+    **本站主站** —— 主机名在白名单里，**且端口等于本站主站端口**。
+    无 Origin 的原生客户端放行（限流兜底）。
+
+    调用位置很重要（LF-14）：原先调用点在 `ws_handler` 里，而 `websockets` **调用 handler
+    之前 101 已经发出去了** —— 不合法连接照样完成握手、进入连接计数，客户端拿到的是
+    "连上又断"。现在由 `_ws_http_probe`（`process_request`，握手前）调用，拒得干净。
     """
     try:
         allowed = set(_collect_ips())
         allowed.update(_LOCAL_HOST_NAMES)
-        req = getattr(websocket, 'request', None)
-        headers = getattr(req, 'headers', None) if req is not None else None
-        if headers is None:
-            headers = getattr(websocket, 'request_headers', None)
+        host = ''
+        origin = ''
         if headers is not None and hasattr(headers, 'get'):
             host = headers.get('Host') or ''
-        else:
-            host = ''
+            origin = (headers.get('Origin') or '').strip()
         if host and _strip_host_port(host) not in allowed:
             return False
-        origin = ''
-        try:
-            origin = (getattr(websocket, 'origin', None) or '').strip()
-        except Exception:
-            origin = ''
-        if not origin and headers is not None and hasattr(headers, 'get'):
-            origin = (headers.get('Origin') or '').strip()
         if not origin:
             return True  # 原生客户端无 Origin：放行，限流兜底
         if origin.lower() == 'null':
@@ -248,7 +291,20 @@ def _ws_origin_ok(websocket):
         u = urllib.parse.urlparse(origin)
         if u.scheme not in ('http', 'https'):
             return False
-        return _strip_host_port(u.hostname or '') in allowed
+        if _strip_host_port(u.hostname or '') not in allowed:
+            return False
+        # 端口也必须对得上：SameSite 只比主机名、**不比端口**，所以"本机任意其它端口"上
+        # 的页面照样会带上会话 Cookie 连过来 —— 而 WebSocket 不受同源策略约束，服务端这
+        # 道 Origin 校验就是唯一防线（漏了端口 = 本机任何端口的页面都能冒充当本站页面）。
+        # 只认本站主站端口；_cfg.PORT 是动态读的，用户改端口也跟得上。
+        try:
+            want_port = int(_cfg.PORT)
+        except Exception:
+            return False
+        # 不带端口时按 scheme 默认端口算；端口非法（如 :99999）会让 u.port 抛 ValueError，
+        # 由外层 except 兜成拒绝
+        got_port = u.port if u.port is not None else (443 if u.scheme == 'https' else 80)
+        return got_port == want_port
     except Exception:
         return False
 
@@ -299,17 +355,9 @@ async def ws_handler(websocket):
             except Exception:
                 pass
     try:
-        # A-06：Origin/Host 同源校验（跨站/rebinding 页拒绝）
-        if not _ws_origin_ok(websocket):
-            try:
-                add_log(f'WS Origin/Host 校验失败，拒绝来自 {ip or "?"} 的连接', 'warn')
-            except Exception:
-                pass
-            try:
-                await websocket.close(code=1008, reason='origin/host check failed')
-            except Exception:
-                pass
-            return
+        # A-06 的 Origin/Host 校验已经**上移到握手前**（见 _ws_http_probe / LF-14）：
+        # 不合法的连接在那里就被 403 掉，根本走不到这里，所以此处不再重复判定
+        # （那段重复判定在握手后必然成立，纯属白跑）。
         # === 诊断插桩：连接建立记录（仅 add_log，不改行为；不打印 cookie 值）===
         try:
             _dbg_req = getattr(websocket, 'request', None)
@@ -361,14 +409,34 @@ async def ws_handler(websocket):
                     break
                 try:
                     data = json.loads(msg)
-                except (json.JSONDecodeError, TypeError):
+                except (json.JSONDecodeError, TypeError, UnicodeDecodeError):
+                    # 非 UTF-8 的**二进制帧**会让 `json.loads(bytes)` 抛 UnicodeDecodeError ——
+                    # 原来没捕它，异常冒出消息循环、连接被以 **1011** 打掉（测试者报的
+                    # `close 0x03f3` 就是它；这是上一轮形状契约修复漏掉的第 9 类输入）。
+                    await _ws_proto_error(websocket, '帧内容不是合法 JSON')
+                    continue
+                if not isinstance(data, dict):
+                    # 合法 JSON 但不是对象（"abc" / 123 / [1,2] / null）：
+                    # 原来是直接 data.get(...) → AttributeError → 整条连接被以 1011 打掉。
+                    await _ws_proto_error(websocket, '消息必须是 JSON 对象')
                     continue
                 t = data.get('type', '')
+                if not isinstance(t, str):
+                    await _ws_proto_error(websocket, 'type 必须是字符串')
+                    continue      # 非字符串 type 不可能匹配任何分支
                 # 获取 WebSocket 会话（优先使用认证缓存，其次握手 Cookie）
                 ws_role = getattr(websocket, 'cached_role', None)
                 ws_user = getattr(websocket, 'cached_user', '')
                 if not ws_role:
-                    ws_role, ws_user, _ = _ws_get_session(websocket)
+                    # 握手 Cookie 认证（同源 WS 必带 wifi_session）。顺手把 sid 缓存下来，
+                    # 让 A-07 的"按用户当前角色实时复查"在纯 Cookie 路径下也生效
+                    # （旧实现只在显式 auth 时缓存 sid，而显式 auth 已删）
+                    ws_role, ws_user, _ws_sid, _ws_cookie = _ws_get_session(websocket)
+                    if _ws_sid:
+                        websocket.cached_sid = _ws_sid
+                    # LF-27：分享码判定要**握手时的 Cookie**（与 HTTP 同一套票据）——
+                    # 缓存到连接上供 list 分支用；取不到就是空串 = 未解锁（fail-closed）
+                    websocket.cached_cookie = _ws_cookie
                 # 游客模式已关闭：游客会话一律视为无效（防残留会话/构造请求经 WS 访问公共目录）
                 if ws_role == 'guest' and not _cfg.get_guest_mode():
                     ws_role = None
@@ -387,8 +455,8 @@ async def ws_handler(websocket):
                         pass
 
                 # --- A-07：敏感消息按“用户当前角色”实时复查（非会话快照）---
-                # 显式 auth 的连接把角色/sid 缓存在 websocket 对象上；此处经 B 的
-                # refresh_session_role(sid, ip) 刷新为最新角色/用户名（降权/改名/删除
+                # 会话解析那一拍把角色/sid 缓存在 websocket 对象上（`_ws_get_session` 那条路）；
+                # 此处经 B 的 refresh_session_role(sid, ip) 刷新为最新角色/用户名（降权/改名/删除
                 # 即时生效），再以最新角色执行本消息。低敏消息不复查以省开销。
                 if t in _WS_REVALIDATE_TYPES:
                     _ws_cached_sid = getattr(websocket, 'cached_sid', None)
@@ -435,57 +503,6 @@ async def ws_handler(websocket):
                         pass
                     continue
 
-                if t == 'auth':
-                    sid = (data.get('sid') or '').strip()
-                    token = (data.get('token') or '').strip()
-                    ws_role = None
-                    ws_user = ''
-                    if sid:
-                        with _ac._sessions_lock:
-                            info = _ac._sessions.get(sid)
-                            if info and info.get('expiry', 0) > time.time():
-                                ws_ip = getattr(websocket, 'remote_address', ('', 0))[0]
-                                if _ac._same_client(info.get('ip', ''), ws_ip):
-                                    ws_role = info.get('role')
-                                    ws_user = info.get('username', '')
-                    elif token:
-                        # A-05/D4：本机一次性令牌 —— 仅环回来源 + 与本地令牌恒定时间
-                        # 比对；令牌只授权“建立”super_admin 会话，会话仍由 B 生成真实 sid
-                        ws_ip = getattr(websocket, 'remote_address', ('', 0))[0]
-                        if ws_ip in ('127.0.0.1', '::1') and _lt.try_consume(token):
-                            try:
-                                su = _ac.get_super_admin_name() or 'admin'
-                            except Exception:
-                                su = 'admin'
-                            sid = _ac.create_session(su, 'super_admin', client_ip=ws_ip)
-                            ws_role = 'super_admin'
-                            ws_user = su
-                            add_log('WS 本机一次性令牌认证成功（super_admin）', 'ok')
-                    if ws_role == 'guest' and not _cfg.get_guest_mode():
-                        ws_role = None
-                    if ws_role:
-                        # 游客下载任务/推送按来源 IP 隔离：与 HTTP _dl_get_user_and_role
-                        # 保持同一归属键 游客@<ip>，游客 WS 只收本 IP 的任务更新
-                        if ws_role == 'guest' and ws_user == '游客':
-                            ws_ip = getattr(websocket, 'remote_address', ('', 0))[0]
-                            ws_user = '游客@' + ws_ip
-                        # 缓存认证结果到 websocket 对象，后续消息直接使用
-                        websocket.cached_role = ws_role
-                        websocket.cached_user = ws_user
-                        # 额外缓存 sid，供后续敏感消息实时复查（撤销/过期立即失效）
-                        if sid:
-                            websocket.cached_sid = sid
-                        try:
-                            await websocket.send(json.dumps({'type': 'auth', 'success': True, 'role': ws_role}))
-                        except Exception:
-                            pass
-                    else:
-                        try:
-                            await websocket.send(json.dumps({'type': 'auth', 'success': False}))
-                        except Exception:
-                            pass
-                    continue
-
                 if t == 'admin-sub':
                     # 管理页订阅实时推送（仅限管理员/超级管理员）
                     if ws_role not in ('admin', 'super_admin'):
@@ -519,40 +536,71 @@ async def ws_handler(websocket):
                     admin_sub = False
                     continue
 
+                if t == 'gallery-sub':
+                    # 预览页订阅「文件树变化」：只推一个信号、不带列表，列表由页面按自身
+                    # 权限自己拉（游客只看公共目录），所以订阅本身没有数据泄漏面。
+                    _push.gallery_sub_add(websocket)
+                    continue
+                if t == 'gallery-unsub':
+                    _push.gallery_sub_remove(websocket)
+                    continue
+
                 if t == 'qr-sub':
                     # 二维码弹窗订阅“已扫码”事件（sid 为随机密钥，无需额外鉴权）
-                    sid = (data.get('sid') or '').strip()
+                    sid = _ws_str(data, 'sid').strip()
                     if not sid: continue
                     websocket._qr_subscribed = True
                     _push.qr_sub_add(sid, websocket)
                     continue
                 if t == 'qr-unsub':
-                    sid = (data.get('sid') or '').strip()
+                    sid = _ws_str(data, 'sid').strip()
                     _push.qr_sub_remove(sid, websocket)
                     continue
 
                 if t == 'list':
-                    p = data.get('path', '')
-                    # 规范化路径
-                    norm_p = _normalize_ws_rel_path(p)
-                    if norm_p is None:
+                    p = _ws_str(data, 'path')
+
+                    def _ws_share_unlocked(owner):
+                        """该 owner 的分享码是否已解锁 —— 与 HTTP 侧**同一套判定**。
+
+                        **必须传真实回调**：`merge_into_list(unlocked=None)` 的语义是
+                        "不过滤"，那等于把设了码的分享目录白送给任何连得上 WS 的人。
+                        """
+                        try:
+                            return _sacc.code_gate(
+                                owner,
+                                getattr(websocket, 'cached_cookie', ''),
+                                getattr(websocket, 'remote_address', ('', 0))[0],
+                                ws_user or '')
+                        except Exception:
+                            return False
+
+                    # 列表的构建只有一条路（`files/api.build_listing`）—— 与 HTTP 的
+                    # `send_files` 共用：规范化 / `.uploads` 拦截 / 权限顺序 / 虚拟分享
+                    # 条目注入，全在那一处，免得两边再漂移（LF-27 的两个面都是这么来的）。
+                    r = await _run_io(
+                        _fs_api.build_listing, p,
+                        lambda q: _fs.check_path_permission_core(
+                            ws_role, ws_user, q, _cfg.get_guest_mode()),
+                        _fs.list_files, _ws_share_unlocked)
+                    result_data, err_kind, detail = r
+                    if err_kind == 'bad_path':
                         await websocket.send(json.dumps({'type': 'error', 'msg': '路径不合法'}))
                         continue
-                    p = norm_p
-                    if not _fs.check_path_permission_core(ws_role, ws_user, p, _cfg.get_guest_mode()):
+                    if err_kind == 'denied':
                         await websocket.send(json.dumps({'type': 'error', 'msg': '无权限'}))
                         continue
-                    r = await _run_io(_fs.list_files, p)
-                    result_data = r[0] if r[0] else {'files': []}
+                    if err_kind:
+                        # 'io' / 'unknown'：原来这里**回一个空列表** —— 前端会把界面清空，
+                        # 看着像"这个目录里没东西了"。现在如实回错误（前端无 error 分支，
+                        # 于是保持原列表不动），别用"空"冒充"读失败"。
+                        await websocket.send(json.dumps(
+                            {'type': 'error', 'msg': detail or '读取目录失败'}))
+                        continue
                     result_data['type'] = 'list'
-                    result_data['current_path'] = p
-                    if 'total_file_count' not in result_data:
-                        result_data['total_file_count'] = 0
-                    if 'total_size_sum' not in result_data:
-                        result_data['total_size_sum'] = 0
                     await websocket.send(json.dumps(result_data))
                 elif t == 'delete':
-                    paths = data.get('paths', []) or []
+                    paths = _ws_str_list(data, 'paths')
                     n_deleted = 0
                     failed = []      # [(path, reason)] —— C-07：句柄占用等不再静默成功
                     for p in paths:
@@ -564,12 +612,11 @@ async def ws_handler(websocket):
                         if not _fs.check_path_permission_core(ws_role, ws_user, norm_p, _cfg.get_guest_mode()):
                             failed.append((norm_p, '无权限'))
                             continue
-                        try:
-                            ws_write_ok = _fs_api.ws_write_allowed(ws_role, ws_user, norm_p, 'delete',
-                                                                   _cfg.get_guest_mode())
-                        except Exception:
-                            ws_write_ok = True  # IC-WRITE 未就绪过渡期放行给 C-01/C-02 兜底
-                        if not ws_write_ok:
+                        # 写策略判定（files/api.py 的 ws_write_allowed，纯函数）。
+                        # **不吞异常**：判定不了就等于拒绝，绝不能被读成"有权限" ——
+                        # 旧写法 except → True，把内部错误直接变成放行。
+                        if not _fs_api.ws_write_allowed(ws_role, ws_user, norm_p, 'delete',
+                                                        _cfg.get_guest_mode()):
                             failed.append((norm_p, '无权限'))
                             continue
                         try:
@@ -577,11 +624,16 @@ async def ws_handler(websocket):
                             # 必须在线程池执行，避免同步阻塞 WS 事件循环（卡死全服务页面）
                             cnt, fails = await _run_io(_fs.delete_paths, [norm_p])
                         except Exception as e:
-                            cnt, fails = 0, [(norm_p, f'删除失败: {e}')]
+                            from leaffs.runtime_log import log_exception
+                            from leaffs.utils.core import delete_fail_reason
+                            log_exception('WS 删除 %s' % norm_p, e)
+                            cnt, fails = 0, [(norm_p, delete_fail_reason(e))]
                         n_deleted += int(cnt or 0)
                         for _pn, _why in (fails or []):
                             failed.append((_pn, _why))
-                    resp = {'type': 'delete', 'success': n_deleted > 0, 'deleted': n_deleted}
+                    # LF-23：与 HTTP 路径同一口径 —— 判据是"有没有失败项"，而不是"删掉几个"
+                    # （删一个不存在的文件 n_deleted=0，但那是幂等成功，不是失败）
+                    resp = {'type': 'delete', 'success': not failed, 'deleted': n_deleted}
                     if failed:
                         resp['failed'] = [{'path': str(a), 'error': str(b)} for a, b in failed]
                     await websocket.send(json.dumps(resp))
@@ -591,7 +643,7 @@ async def ws_handler(websocket):
                         except Exception:
                             pass
                 elif t == 'mkdir':
-                    p, n = data.get('path', ''), data.get('name', '')
+                    p, n = _ws_str(data, 'path'), _ws_str(data, 'name')
                     norm_p = _normalize_ws_rel_path(p + '/' if p else '')
                     if norm_p is None:
                         await websocket.send(json.dumps({'type': 'error', 'msg': '路径不合法'})); continue
@@ -599,12 +651,9 @@ async def ws_handler(websocket):
                     if not _fs.check_path_permission_core(ws_role, ws_user, p + '/' if p else '', _cfg.get_guest_mode()):
                         await websocket.send(json.dumps({'type': 'error', 'msg': '无权限'})); continue
                     # IC-WRITE：guest 一律禁 mkdir（R1），非 guest 由路径权限兜底
-                    try:
-                        ws_write_ok = _fs_api.ws_write_allowed(ws_role, ws_user, p, 'mkdir',
-                                                               _cfg.get_guest_mode())
-                    except Exception:
-                        ws_write_ok = True
-                    if not ws_write_ok:
+                    # （同 delete：不吞异常，"判定不了"就是拒绝）
+                    if not _fs_api.ws_write_allowed(ws_role, ws_user, p, 'mkdir',
+                                                    _cfg.get_guest_mode()):
                         await websocket.send(json.dumps({'type': 'error', 'msg': '无权限'})); continue
                     ok, err = await _run_io(_fs.mkdir, p, n)
                     await websocket.send(json.dumps({'type': 'mkdir', 'success': ok, 'msg': err}))
@@ -616,7 +665,8 @@ async def ws_handler(websocket):
                         else:
                             await websocket.send(json.dumps({'type': 'error', 'msg': 'Unauthorized'}))
                         continue
-                    # 未走 auth 消息、仅凭 cookie 会话的游客连接在此兜底对齐归属键
+                    # 仅凭 cookie 会话的游客连接在此兜底对齐归属键
+                    # （原来这里写的是"未走 auth 消息"—— auth 分支已于 2026-09-16 删除）
                     if ws_role == 'guest' and ws_user == '游客':
                         ws_ip = getattr(websocket, 'remote_address', ('', 0))[0]
                         ws_user = '游客@' + ws_ip
@@ -654,12 +704,78 @@ async def ws_handler(websocket):
             _push.admin_sub_remove(websocket)
         if getattr(websocket, '_qr_subscribed', False):
             _push.qr_cleanup_ws(websocket)
+        # 文件树订阅的摘除是幂等的（没订阅过就是空操作），不必额外记标志位
+        _push.gallery_sub_remove(websocket)
+
+class _HandshakeNoiseFilter(logging.Filter):
+    """滤掉 websockets 的「握手失败」噪音日志。
+
+    websockets 把握手阶段的**任何**异常都按
+    `logger.error("opening handshake failed", exc_info=True)` 打一整段堆栈
+    （websockets/server.py:185）。其中有一类对我们完全是常态：
+    WebView 加载 8081 时会顺带留下一条「连上就断」的连接（Gecko 自己的连接竞速/预连接），
+    服务端读请求行时直接 EOF → InvalidMessage。每次冷启动都会因此刷一段 Traceback，
+    看着像服务故障，其实不是。
+
+    只屏蔽这一条消息，websockets 的其它日志照常输出（真出问题时仍能看到）。
+    """
+    def filter(self, record):
+        return 'opening handshake failed' not in record.getMessage()
+
+
+logging.getLogger('websockets.server').addFilter(_HandshakeNoiseFilter())
+
+
+async def _ws_http_probe(connection, request):
+    """8081 上收到「不是 WebSocket 升级」的请求时的应答。
+
+    这种请求是有的：App 启动时为了给 8081 预热证书例外，会让 WebView 直接打开
+    https://127.0.0.1:8081/ —— Gecko 发的是普通 HTTPS GET（Connection: keep-alive）；
+    浏览器或探测工具也可能直接访问这个端口。
+
+    不在这里应答的话，websockets 会在握手阶段抛 InvalidUpgrade，然后按
+    `logger.error("opening handshake failed", exc_info=True)` 刷一整段堆栈
+    （asyncio/server.py:365）—— 每次冷启动都来一发，看着像服务出错。
+    respond() 走的是「正常拒绝握手」那条路径（库把它当预期情况，不发错误日志），
+    对端拿到的是一个普通 HTTP 响应而不是 426。
+
+    这里**只**回一行纯文本，不再渲染任何引导页：曾经为了让访客"依次放行两个端口的
+    证书"而返回过一张会自己跳主站的 HTML 落地页，后来查清 8081 连不上跟证书无关
+    （是服务端 WS 的 Host/Origin 白名单不认本机热点地址，见 _ws_origin_host_ok），
+    那张页面已删除。
+    """
+    if (request.headers.get('Upgrade') or '').lower() != 'websocket':
+        return connection.respond(
+            HTTPStatus.OK, 'LeafFS WebSocket 端口，仅供网页内部连接\n')
+    # A-06 / LF-14：Origin/Host 同源校验**在握手前**做 —— 不过就回 403，连 101 都不发。
+    # （原先这道校验在 ws_handler 里，而 websockets 调用 handler 之前握手已经完成：
+    #   不合法连接照样进了连接计数，客户端拿到的是"连上又断"而不是明确被拒。）
+    if not _ws_origin_host_ok(request.headers):
+        try:
+            _ra = getattr(connection, 'remote_address', None)
+            _ip = _ra[0] if _ra else '?'
+        except Exception:
+            _ip = '?'
+        try:
+            add_log(f'WS Origin/Host 校验失败，拒绝来自 {_ip} 的连接', 'warn')
+        except Exception:
+            pass
+        # 统一拒绝口径（2026-09-15）：与其他拒绝一样回 404，不用 403 ——
+        # 403 等于告诉对方"这个 WS 端点存在，只是你的 Origin/Host 不被接受"。
+        return connection.respond(HTTPStatus.NOT_FOUND, 'origin/host check failed\n')
+    return None
+
 
 async def run_ws():
     _push.set_main_loop(asyncio.get_running_loop())
     tls_ctx = _tls.get_tls_context()
     try:
-        ws_server = await websockets.serve(ws_handler, '0.0.0.0', _cfg.WS_PORT, ssl=tls_ctx)
+        # LF-16：Server 头与另外两台服务一致（HTTP 主站 handler.server_version、
+        # 8082 cert_remind 都是 'LeafFS'）。不传的话 websockets 用库默认值
+        # `Python/3.12 websockets/16.0` —— 等于把 Python 与库版本一起报出去。
+        ws_server = await websockets.serve(ws_handler, '0.0.0.0', _cfg.WS_PORT,
+                                          ssl=tls_ctx, process_request=_ws_http_probe,
+                                          server_header='LeafFS')
     except Exception as e:
         add_log(f'WebSocket 服务器启动失败 (端口 {_cfg.WS_PORT}): {e}', 'err')
         raise

@@ -169,7 +169,9 @@ def validate_download_host_only(host, port, allow_private=None):
             return None, '无法解析下载地址的主机'
         return ips, None
     except Exception as e:
-        return None, f'下载地址校验失败: {e}'
+        from leaffs.runtime_log import log_exception
+        log_exception('下载地址校验（主机）', e)
+        return None, '下载地址校验失败'
 
 def validate_download_url(url, allow_private=None):
     """校验“最终要实际拉取”的 URL。thunder 先解码；仅允许 http/https(magnet 交给 aria2)；
@@ -198,7 +200,9 @@ def validate_download_url(url, allow_private=None):
         _, err = validate_download_host_only(host, port, allow_private=allow_private)
         return err
     except Exception as e:
-        return f'下载地址校验失败: {e}'
+        from leaffs.runtime_log import log_exception
+        log_exception('下载地址校验', e)
+        return '下载地址校验失败'
 
 
 from leaffs.utils.core import BASE_DIR, CACHE_DIR, find_bundled_exe

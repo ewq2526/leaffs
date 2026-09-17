@@ -39,25 +39,25 @@ def test_guest_login_and_check(client):
 
 def test_anon_admin_api_forbidden(client):
     r = client.get('/api/stats')
-    assert r.status_code == 403
+    assert r.status_code == 404, '统一拒绝口径：身份/权限拒绝一律 404'
 
 
 def test_invalid_session_cookie_rejected(client):
     client.cookies.set(wifi, 'deadbeef' * 4, domain='127.0.0.1', path='/')
     r = client.get('/api/stats')
-    assert r.status_code == 401
+    assert r.status_code == 404, '带无效会话 → 统一拒绝口径 → 404'
 
 
 def test_guest_cannot_call_users_api(client):
     guest_login(client)
     r = client.get('/api/users')
-    assert r.status_code == 403
+    assert r.status_code == 404, '统一拒绝口径：身份/权限拒绝一律 404'
 
 
 def test_guest_cannot_delete(client):
     guest_login(client)
     r = client.post('/api/delete', json={'files': ['public/x.txt']})
-    assert r.status_code in (401, 403)
+    assert r.status_code == 404
 
 
 # ---------- 上传 / 列表 / 删除 ----------
@@ -89,7 +89,7 @@ def test_guest_upload_own_dir_forbidden(client):
     guest_login(client)
     r = client.post('/api/upload?path=users/admin',
                     files={'file': ('x.txt', b'x')})
-    assert r.status_code == 403
+    assert r.status_code == 404
 
 
 def test_file_list_and_delete(client, data_root):
@@ -133,7 +133,7 @@ def test_account_password_guest_forbidden(client):
     guest_login(client)
     r = client.post('/api/account/password',
                     json={'old_password': 'x', 'new_password': 'yyyyyyyy'})
-    assert r.status_code == 403
+    assert r.status_code == 404, '游客改密是"身份不足"，按统一口径 404'
 
 
 def test_account_revoke_other_session(server):
@@ -146,9 +146,9 @@ def test_account_revoke_other_session(server):
         r = c1.post('/api/account/revoke-sessions', json={})
         assert r.status_code == 200, r.text
         assert r.json().get('revoked') >= 1
-        # c2 的会话已被踢：访问需登录接口应 401
+        # c2 的会话已被踢：访问需登录接口应被拒（统一拒绝口径 → 404）
         r2 = c2.get('/api/stats')
-        assert r2.status_code == 401
+        assert r2.status_code == 404, r2.status_code
         # c1 当前会话不受影响
         assert c1.get('/api/auth/check').status_code == 200
     finally:

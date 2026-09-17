@@ -283,6 +283,14 @@ class DownloadManager:
                         task.total_size = result.get('total_size', 0)
                         task.downloaded = task.total_size
                         print(f'[DL-CORE] 下载成功: filename={task.filename}', flush=True)
+                        # 文件落进共享目录了 → 失效目录缓存（列表/统计要重算）。
+                        # 下载这条路原先完全没失效缓存，于是新文件既不进统计也不推送
+                        # （推送就挂在 invalidate_folder_cache 上）。
+                        try:
+                            from leaffs.utils.core import invalidate_folder_cache as _inv
+                            _inv(task.save_dir)
+                        except Exception:
+                            pass
                     elif result.get('status') == 'partial':
                         task.status = 'partial'
                         task.error_msg = result.get('error', '')
@@ -302,7 +310,8 @@ class DownloadManager:
                 traceback.print_exc()
                 if not task._cancel_flag.is_set():
                     task.status = 'error'
-                    task.error_msg = str(e)
+                    # A2：任务错误信息给固定文案（细节在上面的 print/traceback 里）
+                    task.error_msg = '下载失败'
                     task._end_time = time.time()  # C-09 终态时间戳
                     print(f'[DL-CORE] 异常通知, status=error', flush=True)
                     self._notify_update(task)
@@ -637,7 +646,9 @@ class DownloadManager:
             files = _parse(url)
             return {'success': True, 'files': files, 'file_count': len(files)}
         except Exception as e:
-            return {'success': False, 'error': str(e)}
+            from leaffs.runtime_log import log_exception
+            log_exception('下载器：解析种子链接', e)
+            return {'success': False, 'error': '种子链接解析失败'}
 
     def parse_uploaded_torrent(self, file_data, filename='upload.torrent'):
         downloader = TorrentDownloader()

@@ -14,7 +14,7 @@
     <div class="header">
         <h1><span class="ht">Gallery</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting...</span></span></h1>
         <div class="info">
-            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">Light</span></button>
+            <!--THEME_TOGGLE-->
         </div>
     </div>
 
@@ -22,6 +22,7 @@
         <a href="/browse/">Browse</a>
         <a href="/gallery" class="active">Gallery</a>
         <a href="/url-download">Downloader</a>
+        <a href="/share">Share</a>
         <a href="/admin">Admin</a>
         <a href="/me">My Account</a>
         <span style="flex:1"></span>
@@ -61,8 +62,10 @@ var myRole = __MY_ROLE__;
     var isGuest = myRole === 'guest' || !myRole;
     var navDownloader = document.querySelector('.nav-bar a[href="/url-download"]');
     var navAdmin = document.querySelector('.nav-bar a[href="/admin"]');
+    var navShare = document.querySelector('.nav-bar a[href="/share"]');
     if (navDownloader) navDownloader.style.display = isGuest ? 'none' : '';
     if (navAdmin) navAdmin.style.display = (myRole === 'admin' || myRole === 'super_admin') ? '' : 'none';
+    if (navShare) navShare.style.display = isGuest ? 'none' : '';
 })();
 
 var allFiles = [];
@@ -72,10 +75,19 @@ var _isGuest = false;
 var _currentScanRoot = '';
 var _loadGen = 0;
 
-function onWSConnected() { loadAllFiles(); }
+function onWSConnected() { sendWS({ type: 'gallery-sub' }); loadAllFiles(); }
 
+// Server pushes "the file tree changed" → rescan once. It is only a signal, never a list
+// (the page pulls the list itself, under its own permissions); a batch operation sends
+// several of these, so they are debounced into a single rescan.
+var _galleryRefreshTimer = null;
 function handleWSMessage(msg) {
-    if (msg.type === 'gallery') { allFiles = msg.files || []; renderGallery(); }
+    if (msg.type !== 'gallery') return;
+    if (_galleryRefreshTimer) clearTimeout(_galleryRefreshTimer);
+    _galleryRefreshTimer = setTimeout(function () {
+        _galleryRefreshTimer = null;
+        loadAllFiles();
+    }, 400);
 }
 
 function getUserInfo(callback) {
@@ -197,35 +209,29 @@ function switchTab(type) {
     renderGallery();
 }
 
-function thumbGiveUpIcon(img, icon) {
-    var w = img.parentNode;
-    if (!w || !w.parentNode) return;
-    var span = document.createElement('span');
-    span.className = 'icon-large';
-    span.textContent = icon;
-    span.onclick = function () {
-        var path = img.getAttribute('data-path');
-        openPreview(path, allFiles);
-    };
-    w.parentNode.replaceChild(span, w);
+// Give up for good: just drop the image — the placeholder icon sits underneath it
+function thumbGiveUpIcon(img) {
+    if (img && img.parentNode) img.parentNode.removeChild(img);
 }
 
-function thumbError(img, icon) {
+function thumbError(img) {
     var retries = parseInt(img.getAttribute('data-retry') || '0', 10);
     if (retries < 1) {
-        // 首次失败：5 秒后带缓存戳重试一次（保留完整 URL 查询参数），期间显示“加载中”
+        // First failure: retry once silently after 5s with a cache-busting stamp (keeping the
+        // full query string). The image stays transparent meanwhile, so the user keeps seeing
+        // the placeholder icon — never a "loading" or "failed" state.
         img.setAttribute('data-retry', '1');
         if (!img.getAttribute('data-src')) img.setAttribute('data-src', img.getAttribute('src') || '');
         setTimeout(function () {
             if (!img.isConnected) return;
             var base = img.getAttribute('data-src') || img.getAttribute('src') || '';
-            if (!base) { thumbGiveUpIcon(img, icon); return; }
+            if (!base) { thumbGiveUpIcon(img); return; }
             img.src = base + (base.indexOf('?') === -1 ? '?' : '&') + '_=' + Date.now();
         }, 5000);
         return;
     }
-    // 重试仍失败：替换为图标占位
-    thumbGiveUpIcon(img, icon);
+    // Still failing: stay on the placeholder icon
+    thumbGiveUpIcon(img);
 }
 
 var _gallerySearchTimer = null;
@@ -267,20 +273,23 @@ function renderGallery() {
         var encodedPath = encodeURIComponent(f.path);
         var sname = safeStr(f.path);
         var ename = esc(f.name);
+        // Attributes carry the HTML-escaped path; getAttribute() reads the raw value back,
+        // which is exactly the key _thumbOk uses
+        var eh = esc(f.path);
         var ft = fileType(f.name);
         var iconFallback = ft === 'video' ? '&#127916;' : '&#128444;';
 
         var thumbHtml = '';
         if (ft === 'image' || ft === 'video') {
-            thumbHtml = '<span class="thumb-wrap"><span class="thumb-loading">Loading…</span><img class="thumb" src="/api/thumb?path=' + encodedPath +
-                '" alt="' + ename + '" loading="lazy" ' +
-                'data-path="' + sname + '" data-retry="0" ' +
+            // The card is one unit: neither the placeholder icon nor the image gets its own
+            // click handler — the outer .gallery-item takes care of it
+            thumbHtml = '<span class="thumb-wrap"><span class="icon-large">' + iconFallback + '</span><img class="thumb' + (_thumbOk[f.path] ? ' loaded' : '') + '" src="/api/thumb?path=' + encodedPath +
+                '" alt="" loading="lazy" data-retry="0" data-path="' + eh + '" ' +
                 'onload="thumbLoaded(this)" ' +
-                'onclick="openPreview(\'' + sname + '\', allFiles)" ' +
-                'onerror="thumbError(this, \'' + iconFallback + '\')"></span>';
+                'onerror="thumbError(this)"></span>';
         } else {
             var icon = getFileIcon(f.name);
-            thumbHtml = '<span class="icon-large" onclick="openPreview(\'' + sname + '\', allFiles)">' + icon + '</span>';
+            thumbHtml = '<span class="icon-large">' + icon + '</span>';
         }
 
         html += '<div class="gallery-item" onclick="openPreview(\'' + sname + '\', allFiles)">';
@@ -303,12 +312,6 @@ if (initType) {
 
 loadAllFiles();
 connectWS();
-
-// 预览页自动刷新（每 10 秒重新扫描文件列表）
-setInterval(function() {
-    if (document.hidden) return;
-    loadAllFiles();
-}, 10000);
 </script>
 <style>
 .gallery-header { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 10px; }

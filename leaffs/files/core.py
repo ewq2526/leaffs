@@ -15,12 +15,17 @@ import zipfile as _zipfile
 
 from leaffs.utils.core import (
     BASE_DIR, UPLOAD_DIR, CACHE_DIR, THUMB_DIR, COPY_BUFFER_SIZE,
+    UPLOAD_TMP_DIR, is_upload_tmp_entry,
     safe_path, abs_path, get_mime, esc_html,
     read_file_cached, invalidate_file_cache,
     get_folder_size, get_folder_stats,
     invalidate_folder_cache, invalidate_folder_cache_smart,
-    has_ffmpeg, _delete_thumb, cleanup_orphan_thumbs, get_thumbnail,
+    has_ffmpeg, thumbnail_backend, _delete_thumb, cleanup_orphan_thumbs, get_thumbnail,
+    cleanup_upload_tmp, delete_fail_reason,
+    UploadQuotaExceeded,
 )
+
+from leaffs.runtime_log import log_exception as _log_exc
 
 
 def check_path_permission_core(role, username, path, guest_mode=True):
@@ -47,6 +52,12 @@ def check_path_permission_core(role, username, path, guest_mode=True):
         path = norm_path
     if role in ('super_admin', 'admin'):
         return True
+    # public/shares 是分享的**虚拟区**（只由映射表登记，磁盘上不放实体）：
+    # 普通用户/游客能往 public/ 写，只要在那儿建出实体 public/shares/<用户名>/ 目录，
+    # 里面的文件就绕过了分享码（列表按磁盘条目优先、下载按磁盘路径）。这里一律拒绝。
+    # （admin 放行：他本来就能读全部，也要留一条清理污染的路。）
+    if path == 'public/shares' or path.startswith('public/shares/'):
+        return False
     # 游客/匿名：仅在游客模式开启时可访问 public；关闭后一律拒绝（防绕过 UI 直接调 API/WS）
     if role == 'guest' or not username:
         if not guest_mode:
@@ -141,6 +152,10 @@ def _normalize_rel_path(rel_path):
     # 禁止绝对路径
     if norm.startswith('/'):
         return None
+    # 禁止 Windows 盘符（C:/x、C:x）：normpath 不去盘符，而
+    # os.path.join(UPLOAD_DIR, 'C:/x') 在 Windows 上会直接返回 'C:/x' —— 等于跳出共享根
+    if len(norm) >= 2 and norm[1] == ':' and norm[0].isalpha():
+        return None
     # 标准化后再次检查
     if norm in ('..', '../') or norm.startswith('../'):
         return None
@@ -184,6 +199,9 @@ def list_files(rel_path):
     try:
         with os.scandir(full) as it:
             for entry in it:
+                # LF-22：上传临时目录不对用户可见（它装的是"写到一半"的数据）
+                if is_upload_tmp_entry(entry.name):
+                    continue
                 rp = os.path.join(rel_path, entry.name).replace('\\', '/') if rel_path else entry.name
                 try:
                     if entry.is_dir(follow_symlinks=False):
@@ -195,7 +213,11 @@ def list_files(rel_path):
                                       'size': entry.stat(follow_symlinks=False).st_size,
                                       'mtime': entry.stat(follow_symlinks=False).st_mtime})
                 except Exception: pass
-    except PermissionError: return None, 'Permission denied'
+    except OSError:
+        # 只接 PermissionError 是不够的：递一个**文件**路径进来抛的是 NotADirectoryError，
+        # 而它的消息里带完整绝对路径 —— 会一路逃到 HTTP 兜底被回显
+        # （黑盒渗透测试正是靠这个把服务器目录布局还原出来的）。
+        return None, '无法读取该目录'
     files.sort(key=lambda x: (x['type'] != 'folder', x['name'].lower()))
     # C-03：递归统计改走 folder 聚合缓存（get_folder_stats，TTL 5s + 变更即失效），
     # 去掉每次列表都全盘递归的 DoS 面；与目录项逐项 size 语义冲突处以缓存聚合为准。
@@ -240,10 +262,11 @@ def delete_paths(paths):
                 invalidate_folder_cache(full, recursive=True)
             if parent and parent != full: invalidate_folder_cache(parent)
             deleted += 1
-        except PermissionError:
-            failed.append((rel_path, '文件被占用或权限不足'))
+        except PermissionError as e:
+            # LF-23：精确区分"被占用"与"权限不足" —— 原来混成一句，用户判断不了也做不了
+            failed.append((rel_path, delete_fail_reason(e)))
         except Exception as e:
-            failed.append((rel_path, '删除失败: %s' % (e,)))
+            failed.append((rel_path, delete_fail_reason(e)))
     return deleted, failed
 
 def mkdir(rel_path, name):
@@ -262,7 +285,9 @@ def mkdir(rel_path, name):
         os.makedirs(full, exist_ok=True)
         invalidate_folder_cache(os.path.dirname(full))
         return True, None
-    except Exception as e: return False, str(e)
+    except Exception as e:
+        _log_exc('创建目录', e)
+        return False, '创建目录失败'
 
 def search_files(query):
     query = query.lower().strip()
@@ -270,6 +295,8 @@ def search_files(query):
     results = []
     try:
         for root, dirs, files in os.walk(UPLOAD_DIR):
+            # LF-22：直接剪枝，不进上传临时目录（省得白遍历一遍再过滤）
+            dirs[:] = [d for d in dirs if not is_upload_tmp_entry(d)]
             for fname in files:
                 if query in fname.lower():
                     full = os.path.join(root, fname)
@@ -376,7 +403,8 @@ def _auto_unique_candidate(full_path, seq):
     return os.path.join(directory, new_base) if directory else new_base
 
 
-def handle_upload(rfile, content_type, content_length, sub_path, auto_unique=False):
+def handle_upload(rfile, content_type, content_length, sub_path, auto_unique=False,
+                  on_bytes=None):
     """multipart 流式上传解析与落盘。
 
     C-05：不再直写目标文件——先写唯一 .part 临时文件，全部字节写入成功后原子落位
@@ -385,28 +413,46 @@ def handle_upload(rfile, content_type, content_length, sub_path, auto_unique=Fal
     R2：auto_unique=True 时（guest 上传路径传 True）目标已存在绝不覆盖，按 名_1.ext、
     名_2.ext… 探测空位（Windows 下 os.rename 目标已存在抛 FileExistsError，天然不覆盖），
     全部候选被占则报错、不计入 saved。
+
+    on_bytes：可选的 `(读入字节数) -> None` 回调，**每从 socket 读入一块就调一次**
+    （在唯一的读取点 `_read_more` 里）。2026-09-16（§二 第 4 条）用它把配额预留
+    从"按客户端声明的 Content-Length"改成"按**实际读入**的字节"。
+    **回调可以抛 `UploadQuotaExceeded` 表示"已经超配额"，此时分两种落点：**
+      · 抛出点在**单文件处理块内**（正在写某个 part）—— 本函数接住，记一条带文件名的错、
+        结束整个上传并返回（半截 `.part` 由既有的 `finally` 清理，不落位）；
+      · 抛出点在**块外**（主循环里解析 boundary / part 头期间）—— 异常**直接冒给调用方**，
+        由调用方按"超配额"回响应（`files/api.py` 就是这么做的，回 413）。
     """
     boundary = _parse_boundary(content_type)
     if not boundary: return 0, ['Cannot parse Content-Type']
     # 目标目录不存在时自动创建：前端“选择已有目录”正常流程目录必在，但 API/自定义
     # 场景可上传到尚未存在的子路径（如 path=xxx/新建目录），不建目录则写 .part 直接失败。
-    # 此处已过 fs_api 的权限/路径校验（write_allowed/_check_path_permission/R2 根权限）。
+    # 此处已过 fs_api 的权限/路径校验（write_allowed/_check_path_permission/R2 根权限），
+    # 但建目录前仍要再确认落在共享根内：盘符路径（C:/…）在 Windows 上会让 join 直接跳出去
+    target_root = os.path.join(UPLOAD_DIR, sub_path) if sub_path else UPLOAD_DIR
+    from leaffs.utils.core import safe_path as _safe_path
+    if not _safe_path(UPLOAD_DIR, target_root):
+        return 0, ['路径不合法']
     try:
-        os.makedirs(os.path.join(UPLOAD_DIR, sub_path) if sub_path else UPLOAD_DIR, exist_ok=True)
+        os.makedirs(target_root, exist_ok=True)
     except Exception:
         return 0, [f'无法创建目标目录: {sub_path or "/"}']
+    # LF-22：临时文件落在 UPLOAD_TMP_DIR（import 期已建，但用户可能把它删了）——
+    # 这里建不出来就如实失败，别等写临时文件时才炸出一句看不懂的错
+    try:
+        os.makedirs(UPLOAD_TMP_DIR, exist_ok=True)
+    except Exception:
+        return 0, ['无法创建上传临时目录']
     boundary_bytes = ('--' + boundary).encode('latin-1')
     end_boundary = ('--' + boundary + '--').encode('latin-1')
     saved = 0; errors = []; remaining = content_length
     buf = b''
-    # 服务端累计写入上限（0 = 不限）；读流期间实时拦截越过上限的请求
-    try:
-        from leaffs.config import core as _cc
-        CHUNK = max(4096, int(_cc.get_upload_chunk()))
-        UMAX = int(_cc.get_upload_max_size())
-    except Exception:
-        CHUNK = 1048576
-        UMAX = 0
+    # 服务端累计写入上限（0 = 不限，是**合法配置值**）；读流期间实时拦截越过上限的请求。
+    # 不吞异常：拿不到上限就退化成 0，等于把"读配置出错"读成"用户要求不限" ——
+    # 宁可让异常把这次上传打断，由调用方按失败处理。
+    from leaffs.config import core as _cc
+    CHUNK = max(4096, int(_cc.get_upload_chunk()))
+    UMAX = int(_cc.get_upload_max_size())
     up_total = 0
 
     def _read_more():
@@ -415,6 +461,10 @@ def handle_upload(rfile, content_type, content_length, sub_path, auto_unique=Fal
         chunk_size = min(CHUNK, remaining)
         chunk = rfile.read(chunk_size)
         if not chunk: return False
+        # §二 第 4 条：按**实际读入**的字节回调（配额记账 + 实时校验）。
+        # 回调可以抛 UploadQuotaExceeded 中断整个上传 —— 见本函数 docstring。
+        if on_bytes is not None:
+            on_bytes(len(chunk))
         buf += chunk; remaining -= len(chunk)
         return True
 
@@ -514,9 +564,16 @@ def handle_upload(rfile, content_type, content_length, sub_path, auto_unique=Fal
                 _skip_part_content()
                 continue
             buf = buf[head_end + 4:]
-            # C-05：先写唯一 .part 临时文件，全部字节成功后再原子落位；异常清理见 finally。
-            part_path = '{0}.part.{1}.{2}'.format(full_path, threading.get_ident(), time.time_ns())
+            # C-05：先写唯一临时文件，全部字节成功后再原子落位；异常清理见 finally。
+            # LF-22：临时文件写在 UPLOAD_DIR/.uploads/ 下，**不在共享目录里** ——
+            # 原来写成 `<目标>.part.<tid>.<ns>` 直接躺在目标目录，于是 列表/搜索/大小统计
+            # 都能看见它、还能被直链下载（用户看到"一个正在写入、大小还在涨的怪文件"）。
+            # 落位仍是 os.replace：同盘、原子。文件名保留 .part 后缀只为排障好认。
+            part_path = os.path.join(
+                UPLOAD_TMP_DIR,
+                '{0}-{1}.part'.format(threading.get_ident(), time.time_ns()))
             try:
+                truncated = False      # LF-24：本次 part 是否被截断（见下面数据耗尽那个分支）
                 try:
                     with open(part_path, 'wb') as f:
                         written = 0
@@ -536,9 +593,21 @@ def handle_upload(rfile, content_type, content_length, sub_path, auto_unique=Fal
                             safe_len = len(buf) - len(boundary_bytes) - 4
                             if safe_len > 0: _write_bounded(f, buf[:safe_len]); buf = buf[safe_len:]
                             if not _read_more():
+                                # LF-24：数据耗尽却始终没见到 multipart 边界 = 对端提前断开
+                                # （浏览器刷新 / 关标签 / 源文件被删都走这条），或 body 本身被截断。
+                                # 格式完好的 body 必然以 `--boundary--` 结束，所以"没见到边界"
+                                # 就是这个 part 不完整的判据 —— 比区分 FIN/RST 更稳
+                                # （实测：直接 close 也走 EOF，不是 RST）。
+                                # 原来这里与"遇到边界"那两个分支共用同一段落位逻辑，于是半截数据
+                                # 照样 os.replace 落位、saved += 1、还回 success:true。
+                                truncated = True
                                 if buf: _write_bounded(f, buf); buf = b''
                                 break
-                    if auto_unique:
+                    if truncated:
+                        # LF-24：不落位 —— .part 交给 finally 清掉，saved 不增，
+                        # 并如实记错（LF-23 之后前端会把这句话显示出来）
+                        errors.append(f'{filename}: 上传中断，数据不完整（已丢弃）')
+                    elif auto_unique:
                         # R2：guest 上传绝不覆盖——目标已存在则按 名_1.ext、名_2.ext… 探测
                         # 空位（最多 _AUTO_UNIQUE_MAX 个候选），探测与落位一体原子。
                         placed = False
@@ -571,8 +640,14 @@ def handle_upload(rfile, content_type, content_length, sub_path, auto_unique=Fal
                 # 达到服务端累计写入上限：本文件记错并停止继续写入/接收
                 errors.append(f'{filename}: 上传超过大小上限')
                 return saved, errors
+            except UploadQuotaExceeded as _qe:
+                # §二 第 4 条附加项：读流期间实时校验发现超额（并发挤爆）——
+                # 立刻停，别把剩下的 body 白收完再判定。
+                errors.append(f'{filename}: 超过可用配额（{_qe}），已停止接收')
+                return saved, errors
             except Exception as e:
-                errors.append(f'{filename}: {str(e)}')
+                _log_exc('保存上传文件 %s' % filename, e)
+                errors.append(f'{filename}: 写入失败')
                 # buf 已进入正文切片，直接从当前位置推进到下一个 boundary
                 while True:
                     idx = buf.find(boundary_bytes)

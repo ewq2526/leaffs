@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 列表行：文字 + 选中标记（主色 ✓），带按压反馈 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/lf_item_bg"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingLeft="8dp"
+    android:paddingTop="14dp"
+    android:paddingRight="8dp"
+    android:paddingBottom="14dp">
+
+    <TextView
+        android:id="@+id/lfItemText"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textColor="@color/lf_text"
+        android:textSize="15sp" />
+
+    <TextView
+        android:id="@+id/lfItemCheck"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:text="✓"
+        android:textColor="@color/lf_primary"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:visibility="invisible" />
+</LinearLayout>

@@ -23,6 +23,7 @@ from .dl_utils import prefetch_http_torrent, is_trusted_local_torrent
 from .dl_http import get_file_size, _get_filename
 from .dl_probe import probe_magnet
 from .dl_rpc import get_rpc_client
+from leaffs.runtime_log import log_exception
 
 
 def _url_blocked_error(url):
@@ -60,13 +61,25 @@ def _check_path_safe(upload_dir, save_dir):
 
 
 # ========== 配置 ==========
-def handle_get_config():
+def handle_get_config(user='', role=''):
+    """下载器全局配置 —— **只有管理员能读**（与 handle_set_config 对称，B4）。
+
+    这份配置不只是"并发数/限速"：它还含 `allow_private_targets`（能否下载私网目标）、
+    `bt_dht_public`（DHT 是否对外暴露）与各配额上限 —— 全是安全/策略信息，
+    不该让普通用户（更别说游客）随便读到。
+
+    前端那半也在同一处修好了：非管理员的下载器页**不显示**设置区、也不去拉配置
+    （`web_page/downloader/downloader.html` 按 `myRole` 判断）。
+    """
+    if role not in ('admin', 'super_admin'):
+        return {'success': False, 'error': '无权限'}, 403
     try:
         mgr = _get_mgr()
         cfg = mgr.get_config()
         return {'success': True, 'config': cfg}
     except Exception as e:
-        return {'error': str(e)}, 500
+        log_exception('下载器 handle_get_config', e)
+        return {'error': '下载操作失败'}, 500
 
 
 def handle_set_config(data, user='', role=''):
@@ -80,7 +93,8 @@ def handle_set_config(data, user='', role=''):
         mgr.set_config(max_concurrent=concurrent, speed_limit=speed)
         return {'success': True}
     except Exception as e:
-        return {'error': str(e)}, 500
+        log_exception('下载器 handle_set_config', e)
+        return {'error': '下载操作失败'}, 500
 
 
 # ========== 任务列表 ==========
@@ -93,7 +107,8 @@ def handle_list(user='', role=''):
             tasks = mgr.get_user_tasks(user) if user else []
         return {'success': True, 'tasks': tasks}
     except Exception as e:
-        return {'error': str(e)}, 500
+        log_exception('下载器 handle_list', e)
+        return {'error': '下载操作失败'}, 500
 
 
 # ========== 开始下载 ==========
@@ -182,9 +197,11 @@ def handle_start(data, check_path_permission=None, upload_dir='', user='', quota
         task_id = mgr.add_download(url, save_dir, user=user, **kwargs)
         return {'success': True, 'task_id': task_id}
     except DownloadLimitError as e:
-        return {'error': str(e)}, 429
+        log_exception('下载器 handle_start', e)
+        return {'error': '下载操作失败'}, 429
     except Exception as e:
-        return {'error': str(e)}, 500
+        log_exception('下载器 handle_start', e)
+        return {'error': '下载操作失败'}, 500
 
 
 # ========== 暂停/恢复/取消/删除 ==========
@@ -198,7 +215,8 @@ def handle_pause(data, user='', role=''):
             return {'success': False, 'error': '任务不存在或无权限操作'}, 403
         return {'success': True}
     except Exception as e:
-        return {'error': str(e)}, 500
+        log_exception('下载器 handle_pause', e)
+        return {'error': '下载操作失败'}, 500
 
 def handle_resume(data, user='', role=''):
     tid = data.get('task_id', '')
@@ -210,7 +228,8 @@ def handle_resume(data, user='', role=''):
             return {'success': False, 'error': '任务不存在或无权限操作'}, 403
         return {'success': True}
     except Exception as e:
-        return {'error': str(e)}, 500
+        log_exception('下载器 handle_resume', e)
+        return {'error': '下载操作失败'}, 500
 
 def handle_cancel(data, user='', role=''):
     tid = data.get('task_id', '')
@@ -222,7 +241,8 @@ def handle_cancel(data, user='', role=''):
             return {'success': False, 'error': '任务不存在或无权限操作'}, 403
         return {'success': True}
     except Exception as e:
-        return {'error': str(e)}, 500
+        log_exception('下载器 handle_cancel', e)
+        return {'error': '下载操作失败'}, 500
 
 def handle_delete(data, user='', role=''):
     tid = data.get('task_id', '')
@@ -235,7 +255,8 @@ def handle_delete(data, user='', role=''):
             return {'success': False, 'error': '任务不存在或无权限操作'}, 403
         return {'success': True}
     except Exception as e:
-        return {'error': str(e)}, 500
+        log_exception('下载器 handle_delete', e)
+        return {'error': '下载操作失败'}, 500
 
 def handle_peers(data, user='', role=''):
     """获取任务的 RPC 对等节点详情（校验任务归属）"""
@@ -306,7 +327,8 @@ def handle_peers(data, user='', role=''):
             'task': task,
         }
     except Exception as e:
-        return {'error': str(e)}, 500
+        log_exception('下载器 handle_peers', e)
+        return {'error': '下载操作失败'}, 500
 
 def handle_merge(data, user='', role=''):
     return {'success': False, 'msg': '新下载器不再支持独立合并操作，下载完成后自动合并'}
@@ -325,7 +347,8 @@ def handle_retry(data, user='', role=''):
             return {'success': False, 'error': r.get('error', '重试失败')}, 400
         return {'success': True}
     except Exception as e:
-        return {'error': str(e)}, 500
+        log_exception('下载器 handle_retry', e)
+        return {'error': '下载操作失败'}, 500
 
 
 # ========== 文件名探测（异步，使用 httpx）=========
@@ -464,7 +487,8 @@ def handle_parse_torrent_url(params):
         files = _parse_torrent_url(url)
         return {'success': True, 'files': files}
     except Exception as e:
-        return {'error': str(e)}, 500
+        log_exception('下载器 handle_parse_torrent_url', e)
+        return {'error': '下载操作失败'}, 500
 
 
 # ========== 上传种子 ==========
@@ -478,4 +502,5 @@ def handle_upload_torrent(raw_body, filename='upload.torrent'):
         torrent_path = save_uploaded_torrent(raw_body, filename)
         return {'success': True, 'files': files, 'torrent_path': torrent_path}
     except Exception as e:
-        return {'error': str(e)}, 500
+        log_exception('下载器 handle_upload_torrent', e)
+        return {'error': '下载操作失败'}, 500

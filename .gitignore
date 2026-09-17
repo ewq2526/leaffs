@@ -20,6 +20,22 @@ leaffs.log
 /dist/
 /build_dist/
 
+# 安卓构建产物（2026-09-16 补 —— 这一节之前漏了，实测代价：android/app/build/ 有 6459 个
+# 文件 / 5.4 GB 处于未跟踪状态，一个 `git add .` 就会把它们塞进仓库）
+# ⚠️ 上面那条 `/build/` 只匹配**根目录**的 build，**挡不住 android/app/build/**；
+#    而 android/app/build/python/sources/** 是 Chaquopy 的**过期源码副本**（不是 APK 输入），
+#    一旦入库，以后有人在里面改代码就是白改。
+android/app/build/
+android/.kotlin/
+android/captures/
+android/local.properties
+
+# 安装包产物（通用保险）
+# ⚠️ 这里**不要**写 `*.jar` —— `android/gradle/wrapper/gradle-wrapper.jar` 是要入库的
+*.apk
+*.aab
+*.ap_
+
 # 随附的第三方可执行程序与运行库（不入库；使用方自行放置或安装）
 /leaffs/openssl.exe
 /leaffs/aria2c.exe

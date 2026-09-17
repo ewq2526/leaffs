@@ -20,7 +20,6 @@ import leaffs.auth.core as _ac
 import leaffs.auth.login_api as _ac_auth
 import leaffs.auth.local_token as _lt
 import leaffs.auth.self_api as _ac_self
-import leaffs.auth.session_api as _ac_session
 import leaffs.auth.users_api as _ac_user
 import leaffs.config.api as _cfg_api
 import leaffs.config.core as _cfg
@@ -29,12 +28,14 @@ import leaffs.files.api as _fs_api
 import leaffs.files.core as _fs
 import leaffs.server.push as _push
 import leaffs.server.tls as _tls
+import leaffs.share.mappings as _mapping
+import leaffs.share.access as _sacc
 import leaffs.utils.core as _ut
 import leaffs.utils.log as _ut_log
 import leaffs.web.render as _wm
 from leaffs.dl import dl_api as _dl_api
 from leaffs.runtime_log import (
-    logger, LOG_FILE, setup_logging, add_log, get_logs, clear_runtime_logs,
+    logger, LOG_FILE, setup_logging, add_log, log_exception, get_logs, clear_runtime_logs,
 )
 from leaffs.watchdog import _wd_start, _wd_finish, _wd_ws_tick, _wd_loop
 from leaffs.server.hosts import (  # 主机名/IP 工具（过渡期别名，随 handler 抽离正名）
@@ -55,20 +56,47 @@ _ADMIN_ONLY_POST = frozenset((
     '/api/users/add', '/api/users/delete', '/api/users/password', '/api/users/role',
     '/api/users/speed', '/api/users/quota', '/api/users/rename',
     '/api/config', '/api/config/advanced', '/api/config/deep',
-    '/api/certs/reset', '/api/logs/clear', '/api/session/revoke',
+    '/api/certs/reset', '/api/logs/clear',
 ))
 _ADMIN_ONLY_GET = frozenset((
     '/api/users', '/api/config', '/api/config/advanced', '/api/config/deep',
-    '/api/logs', '/api/connections', '/api/sessions',
+    '/api/logs', '/api/connections',
 ))
 
+# ---------- 统一拒绝口径（2026-09-15，用户拍板）----------
+# 身份 / 权限类拒绝一律回 **404**：不泄露"这个端点、这个资源、这个用户是存在的，
+# 只是你没权限"。做在 `send_json` / `send_error` 两个统一出口上（不是逐处改那 94 个
+# 返回点 —— 逐处改等于下次新写一处又漏）。
+#
+# **豁免**（`send_json(..., 403, exempt=True)`）：只有下面这几处，它们不是"拒绝访问"，
+# 而是**业务失败**——前端要把原因显示给用户，且原因本身不含权限语义：
+#   * 登录失败 / 被锁定（`auth/login_api.py`）
+#   * 原密码不正确（`auth/self_api.py`）
+#   * 游客模式已关闭（`auth/login_api.py` 的 guest_login）
+#   * 分享码错误 / 被锁定（`server/handler.py` 的 share_auth）
+#   * 分享页的"需要输码"引导（`/p/<用户>/api` 的 `code_required`）—— 前端
+#     `web_page/share/public.html` 就靠这个 403 弹输码框，改了分享页就坏
+#
+# **不写日志**：这个映射是全局的、无例外的（除豁免清单），排障时看代码即可；
+# 逐次记一条"本来是 401/403"反而会被攻击者刷屏。
+_REJECT_AS_NOT_FOUND = frozenset((401, 403))
+
 # 实测收口：请求 Cookie 携带 wifi_session 但会话无效/过期时，/api 请求在路由前直接 401
-# （不再静默降级为匿名/游客）。以下白名单保持原语义：公开探测/登录/登出/状态轮询/取 sid。
+# （不再静默降级为匿名/游客）。以下白名单保持原语义：公开探测/登录/登出/状态轮询。
 # /api/qrlogin 必须豁免：扫码设备往往带着一条早先的（已失效）Cookie 来打开二维码地址，
 # 若被 401 拦截将永远无法扫码登录——该接口本就匿名可调、成功时直接换发全新会话。
+# /api/share/auth 同理必须豁免：访客在分享页输码，来路设备常常带着一条早先登录过、
+# 现已失效的 Cookie（本机手机上尤其如此），被拦在路由前就永远输不进码——而该接口本来
+# 就匿名可调（share_auth 不读会话），码对不对由它自己校验并记账。
 _INVALID_SESSION_API_WHITELIST = frozenset((
     '/api/ping', '/api/auth/login', '/api/guest/login', '/api/auth/logout',
-    '/api/auth/check', '/api/qrcode/status', '/api/qrlogin', '/api/session/sid',
+    '/api/auth/check', '/api/qrcode/status', '/api/qrlogin',
+    '/api/share/auth',
+    # /api/admin/auto-login 与 /login 同规则：拿 ?leaf= 一次性令牌建超管会话。
+    # 浏览器里只要还留着一条过期 wifi_session，它就会被路由前 401 挡掉、令牌白白用不上
+    # （表现是启动时自动登录失败）。放行不等于放开：它自己仍要求环回来源 + Host 为
+    # localhost/环回 + 令牌恒定时间比对且消费即废。
+    '/api/admin/auto-login',
 ))
 
 # ---------- A-11：请求级时长 / 每 IP HTTP 连接配额 / 整机总并发准入 ----------
@@ -305,7 +333,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
 
     def _get_effective_role(self):
         cookie = self.headers.get('Cookie', '')
-        role, sid = _ac.get_session(cookie, True, self.client_address[0])
+        role, sid = _ac.get_session(cookie, self.client_address[0])
         if role == 'guest' and not _cfg.get_guest_mode():
             # 游客模式已关闭：即使持有旧游客会话也视为未登录（防地址构造/残留会话访问）
             return None
@@ -314,7 +342,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
 
     def _get_username_from_session(self):
         cookie = self.headers.get('Cookie', '')
-        _, sid = _ac.get_session(cookie, True, self.client_address[0])
+        _, sid = _ac.get_session(cookie, self.client_address[0])
         return _ac.get_session_username(sid) if sid else ''
 
     def _has_invalid_session_cookie(self):
@@ -370,7 +398,15 @@ class HTTPHandler(BaseHTTPRequestHandler):
     # do_GET/do_POST 不再获取/释放任何全局槽 —— 快速 API 与慢速流式正文在总上限内自由并发。
 
     def _common_security_headers(self, csp=None):
-        """A-10：统一安全响应头（JSON/重定向/手动 302 等响应共用）"""
+        """A-10：统一安全响应头（JSON/重定向/手动 302 等响应共用）。
+
+        幂等：一个响应里只发一次（重复发同名头对部分头是未定义行为）。
+        真正保证"谁都不会漏"的是下面覆写的 `end_headers` —— 手写响应绕过统一出口
+        正是这类遗漏的根因（登录成功、缩略图、zip、裸 413 都曾漏过）。
+        """
+        if getattr(self, '_sec_headers_sent', False):
+            return
+        self._sec_headers_sent = True
         try:
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('X-Frame-Options', 'DENY')
@@ -381,6 +417,47 @@ class HTTPHandler(BaseHTTPRequestHandler):
                 self.send_header('Strict-Transport-Security', 'max-age=15552000')
         except Exception:
             pass
+
+    def send_response(self, code, message=None):
+        """每个响应开始时清掉"公共头已发"标记。
+
+        主服务没设 `protocol_version`（默认 HTTP/1.0，一个请求一条连接），实例不会复用，
+        所以这次清理**眼下是冗余的**。留着是因为它是正确性前提：哪天为了 keep-alive 把协议
+        升到 HTTP/1.1，同一个实例就会处理多个请求 —— 不清标记的话，从第二个请求起
+        `_common_security_headers` 会以为已经发过而直接返回，等于只有每条连接的第一个请求
+        带头，**而且不会有任何报错**。
+        """
+        self._sec_headers_sent = False
+        self._cache_control_sent = False
+        super().send_response(code, message)
+
+    def send_header(self, keyword, value):
+        """记下"这次响应已经有人显式声明过缓存策略"（见 `end_headers` 的兜底）。
+
+        只加一个标记，不改任何头的发送行为。
+        """
+        if not getattr(self, '_cache_control_sent', False) and keyword.lower() == 'cache-control':
+            self._cache_control_sent = True
+        super().send_header(keyword, value)
+
+    def end_headers(self):
+        """统一出口（A-10 / LF-10）：结束头之前，把公共安全头与**默认缓存策略**补上。
+
+        安全头：项目的统一响应口只有 `send_json` / `redirect`，而手写 `send_response(...)`
+        的地方全在它们之外 —— 全仓 22 处里有 11 处漏过公共头（黑盒报告只点出了其中两处）。
+        逐个去补等于下次新写一处又漏，所以在这里兜住。
+
+        缓存策略同理，但**它不能一刀切**（JSON `no-store`、静态资源 `no-cache`、
+        缩略图 `max-age=3600`），所以规则是：**默认 `no-store`，要缓存必须显式声明**。
+        漏掉的那些正是最不该被缓存的几处 —— 手写响应里装着授权 Cookie（`/api/share/auth`
+        成功路径）、一次性登录二维码（`/api/qrcode`）、用户文件内容（`/api/raw`、`/api/zip`）、
+        以及对外开放的分享页（`/p/<用户>`）；没有缓存头就等于允许浏览器/中间缓存
+        按启发式规则留存，在共享设备或代理后面就是泄露面。
+        """
+        if not getattr(self, '_cache_control_sent', False):
+            self.send_header('Cache-Control', 'no-store')
+        self._common_security_headers()
+        super().end_headers()
 
     def _dl_allowed(self):
         """A-03：下载器门槛 —— user/admin/super_admin 可用；guest 依配置开关（默认禁）"""
@@ -394,10 +471,18 @@ class HTTPHandler(BaseHTTPRequestHandler):
                 return False
         return False
 
-    def send_json(self, data, status=200):
+    def send_json(self, data, status=200, exempt=False):
+        # 统一拒绝口径（2026-09-15）：身份/权限类拒绝一律回 404 —— 不泄露"这个端点、
+        # 这个资源、这个用户是存在的，只是你没权限"。豁免清单见 _REJECT_AS_NOT_FOUND。
+        if not exempt and status in _REJECT_AS_NOT_FOUND:
+            status = 404
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
+        # LF-10：JSON 一律不许缓存 —— 这些响应装的是"当前是谁 / 文件列表 / 配置值"，
+        # 被缓存下来就会出现"换了账号还看到旧身份""删掉的文件还在列表里"这类怪事。
+        # （静态资源与缩略图是另一回事，它们的缓存策略在各自的地方，别在这里一刀切。）
+        self.send_header('Cache-Control', 'no-store')
         # A-10：JSON 响应无子资源，CSP 收紧到 default-src 'none' + nosniff/XFO/Referrer
         self._common_security_headers(csp="default-src 'none'")
         self.end_headers()
@@ -410,6 +495,10 @@ class HTTPHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def send_error(self, code, message=None, explain=None):
+        # 统一拒绝口径：401/403 → 404，并且**把自定义 message/explain 一起丢掉** ——
+        # 留一句"无权限"在正文里等于把权限信息从状态码挪到正文，等于白改。
+        if code in _REJECT_AS_NOT_FOUND:
+            code, message, explain = 404, None, None
         # A-10：错误页补安全头。BaseHTTPRequestHandler.send_error 内部先 send_response
         # 写状态行再写头，故不能先 send_header——这里自实现等价流程：状态行→基础头→
         # 安全头→正文，避免“头先于状态行”的协议错误（BadStatusLine）。
@@ -470,7 +559,9 @@ class HTTPHandler(BaseHTTPRequestHandler):
             parts = reqline.split()
             method = parts[0] if parts else (self.command or '')
             p = parts[1] if len(parts) > 1 else (self.path or '')
-            p = _sanitize_path_for_log(p)
+            # A-16 脱敏（敏感参数值 → ***）+ LF-12 控制字符剔除与超长截断
+            # （请求行未解码，原始字节直发能把 \x1b 这类控制字节带进来）
+            p = _ut_log.sanitize_log_text(_sanitize_path_for_log(p), max_len=200)
             t0 = getattr(self, '_req_t0', None)
             ms = int((time.monotonic() - t0) * 1000) if t0 else 0
             add_log(f'{ip} {method} {p} {status} {ms}ms', 'info')
@@ -526,16 +617,47 @@ class HTTPHandler(BaseHTTPRequestHandler):
         except _cfg.DISCONNECTED_EXCEPTIONS:
             pass
         except Exception as e:
+            log_exception('GET 请求处理', e)
             try:
-                self.send_json({'error': str(e)}, 500)
+                self.send_json({'error': '请求处理失败'}, 500)
             except _cfg.DISCONNECTED_EXCEPTIONS:
                 pass
         else:
             if self._pending_session and not getattr(self, '_session_set', False):
                 self._set_session_cookie(self._pending_session)
 
+    def _same_origin_ok(self):
+        """改状态请求的同源校验（CSRF 防线）。
+
+        浏览器发起的跨站请求**一定**带 `Origin`（连表单 POST 也带），所以"带了 Origin
+        就必须同源"就能挡住跨站 CSRF。同一站点但**不同端口**的页面也要挡 —— SameSite
+        只比较 scheme+host、不含端口，明文模式下别的端口上的页面照样会带上会话 Cookie。
+        两个头都没有 → 当非浏览器客户端（curl / 原生壳），放行。
+        """
+        origin = self.headers.get('Origin') or self.headers.get('Referer') or ''
+        if not origin:
+            return True
+        host = (self.headers.get('Host') or '').strip().lower()
+        if not host:
+            return False
+        try:
+            u = urllib.parse.urlparse(origin)
+        except Exception:
+            return False
+        if not u.hostname:
+            return False
+        o_port = u.port or (443 if u.scheme == 'https' else 80)
+        h_host, _, h_port_s = host.partition(':')
+        # Host 不带端口（默认端口）时只比主机名
+        h_port = int(h_port_s) if h_port_s.isdigit() else o_port
+        return u.hostname.lower() == h_host and o_port == h_port
+
     def do_POST(self):
         path = urllib.parse.urlparse(self.path).path
+        # CSRF：所有改状态接口统一先过同源校验（原先后端零防护，只靠 SameSite=Lax 兜）
+        if not self._same_origin_ok():
+            self.send_json({'error': '跨站请求被拒绝'}, 403)
+            return
         # 实测收口：携带无效/过期会话 Cookie 的 /api 请求路由前 401，不再静默降级匿名/游客
         if self._reject_invalid_session_api(path):
             return
@@ -567,8 +689,9 @@ class HTTPHandler(BaseHTTPRequestHandler):
             raise
         except _cfg.DISCONNECTED_EXCEPTIONS: pass
         except Exception as e:
+            log_exception('POST 请求处理', e)
             try:
-                self.send_json({'error': str(e)}, 500)
+                self.send_json({'error': '请求处理失败'}, 500)
             except _cfg.DISCONNECTED_EXCEPTIONS:
                 pass
 
@@ -644,11 +767,14 @@ class HTTPHandler(BaseHTTPRequestHandler):
             '/api/qrcode/refresh': lambda: self.qrcode_refresh(),
             '/api/certs/reset': lambda: self.reset_certs(),
             '/api/logs/clear': lambda: _ut_log.clear_logs(self, clear_runtime_logs),
-            '/api/session/revoke': lambda: _ac_session.session_revoke(self, _ac.revoke_session_by_prefix),
+            '/api/share/publish': lambda: self.share_publish(),
+            '/api/share/unpublish': lambda: self.share_unpublish(),
+            '/api/share/code': lambda: self.share_code_set(),
+            '/api/share/reset': lambda: self.share_reset(),
+            '/api/share/auth': lambda: self.share_auth(),
             '/api/account/password': lambda: _ac_self.account_password(self),
             '/api/account/revoke-sessions': lambda: _ac_self.account_revoke_sessions(self),
             '/api/account/lang': lambda: _ac_self.account_set_lang(self),
-            '/api/account/theme': lambda: _ac_self.account_set_accent(self),
         }
         h = handlers.get(path)
         if h: h()
@@ -702,7 +828,19 @@ class HTTPHandler(BaseHTTPRequestHandler):
         if not role:
             self.send_json({'error': 'Unauthorized'}, 401)
             return
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query,
+                                  keep_blank_values=True)
+        if 'path' not in q:
+            # LF-19：上传目标**只能写在 query string**（`?path=`）。写成 multipart 表单字段
+            # （`path`/`dir`/`target`…）会被静默忽略、落到共享根，却仍回 `saved: 1` ——
+            # 调用方以为传对了、文件却在别处。所以"压根没给这个参数"直接报错并说明写法。
+            # 注意 `?path=`（空值）仍是**合法**语义 = 上传到共享根（前端就是这么传的，
+            # 见 `web_page/home/home.html` 的 `?path=' + encodeURIComponent(item.path || '')`），
+            # 所以这里必须 keep_blank_values=True 才能把"没给"与"给了空值"区分开。
+            self.send_json({'error': '缺少 path 参数：上传目标要写在 query string 上'
+                                     '（如 /api/upload?path=public）；'
+                                     '上传到共享根请显式写 ?path='}, 400)
+            return
         sub_path = q.get('path', [''])[0].strip()
         if role not in ('admin', 'super_admin') and sub_path == '':
             # R2：仅“空 path（共享根）”属根级写，普通 user/guest 拒绝（提示带自己的目录）。
@@ -720,6 +858,205 @@ class HTTPHandler(BaseHTTPRequestHandler):
 
     def mkdir(self):
         _fs_api.handle_mkdir(self, _fs.UPLOAD_DIR, _fs.safe_path, _fs.invalidate_folder_cache, _cfg.DISCONNECTED_EXCEPTIONS)
+
+    # ---------- 分享映射（虚拟映射到公共目录 public/shares/<用户>/，源文件不搬动） ----------
+
+    def share_publish(self):
+        """POST /api/share/publish {paths:[共享根内相对路径]} → {published:[{path,url}...]}
+
+        把权限内的文件登记为虚拟映射：guest/匿名禁止；普通 user 只能映射自己
+        可访问的路径（_check_path_permission 按当前会话校验）；admin 全共享树。
+        文件本体不动，公共目录仅出现虚拟条目，磁盘零副本。
+        """
+        role = self._get_effective_role()
+        if not role or role == 'guest':
+            self.send_json({'error': '游客不可创建分享'}, 403)
+            return
+        username = self._get_username_from_session() or ''
+        data = self._read_json() or {}
+        paths = data.get('paths')
+        if not isinstance(paths, list) or not paths:
+            self.send_json({'error': 'paths 必须是非空数组'}, 400)
+            return
+        published = []
+        failed = []
+        for p in paths:
+            if not isinstance(p, str) or not p.strip():
+                continue
+            norm = p.strip().replace('\\', '/')
+            if not self._check_path_permission(norm):
+                failed.append({'path': p, 'error': '无权限访问该路径'})
+                continue
+            vp, err = _mapping.publish(norm, username)
+            if err:
+                failed.append({'path': p, 'error': err})
+            else:
+                published.append({'path': vp, 'name': vp.rsplit('/', 1)[-1],
+                                  'url': '/download/' + vp})
+        if not published:
+            msgs = [f.get('error', '') for f in failed] or ['没有可分享的文件']
+            self.send_json({'success': False, 'saved': 0, 'errors': msgs}, 400)
+            return
+        self.send_json({'success': True, 'published': published,
+                        'failed': failed,
+                        'share_root': '/browse/public/shares'})
+
+    def share_unpublish(self):
+        """POST /api/share/unpublish {path: 虚拟路径} —— 移除自己的映射（admin 可移除任意）
+
+        身份在服务端写死：匿名 401、游客 403；归属校验见 _mapping.remove。
+        """
+        role = self._get_effective_role()
+        if not role:
+            self.send_json({'error': 'Unauthorized'}, 401)
+            return
+        if role == 'guest':
+            self.send_json({'error': '游客不可管理分享'}, 403)
+            return
+        data = self._read_json() or {}
+        p = str(data.get('path') or '')
+        if not p:
+            self.send_json({'error': '缺少 path'}, 400)
+            return
+        username = self._get_username_from_session() or ''
+        ok, err = _mapping.remove(p, username, is_admin=(role in ('admin', 'super_admin')))
+        if not ok:
+            self.send_json({'error': err or '移除失败'}, 400 if err else 500)
+            return
+        self.send_json({'success': True})
+
+    def share_list(self):
+        """GET /api/share[?all=1] —— 我的映射（admin 带 all=1 看全量）"""
+        role = self._get_effective_role()
+        if not role:
+            self.send_json({'error': 'Unauthorized'}, 401)
+            return
+        username = self._get_username_from_session() or ''
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        want_all = q.get('all', ['0'])[0] == '1'
+        is_admin = role in ('admin', 'super_admin')
+        items = _mapping.list_mappings(username, is_admin=is_admin and want_all)
+        for it in items:
+            it['url'] = '/download/' + it['path']
+            it['removable'] = is_admin or it.get('by') == username
+        self.send_json({'mappings': items})
+
+    # ---------- 分享码 + 防爆破（规则见 share/access.py）----------
+
+    def _share_session_actor(self):
+        role = self._get_effective_role()
+        if not role:
+            self.send_json({'error': 'Unauthorized'}, 401)
+            return None, None
+        if role == 'guest':
+            self.send_json({'error': '游客无权设置分享码'}, 403)
+            return None, None
+        return role, self._get_username_from_session() or ''
+
+    def share_code_set(self):
+        """POST /api/share/code {code: 新码 | ''} —— 设/换/清自己的分享码"""
+        role, username = self._share_session_actor()
+        if not role:
+            return
+        data = self._read_json() or {}
+        code = data.get('code')
+        if code is None:
+            self.send_json({'error': '缺少 code（空串=清除）'}, 400)
+            return
+        code = str(code).strip()
+        if code and not (6 <= len(code) <= 32):
+            self.send_json({'error': '分享码长度需 6~32 个字符'}, 400)
+            return
+        ok, err = _sacc.set_code(username, code)
+        if not ok:
+            self.send_json({'error': err or '设置失败'}, 400)
+            return
+        self.send_json({'success': True, 'enabled': bool(code)})
+
+    def share_reset(self):
+        """POST /api/share/reset {username?} —— 本人重置防爆破计数（admin 可对他人）"""
+        role, username = self._share_session_actor()
+        if not role:
+            return
+        data = self._read_json() or {}
+        target = username
+        if data.get('username'):
+            if role not in ('admin', 'super_admin'):
+                self.send_json({'error': '无权重置他人分享'}, 403)
+                return
+            target = str(data['username']).strip()
+        _sacc.clear_attempts(target)
+        self.send_json({'success': True})
+
+    def share_auth(self):
+        """POST /api/share/auth {username, code} —— 访客输入分享码
+        正确 → 下发 1 小时授权 Cookie；错误 → 记失败并返回锁定状态/剩余次数。
+        """
+        data = self._read_json() or {}
+        username = str(data.get('username') or '').strip()
+        code = str(data.get('code') or '').strip()
+        if not _mapping.valid_username(username) or not code:
+            self.send_json({'ok': False, 'error': '参数无效'}, 400)
+            return
+        if not _sacc.code_enabled(username):
+            self.send_json({'ok': False, 'error': '该分享未设置访问码'}, 400)
+            return
+        ip = self.client_address[0]
+        # 锁定判定：全局锁中 / 该 IP 当日已锁 → 直接拒
+        blocked, reason = _sacc.access_blocked(username, ip)
+        if blocked:
+            self.send_json({'ok': False, 'error': 'locked', 'reason': reason}, 403,
+                           exempt=True)
+            return
+        cname = _sacc.cookie_name(username)
+        if _sacc.verify_code(username, code):
+            # 成功：签发 1 小时**授权票据**（该 IP 计数清零由 on_success 处理）。
+            # 票据是不透明随机值 —— 早先这里直接把"码的哈希"当 Cookie 值，而哈希能由码
+            # 推算出来：离线枚举出码后自己写一个同名 Cookie 就能下载，全程不经过本接口，
+            # IP 锁与全局锁都拦不到。
+            ticket = _sacc.issue_ticket(username)
+            hours = max(1, int(round(_sacc.param('cookie_hours'))))
+            sc = ('%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax'
+                  % (cname, ticket, hours * 3600))
+            if self._is_secure():
+                # Cookie 不隔离端口：明文模式下不带 Secure 的话，访问一次 8082 那类明文页就可能把它带走
+                sc += '; Secure'
+            self.send_response(200)
+            self.send_header('Set-Cookie', sc)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"ok": true}')
+            _sacc.on_success(username, ip)
+            return
+        ev = _sacc.record_failure(username, ip)
+        body = {'ok': False, 'error': 'incorrect', 'remaining': ev['remaining']}
+        if ev['global_now']:
+            body['error'] = 'locked'
+            body['reason'] = 'global'
+        elif ev['reason'] == 'ip':
+            body['error'] = 'locked'
+            body['reason'] = 'ip'
+        self.send_json(body, 403, exempt=True)
+
+    def share_status(self):
+        """GET /api/share/status[?username=] —— 本人防爆破状态/攻击提醒（admin 可查他人）"""
+        role = self._get_effective_role()
+        if not role:
+            self.send_json({'error': 'Unauthorized'}, 401)
+            return
+        username = self._get_username_from_session() or ''
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        if q.get('username'):
+            if role not in ('admin', 'super_admin'):
+                self.send_json({'error': 'Forbidden'}, 403)
+                return
+            username = q['username'][0].strip()
+        if not username:
+            self.send_json({'error': '缺少用户名'}, 400)
+            return
+        st = _sacc.status(username)
+        st['username'] = username
+        self.send_json(st)
 
     @staticmethod
     def _quota_pending(bucket):
@@ -903,10 +1240,6 @@ class HTTPHandler(BaseHTTPRequestHandler):
         c = f'{_ac.AUTH_COOKIE}={sid}; Path=/; Max-Age={_ac.SESSION_EXPIRY_DAYS * 86400}; HttpOnly; SameSite=Lax'
         if secure: c += '; Secure'
         self.send_header('Set-Cookie', c)
-        # 非 Secure 登录标记（见 ac_core.LOGIN_MARKER 说明）：供 8082 明文提示页识别
-        # “本浏览器已登录”并跳回 https 主站；恒为 1，不含任何凭证。
-        self.send_header('Set-Cookie',
-                         f'{_ac.LOGIN_MARKER}=1; Path=/; Max-Age={_ac.SESSION_EXPIRY_DAYS * 86400}; HttpOnly; SameSite=Lax')
 
     def _parse_multipart_file(self, ct, cl):
         import email, io
@@ -930,7 +1263,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
         本机免密场景改由 A-12 一次性令牌体系（/login?leaf= 或 WS auth token）接管。
         """
         cookie = self.headers.get('Cookie', '')
-        role, sid = _ac.get_session(cookie, True, self.client_address[0])
+        role, sid = _ac.get_session(cookie, self.client_address[0])
         username = _ac.get_session_username(sid) if sid else ''
         # 游客下载任务按来源 IP 隔离：会话名保持“游客”，但任务归属键改为
         # “游客@<ip>”，列表/推送/管理接口天然按 IP 过滤，不同 IP 游客互不可见
@@ -939,11 +1272,12 @@ class HTTPHandler(BaseHTTPRequestHandler):
         return username, role
 
     def _dl_quota_check(self, save_dir_abs, est_bytes):
-        """IC-QUOTA-C：把 HTTP 层 _check_quota 包装成下载器的 quota_check 回调"""
-        try:
-            return self._check_quota(save_dir_abs, int(est_bytes or 0))
-        except Exception:
-            return True, ''
+        """IC-QUOTA-C：把 HTTP 层 _check_quota 包装成下载器的 quota_check 回调
+
+        **不吞异常**：配额检查自己出错时不能回"配额够"（旧写法 except →
+        (True, '')），否则检查一坏就等于没有配额。真出错让这次请求失败。
+        """
+        return self._check_quota(save_dir_abs, int(est_bytes or 0))
 
     def _dl_forward_start(self):
         data = self._read_json()
@@ -961,7 +1295,9 @@ class HTTPHandler(BaseHTTPRequestHandler):
         self.send_json(r[0] if isinstance(r, tuple) else r, r[1] if isinstance(r, tuple) else 200)
 
     def _dl_forward_config(self):
-        r = _dl_api.handle_get_config()
+        # B4：与 _dl_forward_list 同一形状 —— 全局配置只有管理员能读（含安全/配额策略）
+        username, role = self._dl_get_user_and_role()
+        r = _dl_api.handle_get_config(user=username, role=role)
         self.send_json(r[0] if isinstance(r, tuple) else r, r[1] if isinstance(r, tuple) else 200)
 
     def _dl_forward_config_post(self):
@@ -1022,8 +1358,8 @@ class HTTPHandler(BaseHTTPRequestHandler):
             r = _dl_api.handle_upload_torrent(payload, fn)
             self.send_json(r[0] if isinstance(r, tuple) else r, r[1] if isinstance(r, tuple) else 200)
         except Exception as e:
-            add_log(f'种子上传解析失败: {str(e)}', 'err')
-            self.send_json({'success': False, 'error': str(e)}, 500)
+            log_exception('种子上传解析', e)
+            self.send_json({'success': False, 'error': '种子文件解析失败'}, 500)
 
     def _get_user_start_path(self, username, role):
         return _fs.get_user_start_path(username, role)
@@ -1083,6 +1419,11 @@ def _g_login(h, path, role):
 
 
 def _g_admin(h, path, role):
+    # 未登录 → 登录页（与 /browse、下载器页同一口径）；已登录但非管理员 → 404
+    # （统一拒绝口径：不告诉对方"这个管理页存在，只是你没权限"）
+    if not role:
+        h.redirect('/login')
+        return
     if role not in ('admin', 'super_admin'):
         h.send_error(403)
         return
@@ -1090,6 +1431,9 @@ def _g_admin(h, path, role):
 
 
 def _g_admin_users(h, path, role):
+    if not role:
+        h.redirect('/login')
+        return
     if role not in ('admin', 'super_admin'):
         h.send_error(403)
         return
@@ -1098,6 +1442,9 @@ def _g_admin_users(h, path, role):
 
 
 def _g_admin_pages(h, path, role):
+    if not role:
+        h.redirect('/login')
+        return
     if role not in ('admin', 'super_admin'):
         h.send_error(403)
         return
@@ -1124,11 +1471,30 @@ def _g_static(h, path, role):
 
 
 def _g_dl_peers_page(h, path, role):
+    """/url-download/peers —— 下载器 peers 页（与数据 API 同一门槛）"""
+    if not role:
+        h.redirect('/login')
+        return
+    if not h._dl_allowed():
+        h.send_error(403)
+        return
     _wm.serve_file(h, os.path.join('web_page', 'downloader', 'peers.html'), 'text/html; charset=utf-8',
                    _ut.BASE_DIR, _ac.get_session, _ac.get_session_username)
 
 
 def _g_downloader_page(h, path, role):
+    """/url-download[/…] —— 下载器页
+
+    页面本身不含数据，但它是下载器的入口：门槛必须与数据 API（_g_api_url_download）
+    同一口径 —— 否则未登录/游客能打开界面，点下去全是 401/403。
+    未登录给登录页、已登录但无资格（guest 且开关关）给 403。
+    """
+    if not role:
+        h.redirect('/login')
+        return
+    if not h._dl_allowed():
+        h.send_error(403)
+        return
     _wm.serve_file(h, os.path.join('web_page', 'downloader', 'downloader.html'), 'text/html; charset=utf-8',
                    _ut.BASE_DIR, _ac.get_session, _ac.get_session_username)
 
@@ -1155,24 +1521,218 @@ def _g_auth_logout_405(h, path, role):
 
 
 def _g_files(h, path, role):
-    _fs_api.send_files(h, _fs.list_files)
+    _fs_api.send_files(h, _fs.list_files, _share_unlocked_check(h))
+
+
+def _share_unlocked_check(h):
+    """给文件列表用的分享码判断，返回 (owner) -> bool。
+
+    规则与 _share_code_gate 同一套：没设码 = 恒解锁，分享者本人 = 解锁。
+    没解锁的 owner，其分享目录在列表里完全不出现（连文件夹本身都不给），
+    免得没过码的人靠文件名/大小/时间白拿信息。
+    """
+    def check(owner):
+        try:
+            return _share_code_gate(h, owner, h.headers.get('Cookie', ''))
+        except Exception:
+            return False
+    return check
 
 
 def _g_raw(h, path, role):
+    # 分享虚拟映射：命中 → 按源文件内联输出（预览）；授权独立于游客模式（同下载语义）
+    try:
+        q = urllib.parse.urlparse(h.path).query
+        rp = urllib.parse.parse_qs(q).get('path', [''])[0]
+        if rp:
+            real = _mapping.resolve(rp)
+            if real is not None:
+                owner = _share_owner_of(rp)
+                if not _share_code_gate(h, owner, h.headers.get('Cookie', '')):
+                    h.send_error(403)
+                    return
+                _share_stream_file(h, real, inline=True)
+                return
+    except Exception:
+        pass
     _fs_api.send_raw(h, _fs.UPLOAD_DIR, h._preview_max_size(), _fs.safe_path,
                      _fs.get_mime, _cfg.DISCONNECTED_EXCEPTIONS)
 
 
 def _g_thumb(h, path, role):
+    # 分享虚拟路径 public/shares/<用户名>/<文件名> 在磁盘上不存在（源文件原位不动），
+    # 要由 send_thumbnail 解析成源文件再取图，否则访客页里这些文件一律 404。
+    # 命中映射时先过分享码闸门：缩略图本身就是内容，不该绕过码拿到（口径与 _g_download 一致）。
+    rel = ''
+    try:
+        rel = urllib.parse.parse_qs(urllib.parse.urlparse(h.path).query).get('path', [''])[0]
+    except Exception:
+        rel = ''
+    if rel:
+        try:
+            owner = _share_owner_of(rel)
+            if owner and _mapping.resolve(rel) and \
+                    not _share_code_gate(h, owner, h.headers.get('Cookie', '')):
+                h.send_json({'error': '需要分享码'}, 403)
+                return
+        except Exception:
+            pass
     _fs_api.send_thumbnail(h, _fs.UPLOAD_DIR, _fs.get_thumbnail, _fs.safe_path,
-                           _cfg.DISCONNECTED_EXCEPTIONS)
+                           _cfg.DISCONNECTED_EXCEPTIONS, _mapping.resolve)
 
 
 def _g_download(h, path, role):
+    # 分享虚拟映射：命中 → 按源文件附件下载。
+    # 授权语义：映射 = 用户主动发布（白名单精确解析，无路径输入面）；该授权独立于
+    # 游客模式开关 —— 游客模式只控制“匿名浏览 public 列表”，不回收已发布文件的直链。
+    try:
+        rel = path[len('/download/'):]
+        rel = urllib.parse.unquote(rel)
+        real = _mapping.resolve(rel) if rel else None
+    except Exception:
+        real = None
+    if real is not None:
+        owner = _share_owner_of(rel)
+        if not _share_code_gate(h, owner, h.headers.get('Cookie', '')):
+            # 开了分享码：直链不能直接 403（那只是一个错误页，访客没有输码的地方），
+            # 把人带到分享页去 —— 输完码就能看到文件并下载（redirect 内部会做 URL 编码）
+            h.redirect('/p/' + owner)
+            return
+        _share_stream_file(h, real, inline=False)
+        return
     _fs_api.handle_download(h, _fs.UPLOAD_DIR, _cfg.COPY_BUFFER_SIZE, _fs.safe_path,
                             _fs.get_mime, _ac.get_session, _ac.get_session_username,
                             _ac.get_user_speed_limit, _cfg.get_speed_limit,
                             _cfg.get_user_limiter, _cfg.DISCONNECTED_EXCEPTIONS)
+
+
+# ---------- 分享虚拟映射流输出（映射命中后的源文件下发；附件下载 / 内联预览） ----------
+
+def _share_stream_file(h, abs_path, inline=False):
+    """按映射登记解析出的源文件绝对路径流式输出。
+
+    inline=False → 附件下载（访客点链接即下载）；inline=True → 内联预览（raw，
+    受 PREVIEW_MAX_SIZE 限制）。可内联文档类型（HTML/SVG/XML/JS/JSON…）一律强制
+    附件/纯文本，防同源脚本执行；响应带 sandbox CSP 双保险。
+    """
+    import mimetypes
+    name = os.path.basename(abs_path)
+    mime = (mimetypes.guess_type(name)[0] or 'application/octet-stream').lower()
+    mime_base = mime.split(';', 1)[0].strip()
+    force_plain = mime_base in (
+        'text/html', 'application/xhtml+xml', 'image/svg+xml',
+        'application/xml', 'text/xml',
+        'application/javascript', 'text/javascript',
+        'application/json',
+        'application/rss+xml', 'application/atom+xml',
+    )
+    if force_plain:
+        mime = 'text/plain; charset=utf-8'
+    try:
+        size = os.path.getsize(abs_path)
+    except Exception:
+        h.send_error(404)
+        return
+    if inline and size > PREVIEW_MAX_SIZE:
+        h.send_response(413)
+        h.end_headers()
+        try:
+            h.wfile.write('[文件过大]'.encode('utf-8'))
+        except Exception:
+            pass
+        return
+    if force_plain and inline:
+        # 可内联文档在预览模式也强制附件下载（不渲染），与 send_raw 同语义
+        inline = False
+    h.send_response(200)
+    h.send_header('Content-Type', mime)
+    h.send_header('Content-Length', str(size))
+    if inline:
+        h.send_header('Content-Disposition', 'inline')
+    else:
+        h.send_header('Content-Disposition',
+                      "attachment; filename*=UTF-8''" + urllib.parse.quote(name))
+    # 公共头走统一入口（这处特有的 sandbox CSP 一并交给它）——
+    # 手写那几个头会跟 end_headers 的自动补撞车，发出 `nosniff, nosniff` 这种重复头
+    h._common_security_headers(
+        csp="sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:")
+    h.end_headers()
+    try:
+        with open(abs_path, 'rb') as f:
+            while True:
+                chunk = f.read(65536)
+                if not chunk:
+                    break
+                _fs_api._stream_write(h, chunk)
+    except _cfg.DISCONNECTED_EXCEPTIONS:
+        try:
+            h.close_connection = True
+        except Exception:
+            pass
+    except Exception:
+        # 响应头已发出（部分正文可能已写）：按断连处理，不再补 500
+        try:
+            h.close_connection = True
+        except Exception:
+            pass
+
+
+def _g_share_page(h, path, role):
+    """/share —— 分享管理页（登录用户使用；游客/未登录不可进）"""
+    if not role:
+        h.redirect('/login')
+        return
+    if role == 'guest':
+        h.send_error(403)
+        return
+    _wm.serve_file(h, os.path.join('web_page', 'share', 'manage.html'),
+                   'text/html; charset=utf-8', _ut.BASE_DIR,
+                   _ac.get_session, _ac.get_session_username)
+
+
+def _g_p_share(h, path, role):
+    """/p/<用户名>[/api] —— 访客分享展示页（公开，无需登录，无管理元素）
+
+    展示该用户名下已发布（存在源文件）的映射；直链下载授权独立于游客模式。
+    """
+    rest = path[len('/p/'):]
+    parts = rest.split('/')
+    if not parts or not parts[0]:
+        h.send_error(404)
+        return
+    try:
+        uname = urllib.parse.unquote(parts[0])
+    except Exception:
+        uname = parts[0]
+    if not _mapping.valid_username(uname):
+        h.send_error(404)
+        return
+    if len(parts) == 2 and parts[1] == 'api':
+        if not _share_code_gate(h, uname, h.headers.get('Cookie', '')):
+            h.send_json({'ok': False, 'error': 'code_required', 'by': uname}, 403,
+                        exempt=True)
+            return
+        h.send_json({'by': uname, 'files': _mapping.list_public(uname)})
+        return
+    if len(parts) in (1, 2) and (len(parts) == 1 or parts[1] == ''):
+        page = os.path.join(_ut.BASE_DIR, 'web_page', 'share', 'public.html')
+        try:
+            with open(page, 'rb') as f:
+                body = f.read()
+        except Exception:
+            h.send_error(500)
+            return
+        h.send_response(200)
+        h.send_header('Content-Type', 'text/html; charset=utf-8')
+        h.send_header('Content-Length', str(len(body)))
+        # 公共头由 h.end_headers 统一补，不手写
+        h.end_headers()
+        try:
+            h.wfile.write(body)
+        except _cfg.DISCONNECTED_EXCEPTIONS:
+            pass
+        return
+    h.send_error(404)
 
 
 def _g_search(h, path, role):
@@ -1181,6 +1741,7 @@ def _g_search(h, path, role):
 
 def _g_stats(h, path, role):
     _fs_api.server_stats(h, _fs.get_server_stats, _fs.get_folder_size, _fs.has_ffmpeg,
+                         _fs.thumbnail_backend,
                          _cfg.get_max_concurrent, _cfg.COPY_BUFFER_SIZE, _cfg.get_speed_limit,
                          _cfg.get_connections, _cfg.PORT, _cfg.get_guest_mode,
                          _cfg.get_default_user_quota, _cfg.get_public_quota,
@@ -1222,18 +1783,39 @@ def _g_ping(h, path, role):
     h.send_json({'ok': True})
 
 
-def _g_session_sid(h, path, role):
-    """返回当前 session id，供 WebSocket 认证使用"""
-    cookie = h.headers.get('Cookie', '')
-    _, sid = _ac.get_session(cookie, True, h.client_address[0])
-    h.send_json({'sid': sid or ''})
+def _g_share_list(h, path, role):
+    h.share_list()
 
 
-def _g_sessions(h, path, role):
-    if role not in ('admin', 'super_admin'):
-        h.send_json({'error': 'Forbidden'}, 403)
-        return
-    _ac_session.sessions_list(h, _ac.get_all_sessions)
+def _g_share_status(h, path, role):
+    h.share_status()
+
+
+def _share_owner_of(rel):
+    """虚拟路径 public/shares/<用户名>/<文件名> → 用户名；非映射路径 None
+
+    反斜杠要先归一成斜杠：`mappings.resolve()` 是归一化之后再查表的，所以
+    `public\\shares\\<用户>\\<文件>` 这种写法**能命中映射**；这里若不归一，切不出
+    parts[0]=='public'，返回 None —— 而 `_share_code_gate` 首句就是"owner 为空即放行"，
+    等于把设了分享码的文件直接敞开（无需任何 Cookie）。
+    """
+    parts = (rel or '').replace('\\', '/').strip('/').split('/')
+    if len(parts) >= 3 and parts[0] == 'public' and parts[1] == 'shares':
+        return parts[2]
+    return None
+
+
+def _share_code_gate(h, owner, cookie_header):
+    """分享码校验（下载/预览/访客数据）：未设码放行；设码时需 1h 授权 Cookie 或本人会话
+
+    判定逻辑**只有一份**（`share/access.py` 的 `code_gate`）—— WS 的列表也调它。
+    这里只负责把 handler 上的两样东西取出来：当前会话用户名、来源 IP。
+    """
+    try:
+        uname = h._get_username_from_session() or ''
+    except Exception:
+        uname = ''
+    return _sacc.code_gate(owner, cookie_header, h.client_address[0], uname)
 
 
 def _g_users(h, path, role):
@@ -1245,8 +1827,21 @@ def _g_logs(h, path, role):
 
 
 def _g_zip(h, path, role):
+    def _resolve(rel):
+        """zip 用的分享解析器：虚拟路径 → 源文件绝对路径；分享码没解锁就抛（按无权算）。
+
+        与 `/download` 同口径（先映射后权限），但**带门禁**：zip 不像直链那样能把人
+        带到分享页去输码，所以没解锁就直接算无权（最终统一回 404）。
+        """
+        real = _mapping.resolve(rel)
+        if not real:
+            return None
+        owner = _share_owner_of(rel)
+        if not _share_code_gate(h, owner, h.headers.get('Cookie', '')):
+            raise PermissionError('need share code')
+        return real
     _fs_api.zip_download(h, _fs.UPLOAD_DIR, _cfg.COPY_BUFFER_SIZE, _fs.safe_path,
-                         _cfg.DISCONNECTED_EXCEPTIONS)
+                         _cfg.DISCONNECTED_EXCEPTIONS, _resolve)
 
 
 def _g_api_url_download(h, path, role):
@@ -1267,6 +1862,8 @@ GET_ROUTES = (
     (('=', '/admin/users'), _g_admin_users),
     (('in', ('/admin/advanced', '/admin/deep', '/log')), _g_admin_pages),
     (('=', '/me'), _g_me),
+    (('=', '/share'), _g_share_page),
+    (('prefix', '/p/'), _g_p_share),
     (('or', (('=', '/'), ('prefix', '/browse/'), ('=', '/gallery'))), _g_browse_page),
     (('prefix', '/static/'), _g_static),
     (('=', '/url-download/peers'), _g_dl_peers_page),
@@ -1289,8 +1886,8 @@ GET_ROUTES = (
     (('=', '/api/qrcode/status'), _g_qrcode_status),
     (('=', '/api/qrlogin'), _g_qrlogin),
     (('=', '/api/ping'), _g_ping),
-    (('=', '/api/session/sid'), _g_session_sid),
-    (('=', '/api/sessions'), _g_sessions),
+    (('=', '/api/share'), _g_share_list),
+    (('=', '/api/share/status'), _g_share_status),
     (('=', '/api/users'), _g_users),
     (('=', '/api/logs'), _g_logs),
     (('=', '/api/zip'), _g_zip),

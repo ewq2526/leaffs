@@ -30,14 +30,12 @@ function _wsDebugBind(sock) {
     });
 }
 
-// ========== WS 显式 sid 认证 + 管理订阅（共享助手见 common/app.js: wsAdminAuthAndSubscribe）==========
-// 本页面对当前 WS 连接是否已成功发出 admin-sub。false 期间即使 wsConnected==true
+// ========== WS 管理订阅（共享助手见 common/app.js: wsAdminAuthAndSubscribe）==========
+// 本页面对当前 WS 连接是否已成功订阅管理推送。false 期间即使 wsConnected==true
 // 也允许 HTTP 兜底轮询，避免“连接了但没订阅/收不到推送”时页面永久空转。
 // 管理页界面语言（zh/en 模板各自注入 window.__LANG__；仅影响动态渲染文案）
 var _UI_EN = window.__LANG__ === 'en';
 var _wsAdminReady = false;
-// 当前连接已发出的 auth sid（诊断/匹配用）
-var _wsAuthSid = '';
 // WS 管理数据是否可用：连接打开 且 已对本连接成功发出 admin-sub
 function _wsAdminUsable() {
     return !!(wsConnected && _wsAdminReady);
@@ -193,16 +191,22 @@ function applyStats(d) {
     var uptime = (typeof d.uptime === 'number' && d.uptime >= 0)
         ? d.uptime : Math.floor((Date.now() - startTime) / 1000);
     document.getElementById('startTime').textContent = fmtUptime(uptime);
-    document.getElementById('localIp').textContent = d.server_ip || window.location.hostname;
+    // server_ip 由服务端算（安卓端认 Wi-Fi/热点、排除蜂窝）；server_has_lan=false
+    // 表示这个地址只有本机能打开（如只剩蜂窝数据），提示一下免得以为能发给别人
+    document.getElementById('localIp').textContent =
+        (d.server_ip || window.location.hostname)
+        + (d.server_has_lan === false ? (_UI_EN ? ' (no LAN available)' : '（无可用局域网）') : '');
     document.getElementById('shareTotalSize').textContent = formatSize(d.total_size);
     if (_UI_EN) {
         document.getElementById('fileTotal').textContent = d.file_count + ' files, ' + d.folder_count + ' folders';
-        document.getElementById('ffmpegStatus').textContent = d.ffmpeg ? 'Available' : 'Not installed';
+        document.getElementById('ffmpegStatus').textContent = d.ffmpeg ? 'Available'
+            : (d.thumb_backend === 'native' ? 'Replaced by the system API' : 'Not installed');
         document.getElementById('aria2cStatus').textContent = d.aria2c ? 'Available' : 'Not installed';
         document.getElementById('connCount').textContent = d.active_connections + ' online';
     } else {
         document.getElementById('fileTotal').textContent = d.file_count + ' 个文件, ' + d.folder_count + ' 个文件夹';
-        document.getElementById('ffmpegStatus').textContent = d.ffmpeg ? '可用' : '未安装';
+        document.getElementById('ffmpegStatus').textContent = d.ffmpeg ? '可用'
+            : (d.thumb_backend === 'native' ? '已由系统 API 替代' : '未安装');
         document.getElementById('aria2cStatus').textContent = d.aria2c ? '可用' : '未安装';
         document.getElementById('connCount').textContent = d.active_connections + ' 个在线';
     }
@@ -336,10 +340,9 @@ function refreshConnections() {
 function onWSConnected() {
     // 诊断插桩：绑定新连接对象的监听（含自动重连后产生的对象）
     _wsDebugBind(ws);
-    // 新连接：重置订阅就绪状态，先经共享助手做显式 sid 认证并订阅管理推送
-    // （auth 成功才发 admin-sub；sid 失败由助手 console.warn 并置 ready=false → HTTP 兜底）
+    // 新连接：重置订阅就绪状态，经共享助手发 admin-sub（认证靠 WS 握手的 Cookie）
+    // （未收到 admin_data / 被拒时由助手 console.warn 并置 ready=false → HTTP 兜底）
     _wsAdminReady = false;
-    _wsAuthSid = '';
     if (window.wsAdminAuthAndSubscribe) {
         window.wsAdminAuthAndSubscribe(ws);
     } else {
@@ -473,7 +476,8 @@ function genQR(name) {
 
 // ========== 游客卡片二维码 ==========
 // HTTPS 开启时：二维码指向“证书提示页”（8082，纯 http、无证书警告）——访客扫码先看到
-// 大白话说明，点按钮进 https 登录页；已登录的浏览器带 LOGIN_MARKER 会自动 302 回主站。
+// 大白话说明，再点按钮进主站。那一页**不做任何跳转、也不探测端口**（曾经那套"按端口
+// 依次放行 + 两个都信任就自动跳主站"已废弃：8081 连不上与证书无关）。
 // HTTPS 关闭时：直接给出主站地址（无证书问题，无需提示页）。
 function initQR() {
     var container = document.getElementById('qrContainer');
@@ -502,8 +506,8 @@ function initQR() {
             var tpStr = String(tp) === '80' ? '' : ':' + tp;
             url = 'http://' + serverIp + tpStr;
             cap = _UI_EN
-                ? ('HTTPS is on: scanning goes to the certificate notice page (http' + tpStr + '). Signed-in browsers jump to the main site automatically.')
-                : ('HTTPS 已开启：扫码先到证书提示页（http' + tpStr + '），已登录会自动跳转主站');
+                ? ('HTTPS is on: scanning goes to the certificate notice page (http' + tpStr + '), then on to the file service.')
+                : ('HTTPS 已开启：扫码先到证书提示页（http' + tpStr + '），点按钮进入文件服务');
         } else {
             url = window.location.protocol + '//' + serverIp
                 + (window.location.port ? ':' + window.location.port : '');
@@ -540,7 +544,7 @@ setTimeout(function() {
 }, 500);
 
 // 管理页数据源：WebSocket 订阅成功后由服务器每秒推送（handleWSMessage）；
-// 定时 HTTP 轮询作兜底：WS 断开、或连接了但尚未订阅成功（如 sid 认证失败）时刷新，
+// 定时 HTTP 轮询作兜底：WS 断开、或连接了但尚未订阅成功（admin-sub 未回执/被拒）时刷新，
 // 避免页面数据空白/永久转圈
 setInterval(function() {
     if (!_wsAdminUsable()) refreshAll();

@@ -58,7 +58,7 @@
     <div class="header">
         <h1><span class="ht">用户管理</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">连接中...</span></span></h1>
         <div class="info">
-            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">亮色</span></button>
+            <!--THEME_TOGGLE-->
         </div>
     </div>
 
@@ -66,6 +66,7 @@
         <a href="/browse/">浏览</a>
         <a href="/gallery">预览</a>
         <a href="/url-download">下载器</a>
+        <a href="/share">分享</a>
         <a href="/admin">管理</a>
         <a href="/me">我的</a>
         <span style="flex:1"></span>
@@ -103,8 +104,6 @@ var myRole = '__MY_ROLE__';
 var myUsername = '__MY_USERNAME__';
 var startTime = Date.now();
 
-function toggleDark() { var html=document.documentElement; var isDark=html.getAttribute('data-theme')==='dark'; var btn=document.getElementById('darkToggle'); if(isDark){html.removeAttribute('data-theme');localStorage.setItem('theme','light');if(btn){btn.querySelector('#darkIcon').textContent='☀';btn.querySelector('#darkLabel').textContent='亮色';}}else{html.setAttribute('data-theme','dark');localStorage.setItem('theme','dark');if(btn){btn.querySelector('#darkIcon').textContent='☾';btn.querySelector('#darkLabel').textContent='暗色';}}}
-(function(){if(localStorage.getItem('theme')==='dark'){document.documentElement.setAttribute('data-theme','dark');setTimeout(function(){var btn=document.getElementById('darkToggle');if(btn){btn.querySelector('#darkIcon').textContent='☾';btn.querySelector('#darkLabel').textContent='暗色';}},0);}})();
 
 function batchToast(msg,type){var c=document.querySelector('.toast-container');if(!c){c=document.createElement('div');c.className='toast-container';document.body.appendChild(c);}var e=document.createElement('div');e.className='toast '+(type||'info');e.textContent=msg;c.appendChild(e);setTimeout(function(){e.remove();},2800);}
 
@@ -117,7 +116,7 @@ function refreshUsers(users){if(arguments.length===0){return fetch('/api/users')
 function addUser(){var name=document.getElementById('newUserName').value.trim();var pass=document.getElementById('newUserPass').value.trim();if(!name||!pass){batchToast('请输入用户名和密码','info');return;}if(pass.length<8){batchToast('密码至少 8 个字符','error');return;}fetch('/api/users/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,password:pass})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已新增用户: '+name,'success');document.getElementById('newUserName').value='';document.getElementById('newUserPass').value='';refreshUsers();}else batchToast(d.error||'添加失败','error');});}
 function setUserPassword(name){var pass=document.getElementById('pwd_'+name).value.trim();var pass2=document.getElementById('pwd2_'+name).value.trim();if(!pass){batchToast('请输入新密码','info');return;}if(pass.length<8){batchToast('密码至少 8 个字符','error');return;}if(pass!==pass2){batchToast('两次输入的密码不一致','error');return;}fetch('/api/users/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,password:pass})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已修改 '+name+' 的密码','success');document.getElementById('pwd_'+name).value='';document.getElementById('pwd2_'+name).value='';refreshUsers();}else batchToast(d.error||'修改失败','error');});}
 function changeRole(name,currentRole){var newRole=currentRole==='user'?'admin':'user';if(!confirm('将 "'+name+'" 的角色改为 '+(newRole==='admin'?'管理员':'用户')+' ？'))return;fetch('/api/users/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,role:newRole})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已修改 '+name+' 的角色','success');refreshUsers();}else batchToast(d.error||'操作失败','error');});}
-function deleteUser(name){if(!confirm('删除用户 "'+name+'" ？'))return;fetch('/api/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已删除用户: '+name,'success');refreshUsers();}else batchToast(d.error||'删除失败','error');});}
+function deleteUser(name){if(!confirm('删除用户 "'+name+'" ？\n\n他的文件不会被删除，会归档到 users/.deleted/ 里（以后同名重建也不会继承旧文件）。'))return;fetch('/api/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已删除用户: '+name+(d.archived_dir?('，文件已归档到 '+d.archived_dir):'（该用户没有文件）'),'success');refreshUsers();}else batchToast(d.error||'删除失败','error');});}
 function setUserQuota(name){var quotaMB=parseInt(document.getElementById('quota_'+name).value)||0;fetch('/api/users/quota',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,quota_mb:quotaMB})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('用户 '+name+' 配额: '+quotaMB+' MB','success');refreshUsers();}else batchToast(d.error||'设置失败','error');}).catch(function(){batchToast('设置失败','error');});}
 function setUserSpeed(name){var speedKB=parseInt(document.getElementById('speed_'+name).value)||0;fetch('/api/users/speed',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,speed_kb:speedKB})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('用户 '+name+' 限速: '+speedKB+' KB/s','success');refreshUsers();}else batchToast(d.error||'设置失败','error');}).catch(function(){batchToast('设置失败','error');});}
 function renameUser(oldName){var newName=document.getElementById('rename_'+oldName).value.trim();if(!newName){batchToast('请输入新用户名','info');return;}if(!confirm('将 "'+oldName+'" 改名为 "'+newName+'" ？'))return;fetch('/api/users/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_name:oldName,new_name:newName})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已改名 '+oldName+' → '+newName,'success');document.getElementById('rename_'+oldName).value='';refreshUsers();}else batchToast(d.error||'改名失败','error');});}

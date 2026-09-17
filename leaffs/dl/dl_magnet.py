@@ -69,7 +69,7 @@ class MagnetDownloader:
         try:
             rpc = get_rpc_client()
         except Exception as e:
-            return {'success': False, 'error': f'RPC 客户端获取失败: {e}', 'status': 'error'}
+            return {'success': False, 'error': 'RPC 客户端获取失败', 'status': 'error'}
 
         # 通过 RPC 添加磁力链接
         options = {
@@ -90,7 +90,7 @@ class MagnetDownloader:
             task_info['rpc_gid'] = gid
             _notify()
         except Exception as e:
-            return {'success': False, 'error': f'RPC addUri 失败: {e}', 'status': 'error'}
+            return {'success': False, 'error': 'RPC addUri 失败', 'status': 'error'}
 
         # 轮询进度 - 支持 GID 切换（followedBy）
         metadata_done = False

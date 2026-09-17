@@ -9,6 +9,7 @@
 .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
 .toolbar .count { font-size: 12px; color: var(--text-light); }
 .toolbar .refresh-btn { --btn-c: #fff; background-color: var(--muted-deep) !important; background-image: none !important; box-shadow: none !important; }
+.toolbar .share-btn { --btn-c: #fff; background-color: var(--primary) !important; background-image: none !important; box-shadow: none !important; color: #fff !important; }
 .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .file-grid.list-view { grid-template-columns: 1fr; }
 .file-card { position: relative; background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; text-align: center; cursor: pointer; transition: border-color 0.15s; }
@@ -48,22 +49,22 @@
 .view-toggle button { padding: 4px 10px; font-size: 11px; border: none; background: var(--card-bg); color: var(--text-light); cursor: pointer; }
 .view-toggle button.active { background: var(--primary); color: #fff; }
 </style>
-<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;window.__SERVER_BASE__='__SERVER_BASE_URL__';window.__HAS_LAN__=__HAS_LAN_VAL__;</script>
 <script>window.__LANG__='en';</script></head>
 <body>
 <div class="app">
-    <div class="header">
+    <div class="header header-stats">
         <h1><span class="ht">File Transfer</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connected</span></span></h1>
         <div class="info">
             <span id="fileCount" style="font-size:12px;color:var(--text-light)"></span>
-            <span id="totalSize" style="font-size:12px;color:var(--text-light)"></span>
-            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">Light</span></button>
         </div>
+        <!--THEME_TOGGLE-->
     </div>
     <div class="nav-bar">
         <a href="/browse/" class="active">Browse</a>
         <a href="/gallery" id="galleryNavLink">Gallery</a>
         <a href="/url-download" id="navDownloader">Downloader</a>
+        <a href="/share" id="navShare">Share</a>
         <a href="/admin" id="navAdmin">Admin</a>
         <a href="/me">My Account</a>
         <span style="flex:1"></span>
@@ -92,6 +93,7 @@
         <button class="btn btn-sm btn-outline" onclick="selectAll(false)">Clear</button>
         <button class="btn btn-sm btn-success" onclick="downloadSelected()">Download</button>
         <button class="btn btn-sm btn-danger" onclick="deleteSelected()">Delete</button>
+        <button class="btn btn-sm share-btn" id="shareBtn" onclick="shareSelected()" style="display:none">Share</button>
         <button class="btn btn-sm refresh-btn" onclick="loadFiles()">Refresh</button>
         <span class="count">Selected <strong id="selectedCount">0</strong></span>
         <select class="sort-select" id="sortSelect" onchange="sortFiles()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--card-bg);color:var(--text)">
@@ -126,6 +128,10 @@ var myUsername = '__MY_USERNAME__';
     var navAdmin = document.getElementById('navAdmin');
     if (navDownloader) navDownloader.style.display = isGuest ? 'none' : '';
     if (navAdmin) navAdmin.style.display = (myRole === 'admin' || myRole === 'super_admin') ? '' : 'none';
+    var navShare = document.getElementById('navShare');
+    if (navShare) navShare.style.display = (myRole && myRole !== 'guest') ? '' : 'none';
+    var shareBtn = document.getElementById('shareBtn');
+    if (shareBtn) shareBtn.style.display = (myRole && myRole !== 'guest') ? '' : 'none';
 })();
 
 var files = [], selected = new Set();
@@ -136,14 +142,67 @@ var viewMode = localStorage.getItem('viewMode') || 'grid';
 function onWSConnected() { if (files.length === 0) loadFiles(); }
 
 var _currentTotalFiles = 0;
-var _currentTotalSize = 0;
 var _searchOverlay = null;
+
+// WebSocket push for the current folder (list / delete / mkdir)
+function handleWSMessage(msg) {
+    switch (msg.type) {
+        case 'list':
+            files = msg.files || [];
+            _currentTotalFiles = msg.total_file_count || 0;
+            render(); updateStats(); updateBreadcrumb(currentPath);
+            break;
+        case 'delete': toastDeleteResult(msg); loadFiles(); break;
+        case 'mkdir': batchToast(msg.success ? 'Done' : 'Failed', msg.success ? 'success' : 'error'); if (msg.success) loadFiles(); break;
+        // Server-side errors (listing failed / bad path / no permission / malformed message…):
+        // show the server's own wording and leave the list alone — a failed read must not
+        // blank the view as if the folder were empty (LF-27). Note the server's messages are
+        // Chinese, same as every other backend error surfaced on this page.
+        case 'error': toast(msg.msg || 'Request failed', 'error'); break;
+    }
+}
+
+// Load the current folder: WS first (fast path), HTTP listing as fallback
+function loadFiles() {
+    if (sendWS({ type: 'list', path: currentPath })) return;
+    apiList(currentPath, function (d) {
+        files = d.files || [];
+        _currentTotalFiles = d.total_file_count || 0;
+        render(); updateStats(); updateBreadcrumb(currentPath);
+    });
+}
+
+function updateBreadcrumb(p) {
+    var isPublic = p && p.indexOf('public') === 0;
+    var display = '';
+    if (p && p.indexOf('users/') === 0) { var parts = p.split('/'); display = parts.length > 2 ? parts.slice(2).join('/') : ''; }
+    else if (isPublic) { display = p.substring('public'.length).replace(/^\//, ''); }
+    var loc = isPublic ? 'Public' : 'My folder';
+    var h = '<span style="font-size:12px;font-weight:600;color:var(--text);margin-right:8px;padding:2px 8px;border-radius:4px;background:var(--bg);border:1px solid var(--border)">' + loc + '</span>';
+    if (p) h += '<a href="/browse/' + p.split('/').slice(0,2).join('/') + '">' + (p.split('/')[1] || '') + '</a>';
+    if (display) {
+        var parts = display.split('/'), acc = '';
+        var prefix = p.split('/').slice(0,2).join('/');
+        parts.forEach(function(part, i) {
+            acc += (i > 0 ? '/' : '') + part;
+            var rp = prefix + '/' + acc;
+            h += ' / ' + (i === parts.length - 1 ? '<span>' + esc(part) + '</span>' : '<a href="/browse/' + encodeURIComponent(rp) + '">' + esc(part) + '</a>');
+        });
+    }
+    // Guests only ever see the public folder: hide the switcher (users/guest would 403)
+    if (myRole !== 'guest') {
+        h += ' <span style="margin-left:10px">|</span> <a href="/browse/' + (isPublic ? '' : 'public') + '" style="color:var(--primary);font-size:12px">' + (isPublic ? 'My folder' : 'Public') + '</a>';
+    }
+    document.getElementById('breadcrumb').innerHTML = h;
+    updateGalleryLinks();
+}
 
 function updateStats() {
     var fc = 0, foc = 0, ts = 0;
     files.forEach(function(f) { if (f.type === 'folder') foc++; else fc++; ts += f.size; });
+    // Here: size, folders, files | Total: file count
+    // (no total size: a folder's size is already recursive, so the "Here" size covers it)
     document.getElementById('fileCount').textContent = 'Here: ' + formatSize(ts) + '  ' + foc + ' folders ' + fc + ' files | Total: ' + _currentTotalFiles + ' files';
-    document.getElementById('totalSize').textContent = '';
 }
 
 function getParent() { if (!currentPath) return ''; var p = currentPath.split('/'); p.pop(); return p.join('/'); }
@@ -177,18 +236,24 @@ function render() {
         var f = filtered[i], checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
         var sz = formatSize(f.size), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
         var ep = encodeURIComponent(f.path), en = esc(f.name), sp = safeStr(f.path), ft = fileType(f.name);
+        // Attributes need the HTML-escaped path; getAttribute() reads the raw value back,
+        // which is exactly the key _thumbOk uses
+        var eh = esc(f.path);
+        var pv = (!isFolder && ['image', 'video', 'audio', 'text', 'pdf'].indexOf(ft) >= 0)
+            ? '<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();openPreview(\'' + sp + '\', files)">Preview</button>' : '';
         var acts = isFolder ? '<a href="/browse/' + ep + '" class="btn btn-sm btn-primary">Open</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">Delete</button>'
-            : '<a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">Download</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">Delete</button>';
+            : pv + '<a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">Download</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">Delete</button>';
         var thumb = '';
         if (!isFolder && (ft === 'image' || ft === 'video')) {
-            thumb = '<span class="thumb-wrap"><span class="thumb-loading">Loading…</span><img class="preview-thumb" src="/api/thumb?path=' + ep + '" alt="" loading="lazy" onload="thumbLoaded(this)" onerror="retryThumbOnce(this, thumbGiveUpBlank)" onclick="event.stopPropagation();openPreview(\'' + sp + '\', files)"></span>';
+            thumb = '<span class="thumb-wrap"><span class="icon">' + icon + '</span><img class="preview-thumb' + (_thumbOk[f.path] ? ' loaded' : '') + '" src="/api/thumb?path=' + ep + '" alt="" loading="lazy" data-path="' + eh + '" onload="thumbLoaded(this)" onerror="retryThumbOnce(this, thumbGiveUpBlank)"></span>';
         } else {
-            thumb = '<span class="icon"' + (!isFolder ? ' onclick="event.stopPropagation();openPreview(\'' + sp + '\', files)"' : '') + '>' + icon + '</span>';
+            thumb = '<span class="icon">' + icon + '</span>';
         }
 
-        h += '<div class="file-card' + (isFolder ? ' folder' : '') + '" data-path="' + esc(f.path) + '"' + (!isFolder ? ' onclick="openPreview(\'' + sp + '\', files)"' : '') + '>';
-        if (isFolder) h += '<a href="/browse/' + ep + '" class="folder-link" style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1" aria-label="Open ' + en + '"></a>';
-        h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked)">';
+        // The card is one unit: clicking it always selects (folders too); entering a folder
+        // goes through the "Open" button on the card
+        h += '<div class="file-card' + (isFolder ? ' folder' : '') + (selected.has(f.path) ? ' sel' : '') + '" data-path="' + eh + '" onclick="toggleCardSelect(\'' + sp + '\', this)">';
+        h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked,this)">';
         h += thumb;
         h += '<div class="name">' + en + '</div>';
         if (viewMode === 'list') { h += '<div class="meta">' + sz + ' &middot; ' + formatTime(f.mtime) + '</div>'; }
@@ -215,8 +280,29 @@ function updatePreviewBar() {
     }).join('');
 }
 
-function toggleSelect(p, c) { if (c) selected.add(p); else selected.delete(p); updateSelected(); }
+// Selected-state visuals are painted in exactly ONE place: the card outline (.sel) and the
+// top-left tick (checkbox.checked) come from two different sources (a class vs an attribute),
+// so any entry point that updates only one of them desyncs them. LF-28.
+function paintCardSel(card, on) {
+    if (!card) return;
+    card.classList.toggle('sel', on);
+    var cb = card.querySelector('.checkbox');
+    if (cb) cb.checked = on;
+}
+function toggleSelect(p, c, el) {
+    if (c) selected.add(p); else selected.delete(p);
+    paintCardSel(el ? el.closest('.file-card') : null, selected.has(p));
+    updateSelected();
+}
 function selectAll(c) { files.forEach(function(f) { if (c) selected.add(f.path); else selected.delete(f.path); }); render(); }
+// Clicking a card toggles this card's selected state. Deliberately not render(): a full
+// rebuild would reload every thumbnail and make the visible ones flash the placeholder icon
+function toggleCardSelect(p, el) {
+    if (selected.has(p)) selected.delete(p); else selected.add(p);
+    paintCardSel(el, selected.has(p));
+    updatePreviewBar();
+    updateSelected();
+}
 function updateSelected() { document.getElementById('selectedCount').textContent = selected.size; }
 
 var MAX_UPLOAD_SIZE = 10 * 1024 * 1024 * 1024;
@@ -251,8 +337,27 @@ function processUploadQueue() {
     xhr.upload.onprogress = function(e) { if (e.lengthComputable) { var pct = e.loaded / e.total * 100; updateProgress(pct); } };
     xhr.onload = function() { uploadDone++; var ok = false, msg = ''; try { var d = JSON.parse(xhr.responseText); if (d && d.success && (!d.errors || !d.errors.length)) { ok = true; msg = file.name + ' uploaded'; } else if (d && d.errors && d.errors.length) { msg = file.name + ' upload failed: ' + d.errors[0]; } else { msg = file.name + ' upload failed'; } } catch (e) { ok = (xhr.status === 200); msg = ok ? file.name + ' uploaded' : file.name + ' upload failed'; } batchToast(msg, ok ? 'success' : 'error'); processUploadQueue(); };
     xhr.onerror = function() { uploadDone++; batchToast(file.name + ' upload failed', 'error'); processUploadQueue(); };
+    // LF-25: neither onload nor onerror fires when the XHR is aborted (page refresh / navigation),
+    // so without this hook `uploading` stays true forever and the queue dies silently.
+    xhr.onabort = function() {
+        uploadDone++; uploading = false;
+        batchToast(file.name + ' upload aborted (page refreshed or closed)', 'error');
+        processUploadQueue();
+    };
     xhr.send(fd);
 }
+
+// LF-25: warn before leaving while uploads are in flight — LF-24 keeps a broken upload from
+// landing, but it cannot stop an accidental refresh; this prompt is the only early warning.
+// Note: desktop browsers show the dialog; Chromium on Android usually suppresses the custom
+// text (it may only block silently), so this is a safety net, not the real protection.
+window.addEventListener('beforeunload', function (e) {
+    if (uploading || uploadQueue.length) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+    }
+});
 
 function updateProgress(pct) { document.getElementById('progressWrap').classList.add('active'); document.getElementById('progressBar').style.width = Math.min(pct, 100) + '%'; }
 
@@ -271,9 +376,100 @@ function downloadSelected() {
     window.open('/api/zip?files=' + encodeURIComponent(JSON.stringify(sel)) + '&base=' + encodeURIComponent(currentPath), '_blank');
 }
 
-function deleteFile(path) { if (!confirm('Delete "' + path + '"?')) return; apiDelete([path], function(d) { batchToast(d.success ? 'Deleted' : 'Delete failed', d.success ? 'success' : 'error'); if (d.success) loadFiles(); }); }
-function deleteSelected() { if (!selected.size) { batchToast('Select something first', 'info'); return; } if (!confirm('Delete ' + selected.size + ' selected item(s)?')) return; var paths = Array.from(selected); apiDelete(paths, function(d) { batchToast(d.success ? 'Deleted' : 'Delete failed', d.success ? 'success' : 'error'); if (d.success) loadFiles(); }); }
+// LF-23: result toasts come from toastDeleteResult (which file failed, and why);
+// the list is refreshed **unconditionally** so a partial delete still shows the real state
+function deleteFile(path) { if (!confirm('Delete "' + path + '"?')) return; apiDelete([path], function(d) { toastDeleteResult(d); loadFiles(); }); }
+function deleteSelected() { if (!selected.size) { batchToast('Select something first', 'info'); return; } if (!confirm('Delete ' + selected.size + ' selected item(s)?')) return; var paths = Array.from(selected); apiDelete(paths, function(d) { toastDeleteResult(d); loadFiles(); }); }
 function createFolder() { var name = prompt('Folder name:'); if (!name) return; if (sendWS({ type: 'mkdir', path: currentPath, name: name })) return; apiMkdir(currentPath, name, function(d) { batchToast(d.success ? 'Created' : 'Failed to create', d.success ? 'success' : 'error'); if (d.success) loadFiles(); }); }
+
+// ---------- Share selected files (whitelist link / QR; admin) ----------
+function shareSelected() {
+    var paths = [];
+    selected.forEach(function(p) {
+        var f = files.find(function(x) { return x.path === p; });
+        if (f && f.type !== 'folder') paths.push(p);
+    });
+    if (!paths.length) { location.href = '/share'; return; }
+    fetch('/api/share/publish', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: paths })
+    }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+      .then(function(res) {
+        var d = res.d || {};
+        if (!res.ok || !d.success) {
+            var msg = (d.errors && d.errors.length) ? d.errors[0] : (d.error || 'Failed to publish');
+            batchToast(msg, 'error'); return;
+        }
+        openPublishModal(d.published || []);
+        if (d.failed && d.failed.length) {
+            setTimeout(function() { batchToast((d.failed[0].error) || (d.failed.length + ' file(s) failed'), 'error'); }, 700);
+        }
+    }).catch(function() { batchToast('Failed to publish', 'error'); });
+}
+
+function shareCopyText(t) {
+    var ta = document.createElement('textarea');
+    ta.value = t; ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    batchToast('Link copied', 'success');
+}
+
+function openPublishModal(published) {
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:var(--modal-overlay);display:flex;align-items:flex-start;justify-content:center;padding:40px 12px;overflow:auto';
+    overlay.onclick = function(e) { if (e.target === overlay) document.body.removeChild(overlay); };
+    var box = document.createElement('div');
+    box.style.cssText = 'background:var(--card-bg);border-radius:14px;padding:22px;max-width:520px;width:100%;box-shadow:var(--shadow-hover);margin:auto';
+    var title = document.createElement('div');
+    title.style.cssText = 'font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px';
+    title.textContent = 'Published to public folder ✓';
+    var tip = document.createElement('div');
+    tip.style.cssText = 'font-size:12px;color:var(--muted,#8a97bd);margin-bottom:12px;line-height:1.7';
+    tip.textContent = 'Files are mapped to public/shares/' + (myUsername || 'me') + '/ — visitors can browse and download them in the public area without login. Original files are never moved. Each file has its own direct link:';
+    box.appendChild(title); box.appendChild(tip);
+    if (window.__HAS_LAN__ === false) {
+        var lanWarn = document.createElement('div');
+        lanWarn.style.cssText = 'font-size:12px;color:#b03a50;margin-bottom:12px;line-height:1.7';
+        lanWarn.textContent = 'No LAN available — these links only work on this device';
+        box.appendChild(lanWarn);
+    }
+    var listBox = document.createElement('div');
+    published.forEach(function(it) {
+        // The public base URL comes from the server: the desktop window is localhost and the
+        // Android webview is 127.0.0.1, so links built from location.origin cannot be opened
+        // by anyone else (same rule as the share management page)
+        var full = (window.__SERVER_BASE__ || location.origin) + it.url;
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border,#eef1f8);font-size:13px';
+        var nm = document.createElement('span');
+        nm.style.cssText = 'flex:1;color:var(--text);word-break:break-all;min-width:0';
+        nm.textContent = it.name;
+        var cp = document.createElement('button');
+        cp.className = 'btn btn-sm btn-primary'; cp.style.cssText = 'font-size:11px';
+        cp.textContent = 'Copy link';
+        cp.onclick = function() { shareCopyText(full); };
+        row.appendChild(nm); row.appendChild(cp);
+        listBox.appendChild(row);
+    });
+    box.appendChild(listBox);
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:8px;margin-top:12px';
+    var mgr = document.createElement('button');
+    mgr.className = 'btn btn-sm btn-outline';
+    mgr.textContent = 'Manage shares';
+    mgr.onclick = function() { location.href = '/share'; };
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'btn btn-sm btn-outline';
+    closeBtn.style.cssText = 'flex:1';
+    closeBtn.textContent = 'Close';
+    closeBtn.onclick = function() { document.body.removeChild(overlay); };
+    btnRow.appendChild(mgr); btnRow.appendChild(closeBtn);
+    box.appendChild(btnRow);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+}
 
 function openSearch(mode) {
     var overlay = document.createElement('div'); overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:var(--modal-overlay);display:flex;align-items:flex-start;justify-content:center;padding-top:80px';
@@ -310,12 +506,15 @@ function renderSearchResults(rf, query) {
         var nameHtml = esc(f.name), idx = nameHtml.toLowerCase().indexOf(query.toLowerCase());
         if (idx !== -1) nameHtml = esc(f.name.substring(0, idx)) + '<span class="search-hl">' + esc(f.name.substring(idx, idx + query.length)) + '</span>' + esc(f.name.substring(idx + query.length));
         var dir = f.path.indexOf('/') !== -1 ? f.path.substring(0, f.path.lastIndexOf('/')) : '';
-        h += '<div class="file-card list-item"><div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1" onclick="openPreview(\'' + sp + '\', rf)"></div>';
-        h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked)">';
-        h += '<span class="icon" onclick="event.stopPropagation();openPreview(\'' + sp + '\', rf)">' + getFileIcon(f.name) + '</span>';
+        var ft = fileType(f.name);
+        var pv = (['image', 'video', 'audio', 'text', 'pdf'].indexOf(ft) >= 0)
+            ? '<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();openPreview(\'' + sp + '\', rf)">Preview</button>' : '';
+        h += '<div class="file-card list-item' + (selected.has(f.path) ? ' sel' : '') + '"><div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1" onclick="toggleCardSelect(\'' + sp + '\', this.parentNode)"></div>';
+        h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked,this)">';
+        h += '<span class="icon">' + getFileIcon(f.name) + '</span>';
         h += '<div class="name">' + nameHtml + (dir ? '<span class="item-path">' + esc(dir) + '</span>' : '') + '</div>';
         h += '<div class="meta">' + formatSize(f.size) + '</div>';
-        h += '<div class="actions"><a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">Download</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">Delete</button></div></div>';
+        h += '<div class="actions">' + pv + '<a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">Download</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">Delete</button></div></div>';
     }
     c.innerHTML = h; updateSelected();
 }

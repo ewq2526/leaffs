@@ -1,7 +1,10 @@
 """日志模块 — 标准日志/运行日志/日志配置"""
 
 import logging
-import re
+
+# LF-12：脱敏工具移到了 runtime_log（那样 add_log 自己就能清理，不必靠调用方记得），
+# 这里 re-export 保持对外接口不变 —— login_api 等仍在用 _ut_log.sanitize_log_text。
+from leaffs.runtime_log import sanitize_log_text  # noqa: F401
 
 
 # ========== 标准日志模块配置 ==========
@@ -10,9 +13,6 @@ LOG_FILE = None  # 由 setup_logging 初始化
 
 # B-13 安全事件附加回调（如运行日志 add_log），由 register_add_log 注入；未注入仅写 logger
 _add_log_hook = None
-
-# 控制字符（\r \n \x00 之外，保留 \t 兼容表格日志）
-_CTRL_CHARS_RE = re.compile(r'[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]')
 
 
 def setup_logging(LOG_FILE, add_log):
@@ -36,20 +36,7 @@ def register_add_log(callback):
     _add_log_hook = callback
 
 
-def sanitize_log_text(text, max_len=200):
-    """日志文本脱敏（IC-LOG/B-13）：剔除 \\r \\n \\x00 与其余控制字符，超长截断。
-
-    供 ac_auth(B-09)、cfg_api(B-12)、ac_session(B-16) 等一切“用户可控文本入日志”前调用。
-    """
-    if text is None:
-        return ''
-    s = str(text)
-    s = s.replace('\r', ' ').replace('\n', ' ').replace('\x00', '')
-    s = _CTRL_CHARS_RE.sub('', s)
-    s = s.strip()
-    if max_len and len(s) > max_len:
-        s = s[:max_len] + '...'
-    return s
+# sanitize_log_text 已移到 leaffs.runtime_log（见文件顶部的 re-export）
 
 
 def security_event(kind, detail, level='warn'):

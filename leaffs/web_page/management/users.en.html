@@ -59,7 +59,7 @@
     <div class="header">
         <h1><span class="ht">User Management</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting…</span></span></h1>
         <div class="info">
-            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">Light</span></button>
+            <!--THEME_TOGGLE-->
         </div>
     </div>
 
@@ -67,6 +67,7 @@
         <a href="/browse/">Browse</a>
         <a href="/gallery">Gallery</a>
         <a href="/url-download">Downloader</a>
+        <a href="/share">Share</a>
         <a href="/admin">Admin</a>
         <a href="/me">My Account</a>
         <span style="flex:1"></span>
@@ -104,8 +105,6 @@ var myRole = '__MY_ROLE__';
 var myUsername = '__MY_USERNAME__';
 var startTime = Date.now();
 
-function toggleDark() { var html=document.documentElement; var isDark=html.getAttribute('data-theme')==='dark'; var btn=document.getElementById('darkToggle'); if(isDark){html.removeAttribute('data-theme');localStorage.setItem('theme','light');if(btn){btn.querySelector('#darkIcon').textContent='☀';btn.querySelector('#darkLabel').textContent='Light';}}else{html.setAttribute('data-theme','dark');localStorage.setItem('theme','dark');if(btn){btn.querySelector('#darkIcon').textContent='☾';btn.querySelector('#darkLabel').textContent='Dark';}}}
-(function(){if(localStorage.getItem('theme')==='dark'){document.documentElement.setAttribute('data-theme','dark');setTimeout(function(){var btn=document.getElementById('darkToggle');if(btn){btn.querySelector('#darkIcon').textContent='☾';btn.querySelector('#darkLabel').textContent='Dark';}},0);}})();
 
 function batchToast(msg,type){var c=document.querySelector('.toast-container');if(!c){c=document.createElement('div');c.className='toast-container';document.body.appendChild(c);}var e=document.createElement('div');e.className='toast '+(type||'info');e.textContent=msg;c.appendChild(e);setTimeout(function(){e.remove();},2800);}
 
@@ -118,7 +117,7 @@ function refreshUsers(users){if(arguments.length===0){return fetch('/api/users')
 function addUser(){var name=document.getElementById('newUserName').value.trim();var pass=document.getElementById('newUserPass').value.trim();if(!name||!pass){batchToast('Please enter a username and password','info');return;}if(pass.length<8){batchToast('Password must be at least 8 characters','error');return;}fetch('/api/users/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,password:pass})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('User added: '+name,'success');document.getElementById('newUserName').value='';document.getElementById('newUserPass').value='';refreshUsers();}else batchToast(d.error||'Add failed','error');});}
 function setUserPassword(name){var pass=document.getElementById('pwd_'+name).value.trim();var pass2=document.getElementById('pwd2_'+name).value.trim();if(!pass){batchToast('Please enter a new password','info');return;}if(pass.length<8){batchToast('Password must be at least 8 characters','error');return;}if(pass!==pass2){batchToast('The two passwords do not match','error');return;}fetch('/api/users/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,password:pass})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Password changed for '+name,'success');document.getElementById('pwd_'+name).value='';document.getElementById('pwd2_'+name).value='';refreshUsers();}else batchToast(d.error||'Change failed','error');});}
 function changeRole(name,currentRole){var newRole=currentRole==='user'?'admin':'user';if(!confirm('Change the role of "'+name+'" to '+(newRole==='admin'?'Admin':'User')+'?'))return;fetch('/api/users/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,role:newRole})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Role changed for '+name,'success');refreshUsers();}else batchToast(d.error||'Operation failed','error');});}
-function deleteUser(name){if(!confirm('Delete user "'+name+'"?'))return;fetch('/api/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('User deleted: '+name,'success');refreshUsers();}else batchToast(d.error||'Delete failed','error');});}
+function deleteUser(name){if(!confirm('Delete user "'+name+'"?\n\nTheir files are NOT deleted — they are archived under users/.deleted/ (recreating the same name will not inherit them).'))return;fetch('/api/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('User deleted: '+name+(d.archived_dir?(' — files archived to '+d.archived_dir):' (no files)'),'success');refreshUsers();}else batchToast(d.error||'Delete failed','error');});}
 function setUserQuota(name){var quotaMB=parseInt(document.getElementById('quota_'+name).value)||0;fetch('/api/users/quota',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,quota_mb:quotaMB})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Quota of user '+name+': '+quotaMB+' MB','success');refreshUsers();}else batchToast(d.error||'Save failed','error');}).catch(function(){batchToast('Save failed','error');});}
 function setUserSpeed(name){var speedKB=parseInt(document.getElementById('speed_'+name).value)||0;fetch('/api/users/speed',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,speed_kb:speedKB})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Speed limit of user '+name+': '+speedKB+' KB/s','success');refreshUsers();}else batchToast(d.error||'Save failed','error');}).catch(function(){batchToast('Save failed','error');});}
 function renameUser(oldName){var newName=document.getElementById('rename_'+oldName).value.trim();if(!newName){batchToast('Please enter a new username','info');return;}if(!confirm('Rename "'+oldName+'" to "'+newName+'"?'))return;fetch('/api/users/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({old_name:oldName,new_name:newName})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Renamed '+oldName+' → '+newName,'success');document.getElementById('rename_'+oldName).value='';refreshUsers();}else batchToast(d.error||'Rename failed','error');});}

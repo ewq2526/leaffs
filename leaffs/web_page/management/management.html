@@ -12,7 +12,7 @@
     <div class="header">
         <h1><span class="ht">服务管理</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">连接中...</span></span></h1>
         <div class="info">
-            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">亮色</span></button>
+            <!--THEME_TOGGLE-->
         </div>
     </div>
 
@@ -20,6 +20,7 @@
         <a href="/browse/">浏览</a>
         <a href="/gallery">预览</a>
         <a href="/url-download">下载器</a>
+        <a href="/share">分享</a>
         <a href="/admin" class="active">管理</a>
         <a href="/me">我的</a>
         <span style="flex:1"></span>
@@ -148,8 +149,8 @@
             <div class="config-group">
                 <label>整台机器同一时间最多同时服务的连接数（浏览器、下载、手机 App 连上来都算一个）</label>
                 <div class="config-row">
-                    <input type="number" id="connLimitInput" min="1" max="20000" step="1" value="256" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">默认 256（1~20000）</span>
+                    <input type="number" id="connLimitInput" min="8" max="20000" step="1" value="256" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">默认 256（8~20000；低于 8 会让服务抢不到连接槽）</span>
                     <button class="btn-admin primary" onclick="applyConnLimit()">保存</button>
                 </div>
                 <div class="config-hint">保存后立即生效，无需重启；超过上限的新连接会被<strong>立即拒绝</strong>而不是排队</div>

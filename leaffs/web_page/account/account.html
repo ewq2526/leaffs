@@ -32,7 +32,9 @@
 .sess-item .si-ip { color: var(--text); font-weight: 600; word-break: break-all; }
 .sess-item .si-time { font-size: 12px; color: var(--text-light); margin-top: 2px; }
 .badge-cur { font-size: 11px; color: var(--success); border: 1px solid var(--success); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
-.danger-zone { margin-top: 22px; text-align: center; }
+/* 用 flex + gap 而不是 margin-right：窄屏放不下换行时，两行各自居中、左边缘才对得齐
+   （原来第一个按钮带 margin-right，换行后两行内容宽度不同，居中位置差几像素，看着歪） */
+.danger-zone { margin-top: 22px; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .danger-zone .btn { min-width: 150px; justify-content: center; }
 .acc-hint { font-size: 12px; color: var(--text-light); text-align: center; margin-top: 10px; line-height: 1.6; }
 .acc-modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 99; }
@@ -57,7 +59,7 @@
     <div class="header">
         <h1><span class="ht">我的</span></h1>
         <div class="info">
-            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">亮色</span></button>
+            <!--THEME_TOGGLE-->
         </div>
     </div>
 
@@ -65,6 +67,7 @@
         <a href="/browse/">浏览</a>
         <a href="/gallery">预览</a>
         <a href="/url-download" id="accNavDownloader">下载器</a>
+        <a href="/share">分享</a>
         <a href="/admin" id="accNavAdmin">管理</a>
         <a href="/me" class="active">我的</a>
         <span style="flex:1"></span>
@@ -82,7 +85,17 @@
             <div class="acc-row"><span class="k">登录用户</span><span class="v" id="rowUser">-</span></div>
             <div class="acc-row"><span class="k">角色</span><span class="v" id="rowRole">-</span></div>
             <div class="acc-row"><span class="k">游客模式</span><span class="v" id="rowGuest">-</span></div>
-            <div class="acc-row"><span class="k">服务器地址</span><span class="v" style="display:flex;align-items:center;gap:8px"><span id="rowServer">-</span><button class="btn btn-sm btn-primary" onclick="copyServer()" id="copyBtn">复制</button></span></div>
+            <!-- 地址独占一行：挤在提示和按钮中间会被压窄，word-break 一断就是好几行 -->
+            <div class="acc-row" style="align-items:flex-start">
+                <span class="k">服务器地址</span>
+                <span class="v" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:0">
+                    <span id="rowServer">-</span>
+                    <span style="display:flex;align-items:center;gap:8px">
+                        <span id="rowServerLanWarn" style="display:none;font-size:11px;color:#b03a50">无可用局域网</span>
+                        <button class="btn btn-sm btn-primary" onclick="copyServer()" id="copyBtn">复制</button>
+                    </span>
+                </span>
+            </div>
         </div>
 
         <div class="acc-sec">
@@ -137,9 +150,9 @@
         </div>
         </div>
 
-        <div class="acc-warn" id="accWarn">当前仍在使用<strong>默认密码</strong>（admin / admin），请尽快修改：<a onclick="openPwModal()">去改密码 →</a></div>
+        <div class="acc-warn" id="accWarn">你还没设置过自己的密码（现在用的是首次启动自动生成的<strong>初始口令</strong>，无需知晓），请设置一个自己的密码：<a onclick="openPwModal()">去改密码 →</a></div>
         <div class="danger-zone">
-            <button class="btn btn-primary" id="pwBtn" style="margin-right:8px" onclick="openPwModal()">修改密码</button>
+            <button class="btn btn-primary" id="pwBtn" onclick="openPwModal()">修改密码</button>
             <button class="btn btn-danger" id="logoutBtn">退出登录</button>
         </div>
         <div class="acc-hint">退出后，这台设备需要重新登录（或重新扫码）才能继续访问。</div>
@@ -162,13 +175,15 @@
 <script src="/static/app.js"></script>
 <script>
 var myRole = __MY_ROLE__;
-// 游客不显示下载器 / 管理入口（与浏览页一致）
+// 游客不显示下载器 / 管理 / 分享入口（与浏览页一致）
 (function () {
     var isGuest = myRole === 'guest' || !myRole;
     var navDl = document.getElementById('accNavDownloader');
     var navAd = document.getElementById('accNavAdmin');
+    var navShare = document.querySelector('.nav-bar a[href="/share"]');
     if (navDl) navDl.style.display = isGuest ? 'none' : '';
     if (navAd) navAd.style.display = (myRole === 'admin' || myRole === 'super_admin') ? '' : 'none';
+    if (navShare) navShare.style.display = isGuest ? 'none' : '';
 })();
 var IS_GUEST = myRole === 'guest';
 if (IS_GUEST) {
@@ -214,6 +229,8 @@ function fallbackCopy(txt) {
 }
 function openPwModal() {
     if (IS_GUEST) return;
+    // 超管：改口令统一走用户管理页（那里是管理员的改密入口）
+    if (myRole === 'super_admin') { location.href = '/admin/users'; return; }
     document.getElementById('pwModal').style.display = 'flex';
     setTimeout(function () { var i = document.getElementById('pwOld'); if (i) i.focus(); }, 50);
 }
@@ -225,7 +242,8 @@ function submitPw() {
     var oldPw = document.getElementById('pwOld').value;
     var n1 = document.getElementById('pwNew').value;
     var n2 = document.getElementById('pwNew2').value;
-    if (!oldPw || !n1) { _toast('请填写完整', 'error'); return; }
+    // 当前还没口令时（首启的超管就是这样）这是"设置口令"，原密码留空也行；服务端会判断
+    if (!n1) { _toast('请填写新密码', 'error'); return; }
     if (n1 !== n2) { _toast('两次输入的新密码不一致', 'error'); return; }
     var btn = document.getElementById('pwOk');
     btn.disabled = true; btn.textContent = '提交中…';
@@ -323,16 +341,8 @@ function setAccent(a) {
     a = a || '';
     document.documentElement.setAttribute('data-accent', a);
     markAccent(a);
-    // 浏览器记住（游客/未登录也能持久；账号登录时下方再写服务端偏好）
+    // 主题（亮暗 + 主色）只存客户端本地，不上报服务端：每台设备各存各的
     try { document.cookie = 'leaf_accent=' + a + '; path=/; max-age=31536000'; } catch (e) {}
-    // 持久化到服务端账号（webview 无痕会话存不住客户端存储，重启登录后仍生效）
-    if (!IS_GUEST && window.fetch) {
-        fetch('/api/account/theme', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ accent: a })
-        }).catch(function () {});
-    }
 }
 function onLangChange() {
     var sel = document.getElementById('langSel');
@@ -360,6 +370,9 @@ function loadMe() {
             if (!d || typeof d !== 'object' || !d.success) return;
             var role = d.role || myRole || '';
             setTxt('rowServer', d.server_url || window.location.origin);
+            // 提醒放在 rowServer 之外：它是复制按钮的取值来源，提示文字不能被复制进去
+            var _srvWarn = document.getElementById('rowServerLanWarn');
+            if (_srvWarn) _srvWarn.style.display = (d.server_has_lan === false ? '' : 'none');
             var name = d.username || (role === 'guest' ? '游客' : '');
             setTxt('rowUser', name || '游客');
             setTxt('accName', name || '游客');
@@ -413,6 +426,35 @@ document.getElementById('logoutBtn').addEventListener('click', function () {
     };
     xhr.send('');
 });
+// 分享防爆破提醒（仅登录用户；规则由服务端判定，这里只负责展示）
+if (!IS_GUEST) {
+    (function () {
+        fetch('/api/share/status').then(function (r) { return r.json(); }).then(function (st) {
+            if (!st || (!st.global_active && !st.ip_locked && !st.failed_today)) return;
+            var msgs = [];
+            if (st.global_active) msgs.push('⚠️ 你的分享页疑似遭大量暴力尝试，已临时全局锁定');
+            if (st.ip_locked) msgs.push('已锁定 ' + st.ip_locked + ' 个异常 IP');
+            if (st.failed_today) msgs.push('今日共 ' + st.failed_today + ' 次输错');
+            var bar = document.createElement('div');
+            bar.style.cssText = 'position:relative;z-index:5;margin:0 auto 12px;max-width:1100px;padding:10px 14px;border-radius:10px;background:rgba(208,86,107,.10);border:1px solid rgba(208,86,107,.4);color:#b03a50;font-size:13px;line-height:1.7;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
+            var txt = document.createElement('span');
+            txt.style.cssText = 'flex:1';
+            txt.textContent = msgs.join(' · ');
+            var btn = document.createElement('button');
+            btn.textContent = '立即重置';
+            btn.style.cssText = 'border:0;background:#b03a50;color:#fff;border-radius:999px;padding:6px 16px;font-size:12px;font-weight:600;cursor:pointer';
+            btn.onclick = function () {
+                fetch('/api/share/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+                  .then(function (r) { return r.json(); }).then(function (d) {
+                    if (d && d.success) { bar.remove(); if (window._toast) window._toast('已重置', 'success'); }
+                  }).catch(function () {});
+            };
+            bar.appendChild(txt); bar.appendChild(btn);
+            var app = document.querySelector('.app') || document.body;
+            app.insertBefore(bar, app.firstChild);
+        }).catch(function () {});
+    })();
+}
 </script>
 </body>
 </html>

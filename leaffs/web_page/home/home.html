@@ -9,6 +9,7 @@
 .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
 .toolbar .count { font-size: 12px; color: var(--text-light); }
 .toolbar .refresh-btn { --btn-c: #fff; background-color: var(--muted-deep) !important; background-image: none !important; box-shadow: none !important; }
+.toolbar .share-btn { --btn-c: #fff; background-color: var(--primary) !important; background-image: none !important; box-shadow: none !important; color: #fff !important; }
 .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .file-grid.list-view { grid-template-columns: 1fr; }
 .file-card { position: relative; background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; text-align: center; cursor: pointer; transition: border-color 0.15s; }
@@ -48,31 +49,31 @@
 .view-toggle button { padding: 4px 10px; font-size: 11px; border: none; background: var(--card-bg); color: var(--text-light); cursor: pointer; }
 .view-toggle button.active { background: var(--primary); color: #fff; }
 </style>
-<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;window.__SERVER_BASE__='__SERVER_BASE_URL__';window.__HAS_LAN__=__HAS_LAN_VAL__;</script>
 </head>
 <body>
 <div class="app">
-    <div class="header">
+    <div class="header header-stats">
         <h1><span class="ht">文件传输</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">已连接</span></span></h1>
         <div class="info">
             <span id="fileCount" style="font-size:12px;color:var(--text-light)"></span>
-            <span id="totalSize" style="font-size:12px;color:var(--text-light)"></span>
-            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">亮色</span></button>
         </div>
+        <!--THEME_TOGGLE-->
     </div>
     <div class="nav-bar">
         <a href="/browse/" class="active">浏览</a>
         <a href="/gallery" id="galleryNavLink">预览</a>
         <a href="/url-download" id="navDownloader">下载器</a>
+        <a href="/share" id="navShare">分享</a>
         <a href="/admin" id="navAdmin">管理</a>
         <a href="/me">我的</a>
         <span style="flex:1"></span>
         <button class="nav-back" onclick="goBack()" id="backBtn">返回上级</button>
     </div>
 
-    <!-- 默认密码提醒（仅管理员/超管且服务端确认仍为默认口令时显示；改密后自动消失） -->
+    <!-- 初始口令提醒（仅管理员/超管且服务端确认还没设过自己的密码时显示；改密后自动消失） -->
     <div id="pwdBanner" style="display:none;margin:0 auto 12px;padding:10px 14px;border-radius:10px;background:rgba(234,179,8,.14);border:1px solid rgba(234,179,8,.55);color:#8a6a00;font-size:13px;line-height:1.7">
-        🔑 当前仍在使用<strong>默认密码</strong>（admin / admin）——知道默认密码的人都能登录管理，请<strong>尽快修改</strong>：
+        🔑 你还没设置过自己的密码（现在用的是首次启动自动生成的<strong>初始口令</strong>，无需知晓）——请<strong>设置一个自己的密码</strong>：
         <a href="/admin/users" style="color:#0ea5e9;font-weight:600;text-decoration:none">去改密码 →</a>
         <span style="opacity:.65;font-size:11px">（不强制，改完此提示自动消失）</span>
     </div>
@@ -99,6 +100,7 @@
         <button class="btn btn-sm btn-outline" onclick="selectAll(false)">取消</button>
         <button class="btn btn-sm btn-success" onclick="downloadSelected()">下载</button>
         <button class="btn btn-sm btn-danger" onclick="deleteSelected()">删除</button>
+        <button class="btn btn-sm share-btn" id="shareBtn" onclick="shareSelected()" style="display:none">分享</button>
         <button class="btn btn-sm refresh-btn" onclick="loadFiles()">刷新</button>
         <span class="count">已选 <strong id="selectedCount">0</strong></span>
         <select class="sort-select" id="sortSelect" onchange="sortFiles()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--card-bg);color:var(--text)">
@@ -132,11 +134,16 @@ var myUsername = '__MY_USERNAME__';
     var isGuest = myRole === 'guest' || !myRole;
     var navDownloader = document.getElementById('navDownloader');
     var navAdmin = document.getElementById('navAdmin');
+    var navShare = document.getElementById('navShare');
+    var isLoggedIn = !isGuest;
     if (navDownloader) navDownloader.style.display = isGuest ? 'none' : '';
     if (navAdmin) navAdmin.style.display = (myRole === 'admin' || myRole === 'super_admin') ? '' : 'none';
+    if (navShare) navShare.style.display = isLoggedIn ? '' : 'none';
+    var shareBtn = document.getElementById('shareBtn');
+    if (shareBtn) shareBtn.style.display = (myRole && myRole !== 'guest') ? '' : 'none';
 })();
 
-// 默认密码横幅：管理员/超管且服务端确认仍为默认口令时显示（改密后自动消失）
+// 初始口令横幅：管理员/超管且服务端确认还没设过自己的密码时显示（改密后自动消失）
 if (myRole === 'admin' || myRole === 'super_admin') {
     fetch('/api/auth/check').then(function(r) { return r.json(); }).then(function(d) {
         if (d && d.need_change_password) {
@@ -154,17 +161,20 @@ var viewMode = localStorage.getItem('viewMode') || 'grid';
 function onWSConnected() { if (files.length === 0) loadFiles(); }
 
 var _currentTotalFiles = 0;
-var _currentTotalSize = 0;
 
 function handleWSMessage(msg) {
     switch (msg.type) {
         case 'list':
             files = msg.files || [];
             _currentTotalFiles = msg.total_file_count || 0;
-            _currentTotalSize = msg.total_size_sum || 0;
             render(); updateStats(); updateBreadcrumb(currentPath);
             break;
-        case 'delete': case 'mkdir': batchToast(msg.success ? '成功' : '失败', msg.success ? 'success' : 'error'); if (msg.success) loadFiles(); break;
+        case 'delete': toastDeleteResult(msg); loadFiles(); break;
+        case 'mkdir': batchToast(msg.success ? '成功' : '失败', msg.success ? 'success' : 'error'); if (msg.success) loadFiles(); break;
+        // 服务端明确报错（列表读失败 / 路径不合法 / 无权限 / 消息格式不合法…）：
+        // 如实把服务端的话显示出来，**不动列表** —— 别让一次读失败把界面清空、
+        // 看着像"这个目录里没东西了"（LF-27 之前服务端读失败时回的就是空列表）。
+        case 'error': toast(msg.msg || '操作失败', 'error'); break;
     }
 }
 
@@ -173,7 +183,6 @@ function loadFiles() {
     apiList(currentPath, function (d) {
         files = d.files || [];
         _currentTotalFiles = d.total_file_count || 0;
-        _currentTotalSize = d.total_size_sum || 0;
         render(); updateStats(); updateBreadcrumb(currentPath);
     });
 }
@@ -206,9 +215,9 @@ function updateBreadcrumb(p) {
 function updateStats() {
     var fc = 0, foc = 0, ts = 0;
     files.forEach(function(f) { if (f.type === 'folder') foc++; else fc++; ts += f.size; });
-    // 当前层: 大小 文件夹数 文件数 | 总计: 文件总数  总大小
+    // 当前层: 大小 文件夹数 文件数 | 总计: 文件总数
+    //（总计只列文件数：文件夹的 size 本身就是递归值，"当前层"那个大小已经含了它）
     document.getElementById('fileCount').textContent = '当前层: ' + formatSize(ts) + '  ' + foc + '文件夹 ' + fc + ' 文件 | 总计: ' + _currentTotalFiles + ' 个文件';
-    document.getElementById('totalSize').textContent = '';  // 合并到 fileCount 显示了
 }
 
 function getParent() { if (!currentPath) return ''; var p = currentPath.split('/'); p.pop(); return p.join('/'); }
@@ -242,18 +251,22 @@ function render() {
         var f = filtered[i], checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
         var sz = formatSize(f.size), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
         var ep = encodeURIComponent(f.path), en = esc(f.name), sp = safeStr(f.path), ft = fileType(f.name);
+        // 属性里要放 HTML 转义的路径；data-path 读回来是原始值，正好与 _thumbOk 的键一致
+        var eh = esc(f.path);
+        var pv = (!isFolder && ['image', 'video', 'audio', 'text', 'pdf'].indexOf(ft) >= 0)
+            ? '<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();openPreview(\'' + sp + '\', files)">预览</button>' : '';
         var acts = isFolder ? '<a href="/browse/' + ep + '" class="btn btn-sm btn-primary">打开</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">删除</button>'
-            : '<a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">下载</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">删除</button>';
+            : pv + '<a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">下载</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">删除</button>';
         var thumb = '';
         if (!isFolder && (ft === 'image' || ft === 'video')) {
-            thumb = '<span class="thumb-wrap"><span class="thumb-loading">加载中…</span><img class="preview-thumb" src="/api/thumb?path=' + ep + '" alt="" loading="lazy" onload="thumbLoaded(this)" onerror="retryThumbOnce(this, thumbGiveUpBlank)" onclick="event.stopPropagation();openPreview(\'' + sp + '\', files)"></span>';
+            thumb = '<span class="thumb-wrap"><span class="icon">' + icon + '</span><img class="preview-thumb' + (_thumbOk[f.path] ? ' loaded' : '') + '" src="/api/thumb?path=' + ep + '" alt="" loading="lazy" data-path="' + eh + '" onload="thumbLoaded(this)" onerror="retryThumbOnce(this, thumbGiveUpBlank)"></span>';
         } else {
-            thumb = '<span class="icon"' + (!isFolder ? ' onclick="event.stopPropagation();openPreview(\'' + sp + '\', files)"' : '') + '>' + icon + '</span>';
+            thumb = '<span class="icon"' + (!isFolder ? '' : '') + '>' + icon + '</span>';
         }
 
-        h += '<div class="file-card' + (isFolder ? ' folder' : '') + '" data-path="' + esc(f.path) + '"' + (!isFolder ? ' onclick="openPreview(\'' + sp + '\', files)"' : '') + '>';
-        if (isFolder) h += '<a href="/browse/' + ep + '" class="folder-link" style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1" aria-label="打开 ' + en + '"></a>';
-        h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked)">';
+        // 卡片是整体：点卡片一律是选择（文件夹也一样），进目录走卡片里的「打开」按钮
+        h += '<div class="file-card' + (isFolder ? ' folder' : '') + (selected.has(f.path) ? ' sel' : '') + '" data-path="' + eh + '" onclick="toggleCardSelect(\'' + sp + '\', this)">';
+        h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked,this)">';
         h += thumb;
         h += '<div class="name">' + en + '</div>';
         if (viewMode === 'list') { h += '<div class="meta">' + sz + ' &middot; ' + formatTime(f.mtime) + '</div>'; }
@@ -280,8 +293,29 @@ function updatePreviewBar() {
     }).join('');
 }
 
-function toggleSelect(p, c) { if (c) selected.add(p); else selected.delete(p); updateSelected(); }
+// 选中态的**样子**只有这一处写：描边（卡片的 .sel）与左上角的勾（checkbox.checked）
+// 是两个不同的源（一个是 class、一个是属性），任何只更新一半的入口都会让它们分家 ——
+// 出现的正是"描边亮了、勾没打上"（点卡片）或"勾打上了、描边没亮"（点勾）。LF-28。
+function paintCardSel(card, on) {
+    if (!card) return;
+    card.classList.toggle('sel', on);
+    var cb = card.querySelector('.checkbox');
+    if (cb) cb.checked = on;
+}
+function toggleSelect(p, c, el) {
+    if (c) selected.add(p); else selected.delete(p);
+    paintCardSel(el ? el.closest('.file-card') : null, selected.has(p));
+    updateSelected();
+}
 function selectAll(c) { files.forEach(function(f) { if (c) selected.add(f.path); else selected.delete(f.path); }); render(); }
+// 点卡片 = 切换这一张的选中态。不走 render()：整块重建会让所有缩略图重新加载，
+// 已经显示出来的图就会闪一下占位图
+function toggleCardSelect(p, el) {
+    if (selected.has(p)) selected.delete(p); else selected.add(p);
+    paintCardSel(el, selected.has(p));
+    updatePreviewBar();
+    updateSelected();
+}
 function updateSelected() { document.getElementById('selectedCount').textContent = selected.size; }
 
 var MAX_UPLOAD_SIZE = 10 * 1024 * 1024 * 1024;
@@ -316,8 +350,27 @@ function processUploadQueue() {
     xhr.upload.onprogress = function(e) { if (e.lengthComputable) { var pct = e.loaded / e.total * 100; updateProgress(pct); } };
     xhr.onload = function() { uploadDone++; var ok = false, msg = ''; try { var d = JSON.parse(xhr.responseText); if (d && d.success && (!d.errors || !d.errors.length)) { ok = true; msg = file.name + ' 上传成功'; } else if (d && d.errors && d.errors.length) { msg = file.name + ' 上传失败：' + d.errors[0]; } else { msg = file.name + ' 上传失败'; } } catch (e) { ok = (xhr.status === 200); msg = ok ? file.name + ' 上传成功' : file.name + ' 上传失败'; } batchToast(msg, ok ? 'success' : 'error'); processUploadQueue(); };
     xhr.onerror = function() { uploadDone++; batchToast(file.name + ' 上传失败', 'error'); processUploadQueue(); };
+    // LF-25：XHR 被 abort（页面刷新 / 导航离开）时 onload 与 onerror **都不会触发** ——
+    // 没有这个钩子的话，uploading 会永远停在 true、队列静默卡死，用户也得不到任何交代。
+    xhr.onabort = function() {
+        uploadDone++; uploading = false;
+        batchToast(file.name + ' 上传被中断（页面刷新或关闭）', 'error');
+        processUploadQueue();
+    };
     xhr.send(fd);
 }
+
+// LF-25：有在途上传时拦一下误刷新 —— LF-24 只能保证"中断不产生坏文件"，拦不住手滑，
+// 这个提示才是提前告知的唯一手段。
+// 说明：桌面浏览器会弹确认框；Chromium 安卓通常不显示自定义文案（可能只静默阻止），
+// 所以它只是一道保险，真正兜底的仍是 LF-24。
+window.addEventListener('beforeunload', function (e) {
+    if (uploading || uploadQueue.length) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+    }
+});
 
 function updateProgress(pct) { document.getElementById('progressWrap').classList.add('active'); document.getElementById('progressBar').style.width = Math.min(pct, 100) + '%'; }
 
@@ -336,9 +389,99 @@ function downloadSelected() {
     window.open('/api/zip?files=' + encodeURIComponent(JSON.stringify(sel)) + '&base=' + encodeURIComponent(currentPath), '_blank');
 }
 
-function deleteFile(path) { if (!confirm('删除 "' + path + '" ？')) return; apiDelete([path], function(d) { batchToast(d.success ? '删除成功' : '删除失败', d.success ? 'success' : 'error'); if (d.success) loadFiles(); }); }
-function deleteSelected() { if (!selected.size) { batchToast('请先选择', 'info'); return; } if (!confirm('删除 ' + selected.size + ' 个文件？')) return; var paths = Array.from(selected); apiDelete(paths, function(d) { batchToast(d.success ? '删除成功' : '删除失败', d.success ? 'success' : 'error'); if (d.success) loadFiles(); }); }
+// LF-23：结果提示交给 toastDeleteResult（精确到"哪个文件、什么原因"，不再笼统说失败）；
+// 列表**无条件刷新** —— 部分成功时也要让用户看到真实状态，而不是停在过期画面上
+function deleteFile(path) { if (!confirm('删除 "' + path + '" ？')) return; apiDelete([path], function(d) { toastDeleteResult(d); loadFiles(); }); }
+function deleteSelected() { if (!selected.size) { batchToast('请先选择', 'info'); return; } if (!confirm('删除 ' + selected.size + ' 个文件？')) return; var paths = Array.from(selected); apiDelete(paths, function(d) { toastDeleteResult(d); loadFiles(); }); }
 function createFolder() { var name = prompt('文件夹名称：'); if (!name) return; if (sendWS({ type: 'mkdir', path: currentPath, name: name })) return; apiMkdir(currentPath, name, function(d) { batchToast(d.success ? '创建成功' : '创建失败', d.success ? 'success' : 'error'); if (d.success) loadFiles(); }); }
+
+// ---------- 指定文件分享（选中文件 → 白名单链接/二维码；管理员） ----------
+function shareSelected() {
+    var paths = [];
+    selected.forEach(function(p) {
+        var f = files.find(function(x) { return x.path === p; });
+        if (f && f.type !== 'folder') paths.push(p);
+    });
+    if (!paths.length) { location.href = '/share'; return; }
+    fetch('/api/share/publish', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: paths })
+    }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+      .then(function(res) {
+        var d = res.d || {};
+        if (!res.ok || !d.success) {
+            var msg = (d.errors && d.errors.length) ? d.errors[0] : (d.error || '发布失败');
+            batchToast(msg, 'error'); return;
+        }
+        openPublishModal(d.published || []);
+        if (d.failed && d.failed.length) {
+            setTimeout(function() { batchToast((d.failed[0].error) || ('部分文件发布失败：' + d.failed.length + ' 个'), 'error'); }, 700);
+        }
+    }).catch(function() { batchToast('发布失败', 'error'); });
+}
+
+function shareCopyText(t) {
+    var ta = document.createElement('textarea');
+    ta.value = t; ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    batchToast('链接已复制', 'success');
+}
+
+function openPublishModal(published) {
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:var(--modal-overlay);display:flex;align-items:flex-start;justify-content:center;padding:40px 12px;overflow:auto';
+    overlay.onclick = function(e) { if (e.target === overlay) document.body.removeChild(overlay); };
+    var box = document.createElement('div');
+    box.style.cssText = 'background:var(--card-bg);border-radius:14px;padding:22px;max-width:520px;width:100%;box-shadow:var(--shadow-hover);margin:auto';
+    var title = document.createElement('div');
+    title.style.cssText = 'font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px';
+    title.textContent = '已发布到公共目录 ✓';
+    var tip = document.createElement('div');
+    tip.style.cssText = 'font-size:12px;color:var(--muted,#8a97bd);margin-bottom:12px;line-height:1.7';
+    tip.textContent = '文件已映射到 public/shares/' + (myUsername || '我') + '/ —— 访客无需登录即可在公共区浏览下载；文件本体未搬动。每个文件都有单独下载链接：';
+    box.appendChild(title); box.appendChild(tip);
+    if (window.__HAS_LAN__ === false) {
+        var lanWarn = document.createElement('div');
+        lanWarn.style.cssText = 'font-size:12px;color:#b03a50;margin-bottom:12px;line-height:1.7';
+        lanWarn.textContent = '无可用局域网，下面的地址只有本机能打开';
+        box.appendChild(lanWarn);
+    }
+    var listBox = document.createElement('div');
+    published.forEach(function(it) {
+        // 对外地址由服务端注入：桌面窗口是 localhost、安卓 WebView 是 127.0.0.1，
+        // 用 location.origin 拼出来的链接别人打不开（与分享管理页同一口径）
+        var full = (window.__SERVER_BASE__ || location.origin) + it.url;
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border,#eef1f8);font-size:13px';
+        var nm = document.createElement('span');
+        nm.style.cssText = 'flex:1;color:var(--text);word-break:break-all;min-width:0';
+        nm.textContent = it.name;
+        var cp = document.createElement('button');
+        cp.className = 'btn btn-sm btn-primary'; cp.style.cssText = 'font-size:11px';
+        cp.textContent = '复制链接';
+        cp.onclick = function() { shareCopyText(full); };
+        row.appendChild(nm); row.appendChild(cp);
+        listBox.appendChild(row);
+    });
+    box.appendChild(listBox);
+    var btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:8px;margin-top:12px';
+    var mgr = document.createElement('button');
+    mgr.className = 'btn btn-sm btn-outline';
+    mgr.textContent = '管理分享';
+    mgr.onclick = function() { location.href = '/share'; };
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'btn btn-sm btn-outline';
+    closeBtn.style.cssText = 'flex:1';
+    closeBtn.textContent = '关闭';
+    closeBtn.onclick = function() { document.body.removeChild(overlay); };
+    btnRow.appendChild(mgr); btnRow.appendChild(closeBtn);
+    box.appendChild(btnRow);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+}
 
 function openSearch(mode) {
     var overlay = document.createElement('div'); overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:var(--modal-overlay);display:flex;align-items:flex-start;justify-content:center;padding-top:80px';
@@ -375,12 +518,15 @@ function renderSearchResults(rf, query) {
         var nameHtml = esc(f.name), idx = nameHtml.toLowerCase().indexOf(query.toLowerCase());
         if (idx !== -1) nameHtml = esc(f.name.substring(0, idx)) + '<span class="search-hl">' + esc(f.name.substring(idx, idx + query.length)) + '</span>' + esc(f.name.substring(idx + query.length));
         var dir = f.path.indexOf('/') !== -1 ? f.path.substring(0, f.path.lastIndexOf('/')) : '';
-        h += '<div class="file-card list-item"><div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1" onclick="openPreview(\'' + sp + '\', rf)"></div>';
-        h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked)">';
-        h += '<span class="icon" onclick="event.stopPropagation();openPreview(\'' + sp + '\', rf)">' + getFileIcon(f.name) + '</span>';
+        var ft = fileType(f.name);
+        var pv = (['image', 'video', 'audio', 'text', 'pdf'].indexOf(ft) >= 0)
+            ? '<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();openPreview(\'' + sp + '\', rf)">预览</button>' : '';
+        h += '<div class="file-card list-item' + (selected.has(f.path) ? ' sel' : '') + '"><div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1" onclick="toggleCardSelect(\'' + sp + '\', this.parentNode)"></div>';
+        h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked,this)">';
+        h += '<span class="icon">' + getFileIcon(f.name) + '</span>';
         h += '<div class="name">' + nameHtml + (dir ? '<span class="item-path">' + esc(dir) + '</span>' : '') + '</div>';
         h += '<div class="meta">' + formatSize(f.size) + '</div>';
-        h += '<div class="actions"><a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">下载</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">删除</button></div></div>';
+        h += '<div class="actions">' + pv + '<a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">下载</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">删除</button></div></div>';
     }
     c.innerHTML = h; updateSelected();
 }

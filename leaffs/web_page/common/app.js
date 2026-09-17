@@ -1,27 +1,5 @@
-// ========== 暗色模式切换 ==========
-function toggleDark() {
-    var html = document.documentElement;
-    var isDark = html.getAttribute('data-theme') === 'dark';
-    var btn = document.getElementById('darkToggle');
-    if (isDark) {
-        html.removeAttribute('data-theme');
-        localStorage.setItem('theme', 'light');
-        if (btn) { btn.querySelector('#darkIcon').textContent = '☀'; btn.querySelector('#darkLabel').textContent = (window.__LANG__ === 'en') ? 'Light' : '亮色'; }
-    } else {
-        html.setAttribute('data-theme', 'dark');
-        localStorage.setItem('theme', 'dark');
-        if (btn) { btn.querySelector('#darkIcon').textContent = '☾'; btn.querySelector('#darkLabel').textContent = (window.__LANG__ === 'en') ? 'Dark' : '暗色'; }
-    }
-}
-(function() {
-    if (localStorage.getItem('theme') === 'dark') {
-        document.documentElement.setAttribute('data-theme', 'dark');
-        setTimeout(function() {
-            var btn = document.getElementById('darkToggle');
-            if (btn) { btn.querySelector('#darkIcon').textContent = '☾'; btn.querySelector('#darkLabel').textContent = (window.__LANG__ === 'en') ? 'Dark' : '暗色'; }
-        }, 0);
-    }
-})();
+// 主题（toggleDark / applyTheme）已独立到 common/theme.js：
+// 按钮本体与脚本由服务端随 <!--THEME_TOGGLE--> 占位一起注入，不再随 app.js 分发。
 
 // 二维码配色跟随主题：暗色=白点黑底，亮色=黑点白底（保证扫码可辨）
 function qrThemeColors() {
@@ -132,23 +110,22 @@ function formatTime(ts) {
     return month + '-' + day + ' ' + hours + ':' + mins;
 }
 
-// 缩略图加载成功：隐藏“加载中”提示
+// 已经成功加载过的缩略图路径。重建列表（点选/搜索/刷新/切视图）时据此直接给新节点
+// 带上 loaded —— 否则新节点又要走一遍「透明 → 加载 → 可见」，中间那一帧看着就是
+// 闪了一下占位图。这份信息必须活在 DOM 之外：挂在节点上，换个节点就丢了。
+var _thumbOk = {};
+
+// 缩略图加载成功：淡入盖住占位图标（占位图标一直在下面，不用管它）
 function thumbLoaded(img) {
     if (!img) return;
-    var w = img.parentNode;
-    var ld = w && w.querySelector('.thumb-loading');
-    if (ld) ld.style.display = 'none';
+    img.classList.add('loaded');
+    var p = img.getAttribute('data-path');
+    if (p) _thumbOk[p] = 1;
 }
 
-// 缩略图重试仍失败：移除加载提示与图片（浏览页网格卡仍可点击预览）
+// 缩略图彻底失败：把图片摘掉即可 —— 占位图标本来就在下面
 function thumbGiveUpBlank(img) {
-    if (!img) return;
-    var w = img.parentNode;
-    if (w) {
-        var ld = w.querySelector('.thumb-loading');
-        if (ld) ld.remove();
-    }
-    img.remove();
+    if (img && img.parentNode) img.parentNode.removeChild(img);
 }
 
 // 缩略图加载失败：5 秒后带缓存戳重试一次；仍失败则隐藏/交给占位回调
@@ -240,9 +217,12 @@ function updateWSStatus(connected) {
     var dot = document.getElementById('wsDot');
     var label = document.getElementById('wsLabel');
     if (dot) dot.className = 'dot' + (connected ? ' connected' : '');
-    if (label) label.textContent = connected
-        ? (window.__LANG__ === 'en' ? 'Connected' : '已连接')
-        : (window.__LANG__ === 'en' ? 'Reconnecting…' : '断开重连...');
+    var en = window.__LANG__ === 'en';
+    if (label) {
+        label.textContent = connected
+            ? (en ? 'Connected' : '已连接')
+            : (en ? 'Reconnecting…' : '断开重连...');
+    }
 }
 
 function sendWS(data) {
@@ -253,42 +233,34 @@ function sendWS(data) {
     return false;
 }
 
-// ========== WS 显式 sid 认证 + 管理订阅（A-05：auth 消息）==========
+// ========== WS 订阅管理推送（A-05）==========
 // 管理概览页（management.html/admin-core.js）与用户管理页（users.html）共用：
-// 连接建立后调用一次 —— 同源取 sid → 发 {type:'auth',sid} → 服务端回
-// {type:'auth',success:true} 后自动发 {type:'admin-sub'}（每连接一次即可，不重复 auth）。
-// sid 为空/请求失败/连接已关闭 → console.warn 且不订阅（调用方应走各自 HTTP 兜底）。
-// 返回 true = 已发起认证流程；false = sock 无效未发起。
+// 连接建立后调用一次 —— 直接发 {type:'admin-sub'}，服务端按**握手 Cookie** 判定角色
+// （同源 WS 必带 wifi_session），推来 admin_data 即订阅成功。
+// ⚠️ 早先这里是"同源取 /api/session/sid → 发 {type:'auth',sid}"。那个接口返回的正是
+// HttpOnly cookie 里的长期会话 id（会一直用到会话过期），等于让页面 JS 能读走凭据，
+// 已连同接口与 WS 的 sid 认证分支一并移除 —— 名字里的 Auth 是历史遗留。
+// 被拒（error）→ console.warn 并置 ready=false，调用方走 HTTP 兜底。
+// 返回 true = 已发起订阅；false = sock 无效未发起。
 // 订阅结果经 window._onWSAdminSubscribed(ok) 通知页面（可选，供 HTTP 兜底门控使用）。
 window.wsAdminAuthAndSubscribe = function (sock) {
     if (!sock || sock.readyState !== WebSocket.OPEN) return false;
-    fetch('/api/session/sid', { credentials: 'same-origin' })
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
-            var sid = (d && d.sid) || '';
-            if (!sid) throw new Error('empty sid');
-            if (sock.readyState !== WebSocket.OPEN) return; // 期间连接已重建/关闭
-            // 一次性 auth 回执监听：只处理本连接的首条 auth 帧，处理完即移除
-            var onAuthMsg = function (ev) {
-                var m;
-                try { m = JSON.parse(ev.data); } catch (e) { return; }
-                if (!m || m.type !== 'auth') return;
-                sock.removeEventListener('message', onAuthMsg);
-                if (m.success && sock.readyState === WebSocket.OPEN) {
-                    sock.send(JSON.stringify({ type: 'admin-sub' }));
-                    if (typeof window._onWSAdminSubscribed === 'function') window._onWSAdminSubscribed(true);
-                } else {
-                    console.warn('[WS] auth 失败，走 HTTP 兜底', m);
-                    if (typeof window._onWSAdminSubscribed === 'function') window._onWSAdminSubscribed(false);
-                }
-            };
-            sock.addEventListener('message', onAuthMsg);
-            sock.send(JSON.stringify({ type: 'auth', sid: sid }));
-        })
-        .catch(function (err) {
-            console.warn('[WS] sid 获取失败，走 HTTP 兜底', (err && err.message) || err);
+    // 一次性回执监听：只处理本连接的首条 admin_data / error，处理完即移除
+    var onMsg = function (ev) {
+        var m;
+        try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (!m) return;
+        if (m.type === 'admin_data') {
+            sock.removeEventListener('message', onMsg);
+            if (typeof window._onWSAdminSubscribed === 'function') window._onWSAdminSubscribed(true);
+        } else if (m.type === 'error') {
+            sock.removeEventListener('message', onMsg);
+            console.warn('[WS] admin-sub 被拒，走 HTTP 兜底', m);
             if (typeof window._onWSAdminSubscribed === 'function') window._onWSAdminSubscribed(false);
-        });
+        }
+    };
+    sock.addEventListener('message', onMsg);
+    sock.send(JSON.stringify({ type: 'admin-sub' }));
     return true;
 };
 
@@ -300,12 +272,48 @@ function apiList(path, callback) {
         .catch(function () { batchToast((window.__LANG__ === 'en') ? 'Failed to load' : '加载失败', 'error'); });
 }
 
+// LF-23：删除结果的提示。刻意**不走 batchToast** —— 那个会把 500ms 内的多条合并成
+// "xxx (+N)"，而删除结果每一条都重要（哪个失败了、为什么失败），合起来就丢了信息。
+// 所以走单条 toast：失败项逐条说清楚（最多 3 条，其余汇总），精确优先、但不刷屏。
+function toastDeleteResult(d) {
+    var en = window.__LANG__ === 'en';
+    var failed = (d && d.failed) || [];
+    var deleted = (d && typeof d.deleted === 'number') ? d.deleted : 0;
+    if (!failed.length) {
+        // 成功（含"目标本来就不存在"的幂等成功）
+        toast(deleted > 1
+            ? ((en ? 'Deleted ' : '已删除 ') + deleted + (en ? ' item(s)' : ' 个'))
+            : (en ? 'Deleted' : '删除成功'), 'success');
+        return;
+    }
+    var head = deleted > 0
+        ? ((en ? 'Deleted ' : '已删除 ') + deleted + (en ? ', then failed: ' : ' 个；失败：'))
+        : '';
+    var shown = Math.min(failed.length, 3);
+    for (var i = 0; i < shown; i++) {
+        var f = failed[i] || {};
+        toast(head + (f.path || '') + (en ? ' — ' : ' —— ')
+              + (f.error || (en ? 'unknown reason' : '未知原因')), 'error');
+        head = '';        // 只有第一条带"已删除 N 个"的前缀
+    }
+    if (failed.length > shown) {
+        toast(en ? ('…and ' + (failed.length - shown) + ' more failed')
+                 : ('……另有 ' + (failed.length - shown) + ' 个同样失败'), 'error');
+    }
+}
+
 function apiDelete(paths, callback) {
     fetch('/api/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ files: paths })
-    }).then(function (r) { return r.json(); }).then(callback);
+    }).then(function (r) { return r.json(); }).then(callback)
+      .catch(function () {
+          // LF-23：原来没有 catch —— 权限拒绝（R1 口径下走 404）或网络中断时 Promise 静默
+          // reject，页面上什么都不显示，用户以为"点了没反应"
+          toast(window.__LANG__ === 'en' ? 'Delete request failed, please retry'
+                                         : '删除请求失败，请重试', 'error');
+      });
 }
 
 function apiMkdir(path, name, callback) {

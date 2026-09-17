@@ -26,8 +26,10 @@ def test_me_redirects_when_anon(client):
 
 
 def test_admin_page_forbidden_anon(client):
-    r = client.get('/admin')
-    assert r.status_code == 403
+    """未登录访问管理页 → 302 登录页（与 /browse、/me、下载器页同一口径）"""
+    r = client.get('/admin', follow_redirects=False)
+    assert r.status_code == 302, r.status_code
+    assert '/login' in r.headers.get('Location', ''), r.headers.get('Location')
 
 
 def test_admin_page_ok(client):
@@ -54,16 +56,25 @@ def test_downloader_pages_ok(client):
 def test_admin_get_apis(client):
     login(client)
     for p in ('/api/config', '/api/config/advanced', '/api/config/deep',
-              '/api/sessions', '/api/logs', '/api/users'):
+              '/api/logs', '/api/users'):
         r = client.get(p)
         assert r.status_code == 200, (p, r.status_code, r.text[:200])
 
 
-def test_session_sid(client):
+def test_session_admin_apis_removed(client):
+    """会话列表与按前缀撤销都已移除：前者只把会话凭据片段交给管理员，
+    后者按前缀删的是"迭代顺序里第一个匹配的会话" —— 两个都没有调用方。"""
+    login(client)
+    assert client.get('/api/sessions').status_code == 404
+    r = client.post('/api/session/revoke', json={'session': 'a'})
+    assert r.status_code == 404, r.status_code
+
+
+def test_session_sid_removed(client):
+    """旧接口 /api/session/sid 已移除：它把 HttpOnly cookie 里的长期会话 id 明文交给页面"""
     login(client)
     r = client.get('/api/session/sid')
-    assert r.status_code == 200
-    assert len(r.json().get('sid', '')) >= 10
+    assert r.status_code == 404
 
 
 # ---------- 文件内容路由 ----------

@@ -10,6 +10,17 @@ import time
 import socket
 import threading
 
+from leaffs.runtime_log import log_exception as _log_exc
+# LF-22：上传临时目录对用户不可见 —— 判定收在 leaffs.paths 里（说明见那里），
+# 列表/搜索/下载/缩略图/大小统计统一调它，免得各处各写一份条件而漏掉某一处。
+from leaffs.paths import is_upload_tmp_entry, is_upload_tmp_relpath
+# LF-23：删除失败原因的精确翻译（"被占用"与"权限不足"必须分开说，处置方式不同）
+from leaffs.utils.core import delete_fail_reason
+# §二 第 4 条：上传读流期间"实时校验发现超额"的异常。定义在 `leaffs.utils.core` 的配额节
+# —— 因为 `files/api.py` 与 `files/core.py` 是"注入解耦"关系（前者不 import 后者），
+# 两边要用**同一个类型**，只能放在都能依赖的地方。
+from leaffs.utils.core import UploadQuotaExceeded
+
 
 # ========== C-01/R1：guest 写权限策略（HTTP 版 + WS 版，IC-WRITE） ==========
 # guest 规则（R1 定稿）：guest_public_write=True 时 guest 仅可在 public[/子目录] 下
@@ -17,15 +28,13 @@ import threading
 # 自动改名承接（绝不覆盖）；guest 的 delete/mkdir 与未登录一律拒写；空 path(共享根) 403。
 
 def _guest_write_flag():
-    """guest 写 public 开关（IC-CFG：cfg_core.get_guest_public_write，B2 组实现）。
+    """guest 写 public 开关（cfg_core.get_guest_public_write）。
 
-    getter 尚未就绪时按 R1 定稿默认 True 兜底（guest 仅可新建、禁覆盖/删除/建目录）。
+    **不吞异常**：取不到开关时不能当成"允许 guest 写" —— 那是把"读配置失败"
+    读成"用户放开了写权限"（旧写法 except → True）。真出错就让这次请求失败。
     """
-    try:
-        from leaffs.config import core as _cc
-        return bool(_cc.get_guest_public_write())
-    except Exception:
-        return True
+    from leaffs.config import core as _cc
+    return bool(_cc.get_guest_public_write())
 
 
 def write_allowed(handler, sub_path, op):
@@ -118,27 +127,82 @@ def _search_take_token(ip):
         return False
 
 
-def send_files(handler, list_files):
-    """文件列表"""
+def build_listing(rel_path, perm_check, list_files, share_filter=None):
+    """构建目录列表 —— HTTP 与 WS 的**唯一**路径（只"算"，不"发"）。
+
+    返回 (result, err_kind, detail)：
+      result   —— 成功时的列表 dict；失败为 None
+      err_kind —— None / 'bad_path' / 'denied' / 'io' / 'unknown'
+      detail   —— 'io' 时的底层文案（HTTP 原来就是把它回给客户端的）
+
+    顺序（两边必须一致，别再各写一份 —— LF-27 就是两份实现漂移出来的）：
+      ① 规范化（路径穿越 / 绝对路径 / 盘符）→ 不合法 = 'bad_path'
+      ② LF-22：`.uploads` **点名进入也不给看** → 'bad_path'
+         （`list_files` 自己只是"不列出它"，挡不住直接走进去）
+      ③ 权限判定 → 不过 = 'denied'
+      ④ 扫描磁盘 → 读不了 = 'io'；返回 None 又没原因 = 'unknown'
+      ⑤ 合并虚拟分享映射（分享码没解锁的 owner 由 share_filter 挡掉）
+
+    调用方各自把 err_kind 翻成自己的响应形状（HTTP 状态码 / WS 消息），
+    所以这里**只算不发** —— 两边的错误语义本来就不同，硬统一会互相牵制。
+    """
+    norm_p = _normalize_rel_path(rel_path)
+    if norm_p is None:
+        return None, 'bad_path', None
+    p = norm_p
+    if is_upload_tmp_relpath(p):
+        return None, 'bad_path', None
+    try:
+        allowed = bool(perm_check(p))
+    except Exception as e:
+        # 判定不了 = 拒绝（绝不能读成"有权限"）；但要留痕，不能静默当成无权
+        _log_exc('列表路径权限判定', e)
+        allowed = False
+    if not allowed:
+        return None, 'denied', None
+    result, err = list_files(p)
+    if err:
+        return None, 'io', err
+    if result is None:
+        return None, 'unknown', None
+    # 分享虚拟映射：把 public 树下的映射条目合成进列表（磁盘零副本）。
+    # 分享码没解锁的 owner 由 share_filter 挡掉，列表里不会出现它的任何信息。
+    # **不吞异常**：合并失败说明映射读不出来，必须留痕 —— 旧写法 `except: pass`
+    # 会静默少一个目录（与 TH1"失败不能静默"同一口径）。
+    try:
+        from leaffs.share import mappings as _mp
+        _mp.merge_into_list(p, result, unlocked=share_filter)
+    except Exception as e:
+        _log_exc('合并分享虚拟条目', e)
+    return result, None, None
+
+
+def send_files(handler, list_files, share_filter=None):
+    """文件列表
+
+    share_filter：可选的 (owner) -> bool，判断分享码是否已解锁该 owner。
+    未解锁的 owner，其虚拟条目不会合并进列表 —— 连文件夹本身都不出现，
+    文件名/大小/时间一个都不发（传 None 表示不过滤）。
+    列表**怎么算**是 `build_listing` 的事（HTTP 与 WS 共用），这里只负责发 HTTP 响应。
+    """
     try:
         q = urllib.parse.urlparse(handler.path).query
         p = urllib.parse.parse_qs(q).get('path', [''])[0]
-        # 规范化路径
-        norm_p = _normalize_rel_path(p)
-        if norm_p is None:
-            handler.send_json({'error': '路径不合法'}, 403); return
-        p = norm_p
-        if not handler._check_path_permission(p):
-            handler.send_json({'error': '无权限访问此目录'}, 403); return
-        result, err = list_files(p)
-        if err:
-            handler.send_json({'error': err}, 403)
-        elif result is None:
-            handler.send_json({'error': '未知错误'}, 500)
-        else:
+        result, err_kind, detail = build_listing(
+            p, handler._check_path_permission, list_files, share_filter)
+        if err_kind is None:
             handler.send_json(result)
+        elif err_kind == 'bad_path':
+            handler.send_json({'error': '路径不合法'}, 403)
+        elif err_kind == 'denied':
+            handler.send_json({'error': '无权限访问此目录'}, 403)
+        elif err_kind == 'io':
+            handler.send_json({'error': detail}, 403)
+        else:
+            handler.send_json({'error': '未知错误'}, 500)
     except Exception as e:
-        handler.send_json({'error': str(e)}, 500)
+        _log_exc('读取文件列表', e)
+        handler.send_json({'error': '读取文件列表失败'}, 500)
 
 
 def send_raw(handler, UPLOAD_DIR, PREVIEW_MAX_SIZE, is_path_safe, get_mime, DISCONNECTED_EXCEPTIONS):
@@ -152,6 +216,9 @@ def send_raw(handler, UPLOAD_DIR, PREVIEW_MAX_SIZE, is_path_safe, get_mime, DISC
         if norm_p is None:
             handler.send_error(403); return
         p = norm_p
+        # LF-22：上传临时目录里的东西一律不对外（这条是预览/原始内容）
+        if is_upload_tmp_relpath(p):
+            handler.send_error(404); return
         if not handler._check_path_permission(p):
             handler.send_error(403); return
         full = os.path.join(UPLOAD_DIR, p)
@@ -178,9 +245,9 @@ def send_raw(handler, UPLOAD_DIR, PREVIEW_MAX_SIZE, is_path_safe, get_mime, DISC
         handler.send_header('Content-Type', mime or 'text/plain; charset=utf-8')
         # 同源内容隔离：sandbox 阻止脚本执行/表单提交等，且不信任任何同源资源
         # （外部图片等也仅允许 data: 内嵌）；配合 nosniff 防止 MIME 嗅探。
-        handler.send_header('Content-Security-Policy',
-                            "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:")
-        handler.send_header('X-Content-Type-Options', 'nosniff')
+        # 公共头走统一入口（这处特有的 sandbox CSP 一并交给它）；手写会跟自动补的重复
+        handler._common_security_headers(
+            csp="sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:")
         if force_plain:
             handler.send_header('Content-Disposition', 'attachment; filename="preview.txt"')
         handler.end_headers()
@@ -305,6 +372,10 @@ def handle_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, get_mim
         if norm_name is None:
             handler.send_error(403); return
         name = norm_name
+        # LF-22：上传临时目录是服务端内部目录，任何角色（含 admin）都不该通过 URL 拿到它。
+        # 回 404 而非 403：这里的语义是"没有这个资源"，与权限无关。
+        if is_upload_tmp_relpath(name):
+            handler.send_error(404); return
         path = os.path.join(UPLOAD_DIR, name)
         if not is_path_safe(UPLOAD_DIR, path): handler.send_error(403); return
         if not os.path.exists(path) or os.path.isdir(path): handler.send_error(404); return
@@ -328,7 +399,7 @@ def handle_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, get_mim
             cl, start = file_size, 0
             status, extra_headers = 200, []
         cookie = handler.headers.get('Cookie', '')
-        _, sid = get_session(cookie, True, handler.client_address[0])
+        _, sid = get_session(cookie, handler.client_address[0])
         username = get_session_username(sid) if sid else ''
         if username:
             user_id = 'user' + username
@@ -364,7 +435,7 @@ def handle_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, get_mim
             handler.send_header('Content-Disposition', f"attachment; filename*=UTF-8''{enc}")
             handler.send_header('Content-Length', str(cl))
             handler.send_header('Accept-Ranges', 'bytes')
-            handler.send_header('X-Content-Type-Options', 'nosniff')   # C-11
+            # C-11 的 nosniff 由 handler.end_headers 统一补，不手写（会重复）
             for k, v in extra_headers:
                 handler.send_header(k, v)
             handler.end_headers()
@@ -393,8 +464,15 @@ def handle_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, get_mim
         except DISCONNECTED_EXCEPTIONS: pass
 
 
-def send_thumbnail(handler, UPLOAD_DIR, get_thumbnail, is_path_safe, DISCONNECTED_EXCEPTIONS):
-    """缩略图"""
+def send_thumbnail(handler, UPLOAD_DIR, get_thumbnail, is_path_safe, DISCONNECTED_EXCEPTIONS,
+                   resolve_share=None):
+    """缩略图
+
+    resolve_share：可选的「分享虚拟路径 → 源文件相对路径」解析器。
+    分享映射出来的 public/shares/<用户名>/<文件名> 磁盘上并不存在（源文件原位不动），
+    所以取图前要先换成源文件路径，缩略图缓存也就与源文件共用同一份。
+    解析全程在服务端内部：既不写进响应，也不写进日志（日志记的是原始 query）。
+    """
     try:
         q = urllib.parse.urlparse(handler.path).query
         p = urllib.parse.parse_qs(q).get('path', [''])[0]
@@ -404,9 +482,23 @@ def send_thumbnail(handler, UPLOAD_DIR, get_thumbnail, is_path_safe, DISCONNECTE
         if norm_p is None:
             handler.send_error(403); return
         p = norm_p
+        # LF-22：不给上传临时文件生成缩略图（写到一半的数据，也不该被用户看见）
+        if is_upload_tmp_relpath(p):
+            handler.send_error(404); return
         if not handler._check_path_permission(p):
             handler.send_error(403); return
-        full = os.path.join(UPLOAD_DIR, p)
+        if resolve_share is not None:
+            try:
+                real = resolve_share(p)
+            except Exception:
+                real = None
+            # 约定：解析器返回源文件的**绝对路径**（见 share/mappings.resolve）
+            if real:
+                full = real
+            else:
+                full = os.path.join(UPLOAD_DIR, p)
+        else:
+            full = os.path.join(UPLOAD_DIR, p)
         if not is_path_safe(UPLOAD_DIR, full): handler.send_error(403); return
         if not os.path.exists(full) or os.path.isdir(full): handler.send_error(404); return
         thumb = get_thumbnail(full)
@@ -415,7 +507,7 @@ def send_thumbnail(handler, UPLOAD_DIR, get_thumbnail, is_path_safe, DISCONNECTE
         handler.send_header('Content-Type', 'image/jpeg')
         handler.send_header('Content-Length', str(os.path.getsize(thumb)))
         handler.send_header('Cache-Control', 'max-age=3600')
-        handler.send_header('X-Content-Type-Options', 'nosniff')   # C-11
+        # nosniff 由 handler.end_headers 统一补；这行的 Cache-Control 是缩略图自己的缓存策略
         handler.end_headers()
         with open(thumb, 'rb') as f: _stream_write(handler, f.read())
     except DISCONNECTED_EXCEPTIONS:
@@ -427,7 +519,7 @@ def send_thumbnail(handler, UPLOAD_DIR, get_thumbnail, is_path_safe, DISCONNECTE
 
 
 def build_stats_data(get_cached_stats, get_folder_size,
-                     has_ffmpeg, get_max_concurrent, COPY_BUFFER_SIZE,
+                     has_ffmpeg, thumbnail_backend, get_max_concurrent, COPY_BUFFER_SIZE,
                      get_speed_limit, get_connections, PORT,
                      get_guest_mode, get_default_user_quota, get_public_quota,
                      get_total_quota, UPLOAD_DIR):
@@ -435,8 +527,15 @@ def build_stats_data(get_cached_stats, get_folder_size,
     # 文件树聚合（大小/文件数/文件夹数/各路径占用）由 get_cached_stats
     # （= fs_core.get_server_stats，读取 folder 聚合缓存）一次取得，此处直接复用
     stats = get_cached_stats()
-    try: sip = socket.gethostbyname(socket.gethostname())
-    except Exception: sip = '127.0.0.1'
+    # 对外展示地址（管理页「本机 IP」、访问二维码）统一由 hosts 算：
+    # 桌面走 primary_lan_ip()，安卓由 leaffs_mobile 注册的提供者给（认 Wi-Fi/热点、
+    # 排除蜂窝）。旧写法 gethostbyname(gethostname()) 在安卓上必然解析失败
+    # （主机名是机型名）→ 恒得 127.0.0.1。
+    try:
+        from leaffs.server.hosts import lan_status as _lan_status
+        sip, has_lan = _lan_status()
+    except Exception:
+        sip, has_lan = '127.0.0.1', False
     users_used = stats.get('users_used', 0)
     public_used = stats.get('public_used', 0)
     total_used = stats.get('total_used', 0)
@@ -459,6 +558,7 @@ def build_stats_data(get_cached_stats, get_folder_size,
         'total_size': stats.get('total_size', 0),
         'thumb_count': stats.get('thumb_count', 0), 'thumb_size': stats.get('thumb_size', 0),
         'ffmpeg': has_ffmpeg(),
+        'thumb_backend': thumbnail_backend(),
         'aria2c': has_aria2c,
         'uptime': uptime,
         'cache_max': 5, 'cache_ttl': 5,
@@ -466,6 +566,7 @@ def build_stats_data(get_cached_stats, get_folder_size,
         'speed_limit': get_speed_limit(), 'blocked_count': 0,
         'active_connections': len(get_connections()),
         'server_ip': sip, 'server_port': PORT, 'guest_mode': get_guest_mode(),
+        'server_has_lan': has_lan,
         'user_quota': get_default_user_quota(), 'public_quota': get_public_quota(),
         'total_quota': get_total_quota(),
         'users_used': users_used, 'public_used': public_used, 'total_used': total_used
@@ -473,7 +574,7 @@ def build_stats_data(get_cached_stats, get_folder_size,
 
 
 def server_stats(handler, get_cached_stats, get_folder_size,
-                 has_ffmpeg, get_max_concurrent, COPY_BUFFER_SIZE,
+                 has_ffmpeg, thumbnail_backend, get_max_concurrent, COPY_BUFFER_SIZE,
                  get_speed_limit, get_connections, PORT,
                  get_guest_mode, get_default_user_quota, get_public_quota,
                  get_total_quota, UPLOAD_DIR):
@@ -482,12 +583,14 @@ def server_stats(handler, get_cached_stats, get_folder_size,
         handler.send_json({'error': 'Forbidden'}, 403); return
     try:
         handler.send_json(build_stats_data(
-            get_cached_stats, get_folder_size, has_ffmpeg, get_max_concurrent,
+            get_cached_stats, get_folder_size, has_ffmpeg, thumbnail_backend,
+            get_max_concurrent,
             COPY_BUFFER_SIZE, get_speed_limit, get_connections, PORT,
             get_guest_mode, get_default_user_quota, get_public_quota,
             get_total_quota, UPLOAD_DIR))
     except Exception as e:
-        handler.send_json({'error': str(e)}, 500)
+        _log_exc('读取统计信息', e)
+        handler.send_json({'error': '读取统计信息失败'}, 500)
 
 
 def handle_upload(handler, handle_upload_fn, invalidate_folder_cache_smart, UPLOAD_DIR,
@@ -506,12 +609,10 @@ def handle_upload(handler, handle_upload_fn, invalidate_folder_cache_smart, UPLO
         if not ct.startswith('multipart/form-data'):
             handler.send_json({'error': '需要 multipart/form-data'}, 400); return
         # 服务端强制上传大小上限（读 body 前预检；multipart 头尾开销留 512KB 余量，
-        # cfg 值 0 表示不限）
-        try:
-            from leaffs.config import core as _cc
-            umax = _cc.get_upload_max_size()
-        except Exception:
-            umax = 0
+        # cfg 值 0 表示不限）。**不吞异常**：0 是合法配置值（＝用户要求不限），
+        # 所以取值失败绝不能退化成 0 —— 那等于把"读配置出错"读成"用户要求不限"。
+        from leaffs.config import core as _cc
+        umax = _cc.get_upload_max_size()
         if umax and cl > umax + 512 * 1024:
             handler.send_json({'error': '上传超过大小上限'}, 413); return
         role = handler._get_effective_role()
@@ -519,7 +620,9 @@ def handle_upload(handler, handle_upload_fn, invalidate_folder_cache_smart, UPLO
             # C-01：未登录一律拒写（A-02 已在路由层拦 401，这里兜底）
             handler.send_json({'error': '未登录或会话已失效'}, 401); return
         q = urllib.parse.urlparse(handler.path).query
-        sub_path = urllib.parse.parse_qs(q).get('path', [''])[0].strip()
+        # 注意：`?path=`（空值）与"没有 path 参数"的区分在 **handler.upload()** 里做
+        # （那里是 HTTP 契约的第一站，缺参数直接 400，见 LF-19）；本层只负责解析路径本身。
+        sub_path = urllib.parse.parse_qs(q, keep_blank_values=True).get('path', [''])[0].strip()
         # 规范化上传路径
         norm_sub = _normalize_rel_path(sub_path)
         if sub_path and norm_sub is None:
@@ -536,42 +639,89 @@ def handle_upload(handler, handle_upload_fn, invalidate_folder_cache_smart, UPLO
         if not sub_path and role not in ('admin', 'super_admin'):
             handler.send_json({'error': '无权限上传到根目录'}, 403); return
         target_dir = os.path.join(UPLOAD_DIR, sub_path) if sub_path else UPLOAD_DIR
+        # ① 读 body **之前**的预检：用客户端声明的 cl 看一眼，省得白收 —— 但它**不记账**。
+        #    声明的值只用来"提前拒绝"，所以虚报只会把攻击者自己拒掉，占不到别人的额度。
         ok, err = _check_quota(target_dir, cl)
         if not ok:
             handler.send_json({'success': False, 'saved': 0, 'errors': [err]}, 413); return
-        # C-06/IC-QUOTA：配额检查通过后预留“在途字节”；结束后（成功/异常均）结算。
+        # ② 记账按**实际读入**的字节（§二 第 4 条，2026-09-16）：
+        #    原来这里是 `quota_reserve(b, cl)` —— 用客户端**声明的** Content-Length 预留，
+        #    于是"声明一个大值、正文不发完"就能在请求存活期间把配额**虚拟占满**，
+        #    期间别人的上传全部 413（实测复现：探针 `.cache/probe_quota_reserve.py`，
+        #    一条只发 header 的连接即可瘫痪上传，断开后才恢复）。
+        #    现在预留只反映**真实收到**的字节：不把数据发上来，就一个字节也占不到。
         auto_unique = (role == 'guest')     # guest 已过 write_allowed → fs_core 自动改名
         buckets = _upload_quota_buckets(target_dir, UPLOAD_DIR)
         try:
             from leaffs.utils import core as _utc
         except Exception:
             _utc = None
-        if _utc is not None:
-            for b in buckets:
-                try: _utc.quota_reserve(b, cl)
-                except Exception: pass
+        _reserved = [0]          # 已记入"在途"的字节（finally 用它结算）
+        _unbilled = [0]          # 还没到记账步长的字节
+        _quota_hit = [False]     # 是否因超配额被中断（决定响应码 413）
+        _BILL_STEP = 1024 * 1024     # 每 1 MiB 记一次账 + 校验一次（省锁，也省 get_folder_size）
+
+        def _on_bytes(n):
+            """上传解析层每从 socket 读入 n 字节回调一次（§二 第 4 条）。
+
+            攒够 `_BILL_STEP` 才真正记账 + 实时校验：
+              · 预留因此**永远等于实际读入量** → 虚占不可能；
+              · **附加项**：并发把配额挤爆时，在**读到一半**就抛异常终止整个上传，
+                而不是把剩下的 body 白收完再判定（那半截 .part 按 LF-24 语义丢弃、不落位）。
+            """
+            _unbilled[0] += n
+            if _unbilled[0] < _BILL_STEP:
+                return
+            amount = _unbilled[0]
+            _unbilled[0] = 0
+            _reserved[0] += amount
+            if _utc is not None:
+                for b in buckets:
+                    try: _utc.quota_reserve(b, amount)
+                    except Exception: pass
+            # new_size=0：这次上传**已经读进来**的量此刻就在在途账里了，
+            # 所以「磁盘占用 + 在途 > 配额」只可能是（自己或并发的别人）把它撑爆了。
+            ok2, err2 = _check_quota(target_dir, 0)
+            if not ok2:
+                _quota_hit[0] = True
+                raise UploadQuotaExceeded(err2)
+
         saved = 0
         errors = []
         try:
-            saved, errors = handle_upload_fn(handler.rfile, ct, cl, sub_path, auto_unique=auto_unique)
+            saved, errors = handle_upload_fn(handler.rfile, ct, cl, sub_path,
+                                             auto_unique=auto_unique, on_bytes=_on_bytes)
+        except UploadQuotaExceeded as e:
+            # 兜底：回调在"单文件处理块之外"被触发时（找 boundary / 读 part 头期间），
+            # 异常会直接落到这里（块内那条由 files/core 自己接住并带上文件名）。
+            saved = 0
+            errors = ['超过可用配额：%s' % (str(e) or '空间不足')]
         finally:
-            # 简化口径：成功(saved>0)按 cl 全额结算（实际字节累计由 fs_core 语义保证
-            # 落盘一致），失败按 0 结算释放预留 —— 误差仅限被拒文件的虚占。
-            if _utc is not None:
-                _actual = cl if saved > 0 else 0
+            # LF-21：先让磁盘统计反映刚落盘的文件，再释放预留 —— 顺序不能反，
+            # 否则会出现"预留已归零、缓存还是旧值"的低估窗口。
+            if saved > 0:
+                try: invalidate_folder_cache_smart(target_dir)
+                except Exception: pass
+            # LF-21：预留只在**请求进行期间**有意义。它存在的理由是防 TOCTOU ——
+            # 配额检查发生在读 body **之前**，那时磁盘上还没有这些字节，并发请求会
+            # 各自以为额度够（磁盘统计只能看见"已经写下去的"）。
+            # 请求一结束就该释放：成功时那些字节已经真的落盘、磁盘统计从此看得见；
+            # 失败时它们根本没写。**原来成功时按 cl 全额保留**，于是 pending 从
+            # "在途账"变成"历史累积账"，而 _check_quota 又把它与磁盘占用相加 ——
+            # 同一批字节算两遍，攒过配额后每次上传都在预检被 413，且不会自愈
+            # （实测：大文件成功后紧接着连续 413；删掉文件也不恢复，只有重启才清零）。
+            # §二 第 4 条之后，这里结算的是**_reserved（真实记账过的量）**，不再是 cl。
+            if _utc is not None and _reserved[0]:
                 for b in buckets:
-                    try: _utc.quota_settle(b, cl, _actual)
+                    try: _utc.quota_settle(b, _reserved[0], 0)
                     except Exception: pass
-        if saved > 0:
-            try:
-                invalidate_folder_cache_smart(target_dir)
-            except Exception:
-                pass
         # 收口：saved==0 表示本请求没有任何文件落盘（目录不存在/空请求/全部被拒等），
         # 必须如实返回 success:false，避免前端只看 success 误报“上传成功”。
         if saved == 0 and not errors:
             errors.append('未收到任何可保存的文件（请求为空或格式错误）')
-        handler.send_json({'success': saved > 0, 'saved': saved, 'errors': errors})
+        # 超配额中断（附加项）如实回 413，与读前预检同一口径
+        handler.send_json({'success': saved > 0, 'saved': saved, 'errors': errors},
+                          413 if _quota_hit[0] else 200)
     except DISCONNECTED_EXCEPTIONS:
         # 客户端中途断连（含读超时/写侧无进展超时，均 ⊂ OSError）：
         # 请求未完成即断开 ≠ 服务器 500 —— 置 close、不补 500 响应、访问日志不记 500；
@@ -579,7 +729,8 @@ def handle_upload(handler, handle_upload_fn, invalidate_folder_cache_smart, UPLO
         try: handler.close_connection = True
         except Exception: pass
     except Exception as e:
-        try: handler.send_json({'error': str(e)}, 500)
+        _log_exc('上传处理', e)
+        try: handler.send_json({'error': '上传处理失败'}, 500)
         except DISCONNECTED_EXCEPTIONS: pass
 
 
@@ -603,9 +754,27 @@ def handle_delete(handler, UPLOAD_DIR, is_path_safe, _delete_thumb,
         failed = []              # [(path, reason)] —— C-07 真实删除失败
         skipped_permission = 0   # 因路径权限/写策略/路径逃逸被拒（非目标不存在）的数量
         for path in paths:
+            if not isinstance(path, str):
+                # 畸形元素（数字/对象/数组）：与"路径不合法"同一口径拒绝。
+                # 原来会一路传到 `_normalize_rel_path` 的 `.replace` 抛 AttributeError → 500。
+                skipped_permission += 1
+                continue
+            path = path.strip()
             # 规范化路径
             norm_path = _normalize_rel_path(path)
             if norm_path is None:
+                # LF-01：路径不合法（`./`、`../`、绝对路径、盘符…）原来直接 continue，
+                # 把**整段判定**一起跳过了 —— 匿名发 {"files": ["./x"]} 拿到 200 success，
+                # 而发 {"files": ["x"]} 是 403。计入 skipped_permission：与下面 is_path_safe
+                # 失败同一口径（路径逃逸类拒绝），最终 deleted==0 时就会如实回 403。
+                skipped_permission += 1
+                continue
+            if not norm_path:
+                # LF-18：**空路径 = 共享根本身**（`os.path.join(UPLOAD_DIR, '')` 就是 UPLOAD_DIR）。
+                # 删除的目标是"路径本身"（不像 upload/mkdir 那样是父目录），所以空串等于"删根" ——
+                # 实测曾把整个 shared_files 递归删光、还回 `200 deleted:1`。
+                # 按路径逃逸类拒绝计数：deleted==0 时如实回 404，绝不执行删除。
+                skipped_permission += 1
                 continue
             path = norm_path
             # C-01/R1：guest/未登录写收敛（403 终止整个请求；user/admin 由下权限判定把关）
@@ -634,14 +803,18 @@ def handle_delete(handler, UPLOAD_DIR, is_path_safe, _delete_thumb,
                     shutil.rmtree(full)
                     invalidate_folder_cache(full, recursive=True)
                 deleted += 1
-            except PermissionError:
-                failed.append((path, '文件被占用或权限不足'))
+            except PermissionError as e:
+                # LF-23：精确区分"被占用"与"权限不足" —— 原来混成一句
+                failed.append((path, delete_fail_reason(e)))
             except Exception as e:
-                failed.append((path, '删除失败: %s' % (e,)))
+                failed.append((path, delete_fail_reason(e)))
         # 实测收口：有路径因权限被拒且一条都没删成 → 403（而非 200 success:true）
         if deleted == 0 and skipped_permission > 0:
             handler.send_json({'error': '无权限删除'}, 403); return
-        resp = {'success': True, 'deleted': deleted}
+        # LF-23：success 必须说真话 —— 有失败项就是失败。原来恒为 true，而前端只看这一个字段，
+        # 于是"没删掉"和"删掉了"在界面上长得一模一样（真实原因塞在 failed 里没人读）。
+        # **注意**：目标不存在（deleted=0 且 failed 为空）仍算成功 —— 那是幂等设计，别一起改掉。
+        resp = {'success': not failed, 'deleted': deleted}
         if failed:
             resp['failed'] = [{'path': a, 'error': b} for a, b in failed]
         if skipped_permission:
@@ -652,7 +825,8 @@ def handle_delete(handler, UPLOAD_DIR, is_path_safe, _delete_thumb,
         try: handler.close_connection = True
         except Exception: pass
     except Exception as e:
-        try: handler.send_json({'error': str(e)}, 500)
+        _log_exc('删除', e)
+        try: handler.send_json({'error': '删除失败'}, 500)
         except DISCONNECTED_EXCEPTIONS: pass
 
 
@@ -687,7 +861,8 @@ def handle_mkdir(handler, UPLOAD_DIR, is_path_safe, invalidate_folder_cache, DIS
         try: handler.close_connection = True
         except Exception: pass
     except Exception as e:
-        try: handler.send_json({'error': str(e)}, 500)
+        _log_exc('创建文件夹', e)
+        try: handler.send_json({'error': '创建文件夹失败'}, 500)
         except DISCONNECTED_EXCEPTIONS: pass
 
 
@@ -703,8 +878,13 @@ def search_files(handler, UPLOAD_DIR):
         base_path = params.get('base', [''])[0]
         role = handler._get_effective_role()
         if not base_path:
+            # 不能按"用户名空不空"推基路径：游客会话名就是 `游客`（非空，见
+            # auth/login_api 的 create_session('游客','guest')），推出来是
+            # `users/游客` —— 而 check_path_permission 对 guest 只认 public，恒 403。
             if role in ('super_admin', 'admin'):
-                base_path = ''
+                base_path = ''                      # 管理员：默认全站
+            elif role == 'guest':
+                base_path = 'public'                # 游客：只有公共目录
             else:
                 username = handler._get_username_from_session()
                 base_path = f'users/{username}' if username else 'public'
@@ -724,10 +904,17 @@ def search_files(handler, UPLOAD_DIR):
             handler.send_json({'error': f'查询过长（最多 {_SEARCH_MAX_Q} 字符）'}, 400); return
         results = []
         search_root = os.path.join(UPLOAD_DIR, base_path) if base_path else UPLOAD_DIR
+        # 搜索根必须真的落在共享根内：base_path 只过了 check_path_permission，
+        # 而盘符路径（C:/…）在 Windows 上会让 os.path.join 直接返回它本身、跳出共享根
+        from leaffs.utils.core import safe_path as _safe_path
+        if not _safe_path(UPLOAD_DIR, search_root):
+            handler.send_json({'error': '无权限'}, 403); return
         if not os.path.exists(search_root):
             handler.send_json({'files': [], 'query': query}); return
         truncated = False
         for root, dirs, files in os.walk(search_root):
+            # LF-22：剪枝，不进上传临时目录
+            dirs[:] = [d for d in dirs if not is_upload_tmp_entry(d)]
             for fname in files:
                 if query in fname.lower():
                     full = os.path.join(root, fname)
@@ -746,7 +933,8 @@ def search_files(handler, UPLOAD_DIR):
         results.sort(key=lambda x: x['name'].lower())
         handler.send_json({'files': results, 'query': query, 'truncated': truncated})
     except Exception as e:
-        handler.send_json({'error': str(e)}, 500)
+        _log_exc('搜索', e)
+        handler.send_json({'error': '搜索失败'}, 500)
 
 
 def _normalize_rel_path(rel_path):
@@ -763,6 +951,10 @@ def _normalize_rel_path(rel_path):
     norm = os.path.normpath(rel_path).replace('\\', '/')
     # 禁止绝对路径
     if norm.startswith('/'):
+        return None
+    # 禁止 Windows 盘符（C:/x、C:x）：normpath 不去盘符，而
+    # os.path.join(UPLOAD_DIR, 'C:/x') 在 Windows 上会直接返回 'C:/x' —— 等于跳出共享根
+    if len(norm) >= 2 and norm[1] == ':' and norm[0].isalpha():
         return None
     # 标准化后再次检查，防止 normpath 改变相对结构
     if norm in ('..', '../') or norm.startswith('../'):
@@ -793,8 +985,14 @@ class _ZipStreamWriter:
             pass
 
 
-def zip_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, DISCONNECTED_EXCEPTIONS):
+def zip_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, DISCONNECTED_EXCEPTIONS,
+                 resolve_share=None):
     """ZIP 打包下载（双模式，配置键 zip_streaming 切换，默认全流式）。
+
+    resolve_share：可选的「分享虚拟路径 → 源文件**绝对路径**」解析器（约定同
+    `share/mappings.resolve`）。命中即按源文件打包；解析器抛异常视作无权（分享码没过）。
+    与 `/download` 同口径：**先映射、后权限**。
+    一个文件都没打成功时**统一回 404** —— 不区分"无权"与"不存在"，免得变成权限 oracle。
 
     全流式（默认）：边压边发、零临时磁盘，见 _ZipStreamWriter。代价：没有
     Content-Length（HTTP/1.0 以连接关闭定界），下载器不显示总大小/进度。
@@ -819,6 +1017,9 @@ def zip_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, DISCONNECT
         base_path = _normalize_rel_path(base_path)
         if base_path is None:
             handler.send_json({'error': '路径不合法'}, 403); return
+        # LF-22：上传临时目录既不作为打包基准、也不参与打包
+        if is_upload_tmp_relpath(base_path):
+            handler.send_json({'error': '路径不合法'}, 403); return
         if base_path and not handler._check_path_permission(base_path):
             handler.send_json({'error': '无权限'}, 403); return
         if base_path:
@@ -835,27 +1036,60 @@ def zip_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, DISCONNECT
         except Exception:
             zip_limit = 500
         entries = []
+        skipped = 0
         for rel_path in file_list:
             # 规范化并校验每个文件的路径
             rel_path = _normalize_rel_path(rel_path)
             if rel_path is None:
+                skipped += 1
                 continue
-            # 对每个文件单独进行权限检查
-            if not handler._check_path_permission(rel_path):
+            # LF-22：上传临时目录里的东西不参与打包
+            if is_upload_tmp_relpath(rel_path):
+                skipped += 1
                 continue
-            full = os.path.join(UPLOAD_DIR, rel_path)
-            if not is_path_safe(UPLOAD_DIR, full): continue
-            if not os.path.exists(full): continue
-            arcname = os.path.relpath(full, base_full)
+            # 分享虚拟路径优先：与 /download 同口径（先映射、后权限）
+            full = None
+            arcname = None
+            if resolve_share is not None:
+                try:
+                    full = resolve_share(rel_path)
+                except Exception:
+                    skipped += 1        # 解析器抛异常 = 分享码没解锁 → 按无权处理
+                    continue
+                if full:
+                    arcname = rel_path.rsplit('/', 1)[-1]
+            if not full:
+                # 对每个文件单独进行权限检查
+                if not handler._check_path_permission(rel_path):
+                    skipped += 1
+                    continue
+                full = os.path.join(UPLOAD_DIR, rel_path)
+                arcname = os.path.relpath(full, base_full)
+            if not is_path_safe(UPLOAD_DIR, full):
+                skipped += 1
+                continue
+            if not os.path.exists(full):
+                skipped += 1
+                continue
             if os.path.isfile(full):
                 entries.append((full, arcname))
             elif os.path.isdir(full):
                 for root, dirs, files in os.walk(full):
+                    # LF-22：打包整个目录时也不进上传临时目录
+                    dirs[:] = [d for d in dirs if not is_upload_tmp_entry(d)]
                     for file in files:
                         fp = os.path.join(root, file)
                         # 对子文件也校验路径安全性
                         if not is_path_safe(UPLOAD_DIR, fp): continue
                         entries.append((fp, os.path.relpath(fp, base_full)))
+        # LF-05：一个都没打成功 → **统一回 404**，不再发 200 + 空 ZIP（那是假成功），
+        # 也不区分"无权"与"不存在"—— 区分开就是个权限 oracle
+        if not entries:
+            handler.send_error(404, '文件不存在或无权访问')
+            return
+        if skipped:
+            from leaffs.runtime_log import add_log as _al
+            _al('ZIP 打包跳过 %d 项（无权 / 不存在 / 分享码未解锁）' % skipped, 'warn')
         if zip_limit and len(entries) > zip_limit:
             handler.send_json({'error': f'文件数量过多（上限{zip_limit}个，可在高级配置调整）'}, 400)
             return
@@ -871,8 +1105,7 @@ def zip_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, DISCONNECT
             handler.send_response(200)
             handler.send_header('Content-Type', 'application/zip')
             handler.send_header('Content-Disposition', disp)
-            handler.send_header('X-Content-Type-Options', 'nosniff')
-            handler.end_headers()
+            handler.end_headers()      # 公共头（含 nosniff）由 end_headers 统一补
             writer = _ZipStreamWriter(handler)
             try:
                 zf = zipfile.ZipFile(writer, 'w', zipfile.ZIP_DEFLATED)
@@ -907,8 +1140,7 @@ def zip_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, DISCONNECT
             handler.send_header('Content-Type', 'application/zip')
             handler.send_header('Content-Disposition', disp)
             handler.send_header('Content-Length', str(zs))
-            handler.send_header('X-Content-Type-Options', 'nosniff')
-            handler.end_headers()
+            handler.end_headers()      # 公共头（含 nosniff）由 end_headers 统一补
             spool.seek(0)
             while True:
                 chunk = spool.read(COPY_BUFFER_SIZE)

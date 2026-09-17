@@ -12,7 +12,7 @@
     <div class="header">
         <h1><span class="ht">预览</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">连接中...</span></span></h1>
         <div class="info">
-            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">亮色</span></button>
+            <!--THEME_TOGGLE-->
         </div>
     </div>
 
@@ -20,6 +20,7 @@
         <a href="/browse/">浏览</a>
         <a href="/gallery" class="active">预览</a>
         <a href="/url-download">下载器</a>
+        <a href="/share">分享</a>
         <a href="/admin">管理</a>
         <a href="/me">我的</a>
         <span style="flex:1"></span>
@@ -59,8 +60,10 @@ var myRole = __MY_ROLE__;
     var isGuest = myRole === 'guest' || !myRole;
     var navDownloader = document.querySelector('.nav-bar a[href="/url-download"]');
     var navAdmin = document.querySelector('.nav-bar a[href="/admin"]');
+    var navShare = document.querySelector('.nav-bar a[href="/share"]');
     if (navDownloader) navDownloader.style.display = isGuest ? 'none' : '';
     if (navAdmin) navAdmin.style.display = (myRole === 'admin' || myRole === 'super_admin') ? '' : 'none';
+    if (navShare) navShare.style.display = isGuest ? 'none' : '';
 })();
 
 var allFiles = [];
@@ -70,10 +73,18 @@ var _isGuest = false;
 var _currentScanRoot = '';
 var _loadGen = 0;
 
-function onWSConnected() { loadAllFiles(); }
+function onWSConnected() { sendWS({ type: 'gallery-sub' }); loadAllFiles(); }
 
+// 服务端推「文件树变了」→ 重新扫描一次。只发信号不带列表（列表按自身权限自己拉）；
+// 批量操作会连着来好几条，去抖合并成一次扫描。
+var _galleryRefreshTimer = null;
 function handleWSMessage(msg) {
-    if (msg.type === 'gallery') { allFiles = msg.files || []; renderGallery(); }
+    if (msg.type !== 'gallery') return;
+    if (_galleryRefreshTimer) clearTimeout(_galleryRefreshTimer);
+    _galleryRefreshTimer = setTimeout(function () {
+        _galleryRefreshTimer = null;
+        loadAllFiles();
+    }, 400);
 }
 
 function getUserInfo(callback) {
@@ -195,35 +206,28 @@ function switchTab(type) {
     renderGallery();
 }
 
-function thumbGiveUpIcon(img, icon) {
-    var w = img.parentNode;
-    if (!w || !w.parentNode) return;
-    var span = document.createElement('span');
-    span.className = 'icon-large';
-    span.textContent = icon;
-    span.onclick = function () {
-        var path = img.getAttribute('data-path');
-        openPreview(path, allFiles);
-    };
-    w.parentNode.replaceChild(span, w);
+// 彻底失败：把图片摘掉就行 —— 占位图标本来就在下面
+function thumbGiveUpIcon(img) {
+    if (img && img.parentNode) img.parentNode.removeChild(img);
 }
 
-function thumbError(img, icon) {
+function thumbError(img) {
     var retries = parseInt(img.getAttribute('data-retry') || '0', 10);
     if (retries < 1) {
-        // 首次失败：5 秒后带缓存戳重试一次（保留完整 URL 查询参数），期间显示“加载中”
+        // 首次失败：5 秒后带缓存戳静默重试一次（保留完整 URL 查询参数）。
+        // 期间图片仍是透明的，用户看到的还是占位图标，不会出现任何“失败/加载中”提示
         img.setAttribute('data-retry', '1');
         if (!img.getAttribute('data-src')) img.setAttribute('data-src', img.getAttribute('src') || '');
         setTimeout(function () {
             if (!img.isConnected) return;
             var base = img.getAttribute('data-src') || img.getAttribute('src') || '';
-            if (!base) { thumbGiveUpIcon(img, icon); return; }
+            if (!base) { thumbGiveUpIcon(img); return; }
             img.src = base + (base.indexOf('?') === -1 ? '?' : '&') + '_=' + Date.now();
         }, 5000);
         return;
     }
-    // 重试仍失败：替换为图标占位
-    thumbGiveUpIcon(img, icon);
+    // 重试仍失败：停在占位图标上
+    thumbGiveUpIcon(img);
 }
 
 var _gallerySearchTimer = null;
@@ -265,20 +269,21 @@ function renderGallery() {
         var encodedPath = encodeURIComponent(f.path);
         var sname = safeStr(f.path);
         var ename = esc(f.name);
+        // 属性里放 HTML 转义的路径；data-path 读回来是原始值，与 _thumbOk 的键一致
+        var eh = esc(f.path);
         var ft = fileType(f.name);
         var iconFallback = ft === 'video' ? '&#127916;' : '&#128444;';
 
         var thumbHtml = '';
         if (ft === 'image' || ft === 'video') {
-            thumbHtml = '<span class="thumb-wrap"><span class="thumb-loading">加载中…</span><img class="thumb" src="/api/thumb?path=' + encodedPath +
-                '" alt="' + ename + '" loading="lazy" ' +
-                'data-path="' + sname + '" data-retry="0" ' +
+            // 卡片是整体：占位图标和图片都不单独绑点击，交给外层 .gallery-item
+            thumbHtml = '<span class="thumb-wrap"><span class="icon-large">' + iconFallback + '</span><img class="thumb' + (_thumbOk[f.path] ? ' loaded' : '') + '" src="/api/thumb?path=' + encodedPath +
+                '" alt="" loading="lazy" data-retry="0" data-path="' + eh + '" ' +
                 'onload="thumbLoaded(this)" ' +
-                'onclick="openPreview(\'' + sname + '\', allFiles)" ' +
-                'onerror="thumbError(this, \'' + iconFallback + '\')"></span>';
+                'onerror="thumbError(this)"></span>';
         } else {
             var icon = getFileIcon(f.name);
-            thumbHtml = '<span class="icon-large" onclick="openPreview(\'' + sname + '\', allFiles)">' + icon + '</span>';
+            thumbHtml = '<span class="icon-large">' + icon + '</span>';
         }
 
         html += '<div class="gallery-item" onclick="openPreview(\'' + sname + '\', allFiles)">';
@@ -301,12 +306,6 @@ if (initType) {
 
 loadAllFiles();
 connectWS();
-
-// 预览页自动刷新（每 10 秒重新扫描文件列表）
-setInterval(function() {
-    if (document.hidden) return;
-    loadAllFiles();
-}, 10000);
 </script>
 <style>
 .gallery-header { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 10px; }

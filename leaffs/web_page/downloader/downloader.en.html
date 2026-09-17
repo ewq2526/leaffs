@@ -105,7 +105,7 @@
     <div class="header">
         <h1><span class="ht">Downloader</span><span class="ws-status" style="margin-right:8px"><span class="dot" id="dlWsDot"></span><span id="dlWsLabel" style="font-size:11px">Connecting...</span></span><span class="ws-status" style="margin-right:8px"><span class="dot" id="dlAriaDot" style="background:var(--warn)"></span><span id="dlAriaLabel" style="font-size:11px">aria2c starting…</span></span></h1>
         <div class="info">
-            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">Light</span></button>
+            <!--THEME_TOGGLE-->
         </div>
     </div>
 
@@ -113,12 +113,17 @@
         <a href="/browse/">Browse</a>
         <a href="/gallery">Gallery</a>
         <a href="/url-download" class="active">Downloader</a>
+        <a href="/share">Share</a>
         <a href="/admin">Admin</a>
         <a href="/me">My Account</a>
         <span style="flex:1"></span>
     </div>
 
     <div class="dl-page">
+        <!-- Downloader warning: the feature itself does not work properly — say so, promise nothing -->
+        <div style="margin-bottom:12px;padding:10px 14px;border-radius:var(--radius);background:rgba(242,101,139,.10);border:1px solid var(--danger);font-size:12.5px;line-height:1.75;color:var(--danger)">
+            ⚠️ <b>The downloader is barely usable — it is a placeholder for now.</b> <b>Do not depend on it</b>, and never keep your only copy here.
+        </div>
         <div id="dlDaemonTip" style="display:none;background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;font-size:12px;margin-bottom:12px;color:var(--text)"></div>
         <div class="dl-input-area">
             <h3>Paste a download link</h3>
@@ -209,30 +214,6 @@ function batchToast(msg, type) {
 
 var _selectedDir = '';
 
-// ========== 主题切换 ==========
-function toggleDark() {
-    var html = document.documentElement;
-    var isDark = html.getAttribute('data-theme') === 'dark';
-    var btn = document.getElementById('darkToggle');
-    if (isDark) {
-        html.removeAttribute('data-theme');
-        localStorage.setItem('theme', 'light');
-        if (btn) { btn.querySelector('#darkIcon').textContent = '☀'; btn.querySelector('#darkLabel').textContent = 'Light'; }
-    } else {
-        html.setAttribute('data-theme', 'dark');
-        localStorage.setItem('theme', 'dark');
-        if (btn) { btn.querySelector('#darkIcon').textContent = '☾'; btn.querySelector('#darkLabel').textContent = 'Dark'; }
-    }
-}
-(function() {
-    if (localStorage.getItem('theme') === 'dark') {
-        document.documentElement.setAttribute('data-theme', 'dark');
-        setTimeout(function() {
-            var btn = document.getElementById('darkToggle');
-            if (btn) { btn.querySelector('#darkIcon').textContent = '☾'; btn.querySelector('#darkLabel').textContent = 'Dark'; }
-        }, 0);
-    }
-})();
 
 var API = '/api/url-download';
 var _currentUser = '';
@@ -293,10 +274,9 @@ function connectDLWS() {
 
     _dlWs.onopen = function() {
         updateWSStatus(true);
-        fetch('/api/session/sid').then(function(r) { return r.json(); }).then(function(d) {
-            if (d.sid) _dlWs.send(JSON.stringify({ type: 'auth', sid: d.sid }));
-            else _dlWs.send(JSON.stringify({ type: 'sub-download' }));
-        }).catch(function() { _dlWs.send(JSON.stringify({ type: 'sub-download' })); });
+        // Auth rides the WS handshake Cookie (same-origin always sends it); subscribe directly.
+        // The page no longer asks for the session id (/api/session/sid has been removed).
+        _dlWs.send(JSON.stringify({ type: 'sub-download' }));
         if (_dlWsPing) clearInterval(_dlWsPing);
         _dlWsPing = setInterval(function () {
             if (_dlWs && _dlWs.readyState === WebSocket.OPEN)
@@ -307,9 +287,7 @@ function connectDLWS() {
     _dlWs.onmessage = function(e) {
         try {
             var msg = JSON.parse(e.data);
-            if (msg.type === 'auth' && msg.success)
-                _dlWs.send(JSON.stringify({ type: 'sub-download' }));
-            else if (msg.type === 'download_list')
+            if (msg.type === 'download_list')
                 applyTaskList(msg.tasks || []);
             else if (msg.type === 'download_update')
                 applyTaskUpdate(msg.task);
@@ -790,7 +768,17 @@ document.addEventListener('keydown', function(e) {
 });
 
 // ========== 启动 ==========
-loadSettings();
+// B4：全局设置（并发数/限速）只有管理员能改，也只有管理员能读 ——
+// 所以非管理员**连设置区都不显示**（原来是对所有人显示可编辑输入框，
+// 而保存接口只认管理员：给了个按了必然失败的按钮，还让接口能读到全局策略）。
+var myRole = __MY_ROLE__;                       // 服务端注入："admin"/"super_admin"/"user"/"guest"/null
+var IS_ADMIN = (myRole === 'admin' || myRole === 'super_admin');
+if (IS_ADMIN) {
+    loadSettings();
+} else {
+    var _st = document.querySelector('.dl-settings');
+    if (_st) _st.style.display = 'none';
+}
 connectDLWS();
 // 任务数据主通道为 WebSocket 推送（download_list/download_update 直接渲染）；
 // 30 秒低频校准一次，用于兜底“其它会话删除任务”等推送无法覆盖的场景

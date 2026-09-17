@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色（跟随系统）：与网页 [data-theme="dark"] 对齐 -->
+    <style name="Theme.LeafFS" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">@color/lf_primary</item>
+        <item name="android:colorPrimaryDark">@color/lf_primary_hover</item>
+        <item name="android:colorAccent">@color/lf_primary</item>
+        <item name="android:windowBackground">@color/lf_bg</item>
+        <!-- 系统栏底色一行都不写（同 values/themes.xml）：写了会被记成 forcedNavigationBarColor，
+             卡片一出现就被启用，导航栏被染成该色、图标再被反推成白色 -->
+        <!-- 系统栏图标深浅由 MainActivity.applyBarsAppearance 按网页背景色动态设置（见 values/themes.xml 的说明） -->
+        <item name="android:textColorPrimary">@color/lf_text</item>
+        <item name="android:textColorSecondary">@color/lf_text_light</item>
+        <item name="android:alertDialogTheme">@style/Theme.LeafFS.Dialog</item>
+    </style>
+
+    <style name="Theme.LeafFS.Dialog" parent="@android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">@color/lf_primary</item>
+        <item name="android:colorPrimary">@color/lf_primary</item>
+        <item name="android:textColorPrimary">@color/lf_text</item>
+        <item name="android:textColorSecondary">@color/lf_text_light</item>
+    </style>
+</resources>

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>HTTPS 证书提示</title>
+<style>
+__CERT_STYLE__
+
+/* 本页专有部分：居中布局 + 编号说明列表。
+   颜色一律走主站变量（--text/--primary/...），所以亮暗主题与主色自动跟随。 */
+body { display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+.notice-wrap { width: 100%; max-width: 620px; margin: auto; }
+.notice-card { padding: 34px 26px 28px; }
+.notice-title { font-size: 20px; font-weight: 700; color: var(--text); text-align: center; margin-bottom: 8px; }
+.notice-lead { font-size: 13.5px; color: var(--text-secondary); text-align: center; margin-bottom: 20px; line-height: 1.7; }
+.notice-list { list-style: none; counter-reset: item; margin: 0 0 18px; padding: 0; text-align: left; }
+.notice-list li {
+    counter-increment: item; position: relative;
+    padding: 11px 13px 11px 46px; margin: 0 0 9px;
+    background: var(--tint-info, rgba(14, 165, 233, .08));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 13px; color: var(--text); line-height: 1.75;
+}
+.notice-list li::before {
+    content: counter(item); position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--primary); color: #fff;
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+}
+.notice-en { font-size: 11.5px; color: var(--text-light); line-height: 1.75; margin: 0 0 20px; }
+</style>
+</head>
+<body>
+<div class="app notice-wrap">
+    <div class="header">
+        <h1><span class="ht">LeafFS 文件传输</span></h1>
+    </div>
+
+    <div class="card notice-card">
+        <div class="notice-title">先看这里，再进入文件服务</div>
+        <div class="notice-lead">浏览器出现「不安全」提示是正常的 —— 读完下面几点就知道该怎么做。</div>
+        <ol class="notice-list">
+            <li>浏览器提示「不安全 / 连接不是私密连接」是正常的 —— 这台服务器用的是自签证书（没有找证书机构盖章）。</li>
+            <li>点下面的按钮进入文件服务时，浏览器会弹<b>一次</b>「不安全」；点「高级 → 继续访问」即可，之后这台浏览器就不再提示了。</li>
+            <li>只有当你确认这就是你自己的 / 信任的服务器时，才点浏览器的「高级 → 继续访问」。</li>
+            <li>不要在陌生网站或来路不明的页面安装任何证书。</li>
+            <li>想彻底消除提示：找这台服务器的管理员配置正式 HTTPS 证书后重启。</li>
+        </ol>
+        <div class="notice-en">English (AI-translated): The "not secure" warning is expected because this server uses a self-signed certificate. Press the button below to enter the file service; choose "Advanced → Proceed" once and this browser will stop asking. Only continue when you are sure this is your own or a trusted server. Never install certificates from unknown pages. To remove the warning, ask the server administrator to configure an official HTTPS certificate.</div>
+        <a class="btn btn-primary btn-block" href="__CERT_MAIN_URL__">进入文件服务 →</a>
+    </div>
+</div>
+</body>
+</html>

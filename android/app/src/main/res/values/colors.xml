@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 浅色配色：与网页 themes（common/style.css :root）保持一致 -->
+<resources>
+    <color name="lf_primary">#FF0EA5E9</color>
+    <color name="lf_primary_hover">#FF0284C7</color>
+    <color name="lf_bg">#FFE0E8F4</color>
+    <color name="lf_card">#FFFFFFFF</color>
+    <color name="lf_text">#FF22305C</color>
+    <color name="lf_text_secondary">#FF44527F</color>
+    <color name="lf_text_light">#FF7C8AB0</color>
+    <color name="lf_border">#4D8094D0</color>
+    <color name="lf_danger">#FFF2658B</color>
+    <color name="lf_success">#FF2FBF8F</color>
+    <!-- 按压/悬浮反馈（对应网页 hover-bg / tint） -->
+    <color name="lf_hover">#176E8CFF</color>
+    <color name="lf_ripple">#260EA5E9</color>
+</resources>

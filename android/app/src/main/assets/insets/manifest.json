@@ -1,0 +1,28 @@
+{
+  "manifest_version": 2,
+  "name": "LeafFS Insets",
+  "version": "1.0",
+  "description": "把系统栏安全区注入页面，并把原生导入进度喂给网页的进度条。",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "insets@leaffs"
+    }
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["insets.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "permissions": [
+    "nativeMessaging",
+    "nativeMessagingFromContent",
+    "geckoViewAddons",
+    "storage"
+  ]
+}

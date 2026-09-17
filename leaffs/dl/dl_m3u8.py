@@ -120,7 +120,7 @@ class M3u8Downloader:
         except Exception as e:
             return {
                 'success': False,
-                'error': f'解析 m3u8 失败: {e}',
+                'error': '解析 m3u8 失败',
                 'status': 'error',
             }
 
@@ -274,7 +274,7 @@ class M3u8Downloader:
         try:
             _, ts_urls = self.parse_m3u8(url)
         except Exception as e:
-            return {'success': False, 'error': f'重新解析 m3u8 失败: {e}'}
+            return {'success': False, 'error': '重新解析 m3u8 失败'}
 
         retried = 0
         still_failed = 0

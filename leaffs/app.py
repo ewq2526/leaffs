@@ -27,7 +27,6 @@ from socketserver import ThreadingMixIn
 import leaffs.auth.core as _ac
 import leaffs.auth.login_api as _ac_auth
 import leaffs.auth.users_api as _ac_user
-import leaffs.auth.session_api as _ac_session
 import leaffs.auth.self_api as _ac_self
 import leaffs.config.core as _cfg
 import leaffs.config.api as _cfg_api
@@ -48,6 +47,7 @@ import leaffs.server.push as _push  # WS 订阅集合与推送广播（管理帧
 import leaffs.server.tls as _tls  # TLS 上下文/服务器证书服务（HTTP/WS 共用）
 import leaffs.server.ws as _ws  # WebSocket 传输层（连接/限流/消息分发）
 import leaffs.server.handler as _http  # HTTP 传输层（HTTPHandler/ThreadingHTTPServer/run_http）
+import leaffs.server.cert_remind as _cert_remind  # HTTPS 证书提示页（8082，桌面/安卓共用同一份）
 import leaffs.auth.local_token as _lt  # 本机一次性登录令牌服务
 from leaffs.server.hosts import (  # 主机名/IP 工具（过渡期别名，随 handler 抽离正名）
     strip_host_port as _strip_host_port,
@@ -59,266 +59,6 @@ from leaffs.server.hosts import (  # 主机名/IP 工具（过渡期别名，随
 # 下载管理器（进程级单例；dl_api 已在 manager 模块装配）
 _dl_manager = _dl_mgr.get_manager()
 def get_dl_manager(): return _dl_manager
-
-_CERT_REMIND_TITLE = '文件服务器 HTTPS 证书提示'
-_CERT_REMIND_ITEMS = (
-    '浏览器提示“不安全 / 连接不是私密连接”是正常的——这台服务器用的是自签证书（没有找证书机构盖章）。',
-    '只有当你确认这就是你自己的/信任的服务器时，才点浏览器的“高级 → 继续访问”。',
-    '不要在陌生网站或来路不明的页面安装任何证书。',
-    '想彻底消除提示：找这台服务器的管理员配置正式 HTTPS 证书后重启。',
-)
-# 英文摘要（AI 翻译，可能与中文存在差异），供英文使用者阅读
-_CERT_REMIND_EN_SUMMARY = (
-    'English (AI-translated): The "not secure" warning is expected because this server uses a '
-    'self-signed certificate. Only continue when you are sure this is your own or a trusted server. '
-    'Never install certificates from unknown pages. To remove the warning, ask the server '
-    'administrator to configure an official HTTPS certificate.'
-)
-
-# 提示页内联样式（独立于静态目录，不引外部资源；观感对齐主站浅色卡片风，品牌主色 #0ea5e9）
-_CERT_REMIND_CSS = '''
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{min-height:100%}
-body{
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,system-ui,sans-serif;
-  min-height:100vh;display:flex;align-items:center;justify-content:center;
-  padding:24px 16px;color:#22305c;line-height:1.7;-webkit-font-smoothing:antialiased;
-  background:#e3ebf7;
-  background-image:
-    radial-gradient(760px 520px at 12% -10%,rgba(125,190,255,.5),transparent 62%),
-    radial-gradient(700px 480px at 105% 8%,rgba(150,220,255,.42),transparent 60%),
-    radial-gradient(620px 420px at 90% 108%,rgba(125,170,255,.35),transparent 62%);
-  background-attachment:fixed;
-}
-.card{
-  width:100%;max-width:620px;margin:auto;
-  background:rgba(255,255,255,.9);
-  border:1px solid rgba(130,155,220,.28);
-  border-radius:22px;padding:40px 30px 34px;text-align:center;
-  box-shadow:0 12px 34px rgba(96,120,210,.16),0 2px 8px rgba(130,150,220,.08);
-}
-.badge{
-  width:66px;height:66px;margin:0 auto 18px;border-radius:50%;
-  background:linear-gradient(135deg,#0ea5e9,#7dd3fc);
-  display:flex;align-items:center;justify-content:center;font-size:30px;
-  box-shadow:0 10px 24px rgba(14,165,233,.35);
-}
-h1{font-size:22px;font-weight:700;color:#1f2f63;margin-bottom:8px;letter-spacing:.3px}
-.lead{font-size:14px;color:#5a6a99;margin:0 auto 20px;max-width:460px}
-ol{list-style:none;counter-reset:item;margin:0 0 26px;padding:0;text-align:left}
-ol li{
-  counter-increment:item;position:relative;
-  padding:12px 14px 12px 48px;margin:0 0 10px;
-  background:rgba(14,165,233,.07);
-  border:1px solid rgba(14,165,233,.16);
-  border-radius:14px;font-size:14.5px;color:#2b3a63;
-}
-ol li::before{
-  content:counter(item);position:absolute;left:12px;top:50%;transform:translateY(-50%);
-  width:26px;height:26px;border-radius:50%;
-  background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#fff;
-  font-size:13px;font-weight:700;
-  display:flex;align-items:center;justify-content:center;
-}
-.login-btn{
-  display:inline-flex;align-items:center;justify-content:center;gap:8px;
-  text-decoration:none;color:#fff;font-size:16px;font-weight:600;
-  background:linear-gradient(90deg,#0ea5e9,#38bdf8);
-  border-radius:999px;padding:13px 38px;
-  box-shadow:0 10px 26px rgba(14,165,233,.35);
-  transition:transform .18s ease,box-shadow .18s ease,filter .18s ease;
-}
-.login-btn .arr{font-size:19px;line-height:1;transition:transform .18s ease}
-.login-btn:hover{transform:translateY(-2px);box-shadow:0 14px 32px rgba(14,165,233,.45);filter:brightness(1.05)}
-.login-btn:hover .arr{transform:translateX(3px)}
-.login-btn:active{transform:scale(.97)}
-@media(max-width:480px){
-  .card{padding:28px 18px 24px}
-  h1{font-size:19px}
-  .login-btn{width:100%;max-width:320px}
-}
-'''
-
-def _trust_http_bind_host():
-    """证书提示页监听地址：默认返回 0.0.0.0（与主服务一致），使局域网/最终用户可达。
-
-    配置键 trust_bind_host 可覆盖：显式给出具体地址（如 127.0.0.1 或某局域网 IP）时按其绑定；
-    等价于“全网监听/未配置”的值（空 / 0.0.0.0 / :: / [::] / any）与明显非法的值
-    一律安全回退 0.0.0.0。页面为纯信息提示（无证书安装/下载引导），全网监听无 CA 投毒风险。
-    """
-    import ipaddress
-    host = ''
-    try:
-        host = str(_cfg.get_trust_bind_host() or '').strip().lower()
-    except Exception:
-        host = ''
-    if host in ('', '0.0.0.0', '::', '[::]', 'any'):
-        return '0.0.0.0'
-    try:
-        ipaddress.ip_address(host)
-    except ValueError:
-        # 明显非法值（非合法 IP 字面量）→ 安全回退全网监听
-        return '0.0.0.0'
-    return host
-
-
-class _CertRemindHandler(BaseHTTPRequestHandler):
-    """证书提示页处理器：仅响应根路径 '/'。
-
-    无有效会话 → 渲染品牌化提示页（纯大白话 + 内联样式 + “进入登录页”大按钮，
-    指向 https 主站 /login）；请求携带有效 wifi_session（任意角色，含来源 IP 绑定
-    校验）→ 302 到 https 主站 /browse/（免重复登录）；其余路径一律 404。
-    跳转目标恒为 https 主站（scheme= https、host= 请求 Host 去端口、port= 主站
-    http_port），本页永不回跳自身 → 无重定向循环。无脚本、无外链、无安装/下载内容。
-    """
-    protocol_version = 'HTTP/1.0'
-    # 收尾：与主服务一致，Server 响应头不暴露 Python/组件版本
-    server_version = 'LeafFS'
-    sys_version = ''
-    def version_string(self):
-        return self.server_version
-
-    def log_message(self, fmt, *args):
-        pass  # 提示页不写访问日志
-
-    def _main_https_url(self, path, host_fallback=''):
-        """拼主站 https URL：https://<host>:<http_port><path>。
-
-        host 取请求 Host 头去端口后的主机（缺失时可用 host_fallback 兜底）；
-        端口取主站 http_port（_cfg.PORT，load_config 后的运行值；8082 为明文 HTTP，
-        本页仅在 tls_enabled=true 时提供，故目标恒为 https）。Host 缺失/端口非法 →
-        返回 ''（由调用方决定：跳转分支跳过、按钮分支兜底 localhost）。
-        """
-        host = _strip_host_port(self.headers.get('Host', '')) or host_fallback
-        if not host:
-            return ''
-        try:
-            port = int(_cfg.PORT)
-            if not 1 <= port <= 65535:
-                return ''
-        except Exception:
-            return ''
-        if ':' in host and not host.startswith('['):
-            host = '[' + host + ']'  # 裸 IPv6 地址补方括号
-        return f'https://{host}:{port}{path}'
-
-    def _has_valid_session(self):
-        """读取请求 Cookie 并判断“本浏览器已登录”。
-
-        两级判定：
-        1) 真会话：请求携带有效 wifi_session（ac_core.get_session，含来源 IP 绑定）。
-        2) 登录标记：HTTPS 下发的会话 Cookie 带 Secure，浏览器不会经明文 http
-           （8082）发回；故登录/登出会同步维护一个非 Secure 的 LOGIN_MARKER 标记，
-           标记存在即视为“本浏览器已登录”（跳转后由 https 主站做真实验证，
-           标记失效时主站会自行引导回登录页，不会造成死循环）。
-        异常一律按未登录处理。
-        """
-        try:
-            role, _sid = _ac.get_session(self.headers.get('Cookie', ''), True, self.client_address[0])
-            if role:
-                return True
-        except Exception:
-            pass
-        try:
-            raw = self.headers.get('Cookie', '') or ''
-            for part in raw.split(';'):
-                part = part.strip()
-                if not part:
-                    continue
-                k, _, v = part.partition('=')
-                if k.strip() == _ac.LOGIN_MARKER and v.strip() == '1':
-                    return True
-        except Exception:
-            pass
-        return False
-
-    def _redirect_https(self, location):
-        """302 跳转 https 主站（含与页面同款安全响应头）。"""
-        self.send_response(302)
-        self.send_header('Location', location)
-        self.send_header('Content-Length', '0')
-        self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('X-Frame-Options', 'DENY')
-        self.send_header('Referrer-Policy', 'no-referrer')
-        self.end_headers()
-
-    def _page_bytes(self):
-        # 按钮目标：https://<host>:<http_port>/login；Host 缺失等极端情形兜底 localhost
-        login_url = self._main_https_url('/login', host_fallback='localhost')
-        items = ''.join(f'<li>{t}</li>' for t in _CERT_REMIND_ITEMS)
-        return (
-            '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n'
-            '<meta charset="utf-8">\n'
-            '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-            '<meta name="robots" content="noindex">\n'
-            f'<title>{_CERT_REMIND_TITLE}</title>\n'
-            f'<style>\n{_CERT_REMIND_CSS}\n</style>\n'
-            '</head>\n<body>\n'
-            '<div class="card">\n'
-            '<div class="badge" aria-hidden="true">🛡️</div>\n'
-            '<h1>先看这里，再进入文件服务</h1>\n'
-            '<p class="lead">浏览器出现“不安全”提示是正常的——读完下面这 4 点，你就知道该怎么做了。</p>\n'
-            f'<ol>\n{items}\n</ol>\n'
-            f'<p class="lead" style="font-size:12px;opacity:.8;margin-top:-6px">{_CERT_REMIND_EN_SUMMARY}</p>\n'
-            f'<a class="login-btn" href="{login_url}">进入登录页<span class="arr" aria-hidden="true">→</span></a>\n'
-            '</div>\n'
-            '</body>\n</html>\n'
-        ).encode('utf-8')
-
-    def _respond(self, status, ctype, body):
-        self.send_response(status)
-        self.send_header('Content-Type', ctype)
-        self.send_header('Content-Length', str(len(body)))
-        # A-10：与主服务同款安全响应头（nosniff / XFO DENY / Referrer）
-        self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('X-Frame-Options', 'DENY')
-        self.send_header('Referrer-Policy', 'no-referrer')
-        self.end_headers()
-        if self.command != 'HEAD':
-            try:
-                self.wfile.write(body)
-            except OSError:
-                pass
-
-    def do_GET(self):
-        if urllib.parse.urlparse(self.path).path != '/':
-            self._respond(404, 'text/plain; charset=utf-8', b'404 Not Found')
-            return
-        # 已登录用户（任意角色）→ 302 https 主站 /browse/。防循环：跳转目标恒为
-        # https 主站；本页（8082）只服务 '/'，且无法拼出主站地址时（Host 缺失/端口
-        # 非法，返回 ''）即使有会话也改为正常渲染，绝不回跳自身。
-        browse_url = self._main_https_url('/browse/')
-        if browse_url and self._has_valid_session():
-            self._redirect_https(browse_url)
-            return
-        self._respond(200, 'text/html; charset=utf-8', self._page_bytes())
-
-    do_HEAD = do_GET
-
-
-def run_cert_remind_http():
-    """证书提示页线程入口（纯 HTTP）。仅由 start_server 在 tls_enabled=true 时启动；
-    绑定失败只告警不影响主服务。"""
-    host = _trust_http_bind_host()
-    try:
-        port = int(_cfg.get_tls_trust_port())
-    except Exception:
-        port = 8082
-    try:
-        httpd = _http.ThreadingHTTPServer((host, port), _CertRemindHandler)
-    except Exception as e:
-        add_log(f'证书提示页启动失败（http://{host}:{port}）: {e}（不影响主服务）', 'warn')
-        return
-    add_log(f'证书提示页已启动: http://{host}:{port}', 'ok')
-    try:
-        httpd.serve_forever()
-    except Exception:
-        pass
-    finally:
-        try:
-            httpd.server_close()
-        except Exception:
-            pass
 
 
 def start_server():
@@ -338,6 +78,15 @@ def start_server():
     _ac.load_users()
     _ac.start_session_cleanup()
     _fs.cleanup_orphan_thumbs()
+    # LF-26：进程被 kill / 崩溃时，正在写的上传临时文件会留在 UPLOAD_DIR/.uploads/ 里，
+    # 而那个目录对用户不可见（LF-22）—— 不清就成了隐形垃圾。**刚启动时必然没有在途上传**，
+    # 所以这是唯一安全的清理时机（运行期清会把正在上传的文件干掉）。
+    try:
+        _n = _fs.cleanup_upload_tmp()
+        if _n:
+            add_log('启动清理：删掉 %d 个上传临时残留' % _n, 'info')
+    except Exception as _e:
+        add_log('启动清理上传临时目录失败: %s' % (_e,), 'warn')
     os.makedirs(_fs.UPLOAD_DIR, exist_ok=True)
     os.makedirs(os.path.join(_fs.UPLOAD_DIR, 'public'), exist_ok=True)
     add_log('服务器初始化完成', 'ok')
@@ -371,7 +120,7 @@ def start_server():
             raise SystemExit(1)
     # 证书提示页（纯 HTTP、默认 0.0.0.0 全网监听）：仅 TLS 启用时启动（TLS 关闭时整页不提供）
     if _cfg.get_tls_enabled():
-        threading.Thread(target=run_cert_remind_http, daemon=True).start()
+        threading.Thread(target=_cert_remind.run_cert_remind_http, daemon=True).start()
     # 启动 HTTP 服务器线程
     t = threading.Thread(target=_http.run_http, daemon=True)
     t.start()
@@ -424,7 +173,7 @@ def start_server():
     print(f'  WebSocket: {w_scheme}://{ip}:{_cfg.WS_PORT}')
     if _cfg.get_tls_enabled():
         # 横幅给用户可点击地址：默认全网监听（0.0.0.0）时展示主 LAN IP；显式绑定具体地址时按其展示
-        remind_bind = _trust_http_bind_host()
+        remind_bind = _cert_remind._trust_http_bind_host()
         remind_url_host = ip if remind_bind == '0.0.0.0' else remind_bind
         print(f'  证书提示页: http://{remind_url_host}:{_cfg.get_tls_trust_port()}')
     _tok_now = _lt.get_current()

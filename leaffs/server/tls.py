@@ -64,8 +64,8 @@ def _auto_gen_server_cert(cert_path, key_path):
     import subprocess
     openssl = _openssl_exe()
     if not openssl:
-        add_log('自动生成服务器证书失败：找不到 openssl.exe（随包资源与 PATH 均无）', 'err')
-        return False
+        # 安卓没有随包的 openssl.exe：改由 Python 生成（规格与下面 openssl 那条一致）
+        return _gen_server_cert_python(cert_path, key_path)
     env = dict(os.environ)
     cnf = os.path.join(BASE_DIR, 'openssl.cnf')
     if os.path.isfile(cnf):
@@ -103,6 +103,81 @@ def _auto_gen_server_cert(cert_path, key_path):
                 pass
         return False
     return True
+
+
+def _gen_server_cert_python(cert_path, key_path):
+    """用 Python（cryptography）生成自签服务器证书 —— 没有 openssl.exe 时走这条。
+
+    安卓没有随包的 openssl，这条路是它唯一的证书来源。规格与 openssl 那条保持一致：
+    RSA 2048、自签叶证书（非 CA）、SAN 覆盖 localhost/本机主机名/本机全部非回环 IPv4、
+    有效期 10 年、PEM 写盘（证书 + 私钥各一个文件）。
+    """
+    try:
+        import datetime
+        import ipaddress
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+    except Exception as e:
+        add_log(f'自动生成服务器证书失败：既没有 openssl.exe，也不可用 cryptography（{e}）', 'err')
+        return False
+    try:
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, 'LeafFS Server')])
+        sans = []
+        for v in ('localhost', '127.0.0.1'):
+            sans.append(x509.IPAddress(ipaddress.ip_address(v)) if _is_ip(v)
+                        else x509.DNSName(v))
+        try:
+            hn = socket.gethostname().strip()
+            if hn:
+                sans.append(x509.DNSName(hn))
+        except Exception:
+            pass
+        for ip in collect_ips():
+            if ip and not ip.startswith('127.'):
+                try:
+                    sans.append(x509.IPAddress(ipaddress.ip_address(ip)))
+                except ValueError:
+                    sans.append(x509.DNSName(ip))
+        now = datetime.datetime.now(datetime.timezone.utc)
+        cert = (x509.CertificateBuilder()
+                .subject_name(name)
+                .issuer_name(name)                      # 自签：签发者即自身
+                .public_key(key.public_key())
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(now - datetime.timedelta(minutes=5))
+                .not_valid_after(now + datetime.timedelta(days=3650))
+                .add_extension(x509.SubjectAlternativeName(sans), critical=False)
+                .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+                .sign(key, hashes.SHA256()))
+        with open(key_path, 'wb') as f:
+            f.write(key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption()))
+        with open(cert_path, 'wb') as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+        return True
+    except Exception as e:
+        add_log(f'自动生成服务器证书失败（cryptography）: {type(e).__name__}: {e}', 'err')
+        for p in (cert_path, key_path):
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
+        return False
+
+
+def _is_ip(v):
+    import ipaddress
+    try:
+        ipaddress.ip_address(v)
+        return True
+    except ValueError:
+        return False
 
 
 def _build_tls_context():

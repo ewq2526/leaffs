@@ -57,7 +57,8 @@ class TorrentDownloader:
             _log(f'parse 异常: {type(e).__name__}: {e}')
             import traceback
             traceback.print_exc()
-            return {'success': False, 'error': str(e)}
+            # A2：不回显异常文本（细节已在上面的 _log 里）
+            return {'success': False, 'error': '种子解析失败'}
 
         return {
             'success': True, 'files': files,
@@ -71,7 +72,7 @@ class TorrentDownloader:
             files = parse_torrent_data(file_data)
         except Exception as e:
             _log(f'parse_upload 异常: {type(e).__name__}: {e}')
-            return {'success': False, 'error': str(e)}
+            return {'success': False, 'error': '种子文件解析失败'}
         torrent_path = save_uploaded_torrent(file_data, filename)
         return {'success': True, 'files': files, 'file_count': len(files), 'torrent_path': torrent_path}
 
@@ -155,7 +156,7 @@ class TorrentDownloader:
         try:
             rpc = get_rpc_client()
         except Exception as e:
-            return {'success': False, 'error': f'RPC 客户端获取失败: {e}', 'status': 'error'}
+            return {'success': False, 'error': 'RPC 客户端获取失败', 'status': 'error'}
 
         # 构建选项
         options = {
@@ -202,7 +203,7 @@ class TorrentDownloader:
             task_info['rpc_gid'] = gid
             _notify()
         except Exception as e:
-            return {'success': False, 'error': f'RPC 添加种子失败: {e}', 'status': 'error'}
+            return {'success': False, 'error': 'RPC 添加种子失败', 'status': 'error'}
 
         # 轮询进度
         result = None

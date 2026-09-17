@@ -31,7 +31,10 @@
 .sess-item .si-ip { color: var(--text); font-weight: 600; word-break: break-all; }
 .sess-item .si-time { font-size: 12px; color: var(--text-light); margin-top: 2px; }
 .badge-cur { font-size: 11px; color: var(--success); border: 1px solid var(--success); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
-.danger-zone { margin-top: 22px; text-align: center; }
+/* flex + gap instead of margin-right: when the row wraps on a narrow screen, each line
+   centres on its own so both buttons share the same left edge
+   (with margin-right the two lines had different widths and looked off-centre) */
+.danger-zone { margin-top: 22px; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .danger-zone .btn { min-width: 150px; justify-content: center; }
 .acc-hint { font-size: 12px; color: var(--text-light); text-align: center; margin-top: 10px; line-height: 1.6; }
 .acc-modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 99; }
@@ -56,7 +59,7 @@
     <div class="header">
         <h1><span class="ht">My Account</span></h1>
         <div class="info">
-            <button class="dark-toggle" id="darkToggle" onclick="toggleDark()" style="width:auto;gap:4px;padding:0 10px"><span id="darkIcon">&#9788;</span><span id="darkLabel" style="font-size:11px;font-weight:500">Light</span></button>
+            <!--THEME_TOGGLE-->
         </div>
     </div>
 
@@ -64,6 +67,7 @@
         <a href="/browse/">Browse</a>
         <a href="/gallery">Preview</a>
         <a href="/url-download" id="accNavDownloader">Downloader</a>
+        <a href="/share">Share</a>
         <a href="/admin" id="accNavAdmin">Admin</a>
         <a href="/me" class="active">My Account</a>
         <span style="flex:1"></span>
@@ -81,7 +85,18 @@
             <div class="acc-row"><span class="k">Username</span><span class="v" id="rowUser">-</span></div>
             <div class="acc-row"><span class="k">Role</span><span class="v" id="rowRole">-</span></div>
             <div class="acc-row"><span class="k">Guest Mode</span><span class="v" id="rowGuest">-</span></div>
-            <div class="acc-row"><span class="k">Server Address</span><span class="v" style="display:flex;align-items:center;gap:8px"><span id="rowServer">-</span><button class="btn btn-sm btn-primary" onclick="copyServer()" id="copyBtn">Copy</button></span></div>
+            <!-- Keep the address on its own line: squeezed between the warning and the button
+                 it gets so narrow that word-break turns it into several lines -->
+            <div class="acc-row" style="align-items:flex-start">
+                <span class="k">Server Address</span>
+                <span class="v" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:0">
+                    <span id="rowServer">-</span>
+                    <span style="display:flex;align-items:center;gap:8px">
+                        <span id="rowServerLanWarn" style="display:none;font-size:11px;color:#b03a50">no LAN available</span>
+                        <button class="btn btn-sm btn-primary" onclick="copyServer()" id="copyBtn">Copy</button>
+                    </span>
+                </span>
+            </div>
         </div>
 
         <div class="acc-sec">
@@ -136,10 +151,10 @@
         </div>
         </div>
 
-        <div class="acc-warn" id="accWarn">Still using the <strong>default password</strong> (admin / admin). Please change it soon: <a onclick="openPwModal()">Change password →</a></div>
+        <div class="acc-warn" id="accWarn">You haven't set your own password yet (currently using the random one generated on first start). Please set your own: <a onclick="openPwModal()">Change password →</a></div>
 
         <div class="danger-zone">
-            <button class="btn btn-primary" id="pwBtn" style="margin-right:8px" onclick="openPwModal()">Change Password</button>
+            <button class="btn btn-primary" id="pwBtn" onclick="openPwModal()">Change Password</button>
             <button class="btn btn-danger" id="logoutBtn">Sign Out</button>
         </div>
         <div class="acc-hint">After signing out, this device must sign in (or scan the QR code) again to continue.</div>
@@ -166,8 +181,10 @@ var myRole = __MY_ROLE__;
     var isGuest = myRole === 'guest' || !myRole;
     var navDl = document.getElementById('accNavDownloader');
     var navAd = document.getElementById('accNavAdmin');
+    var navShare = document.querySelector('.nav-bar a[href="/share"]');
     if (navDl) navDl.style.display = isGuest ? 'none' : '';
     if (navAd) navAd.style.display = (myRole === 'admin' || myRole === 'super_admin') ? '' : 'none';
+    if (navShare) navShare.style.display = isGuest ? 'none' : '';
 })();
 var IS_GUEST = myRole === 'guest';
 if (IS_GUEST) {
@@ -213,6 +230,8 @@ function fallbackCopy(txt) {
 }
 function openPwModal() {
     if (IS_GUEST) return;
+    // Super admin: password changes go through the users management page
+    if (myRole === 'super_admin') { location.href = '/admin/users'; return; }
     document.getElementById('pwModal').style.display = 'flex';
     setTimeout(function () { var i = document.getElementById('pwOld'); if (i) i.focus(); }, 50);
 }
@@ -224,7 +243,8 @@ function submitPw() {
     var oldPw = document.getElementById('pwOld').value;
     var n1 = document.getElementById('pwNew').value;
     var n2 = document.getElementById('pwNew2').value;
-    if (!oldPw || !n1) { _toast('Please fill in all fields', 'error'); return; }
+    // No password set yet → this is "set a password", old password may be left empty
+    if (!n1) { _toast('Please enter a new password', 'error'); return; }
     if (n1 !== n2) { _toast('New passwords do not match', 'error'); return; }
     var btn = document.getElementById('pwOk');
     btn.disabled = true; btn.textContent = 'Saving…';
@@ -322,16 +342,9 @@ function setAccent(a) {
     a = a || '';
     document.documentElement.setAttribute('data-accent', a);
     markAccent(a);
-    // Remember in the browser (also works for guests); the account preference below overrides it.
+    // The theme (light/dark + accent) is stored client-side only — never sent to the server,
+    // so every device keeps its own.
     try { document.cookie = 'leaf_accent=' + a + '; path=/; max-age=31536000'; } catch (e) {}
-    // Persist to the server account (incognito/webview cannot keep client storage)
-    if (!IS_GUEST && window.fetch) {
-        fetch('/api/account/theme', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ accent: a })
-        }).catch(function () {});
-    }
 }
 function onLangChange() {
     var sel = document.getElementById('langSel');
@@ -360,6 +373,9 @@ function loadMe() {
             if (!d || typeof d !== 'object' || !d.success) return;
             var role = d.role || myRole || '';
             setTxt('rowServer', d.server_url || window.location.origin);
+            // 提醒放在 rowServer 之外：它是复制按钮的取值来源，提示文字不能被复制进去
+            var _srvWarn = document.getElementById('rowServerLanWarn');
+            if (_srvWarn) _srvWarn.style.display = (d.server_has_lan === false ? '' : 'none');
             var name = d.username || (role === 'guest' ? 'Guest' : '');
             setTxt('rowUser', name || 'Guest');
             setTxt('accName', name || 'Guest');
@@ -410,6 +426,35 @@ document.getElementById('logoutBtn').addEventListener('click', function () {
     };
     xhr.send('');
 });
+// Brute-force protection alert for shares (signed-in users only)
+if (!IS_GUEST) {
+    (function () {
+        fetch('/api/share/status').then(function (r) { return r.json(); }).then(function (st) {
+            if (!st || (!st.global_active && !st.ip_locked && !st.failed_today)) return;
+            var msgs = [];
+            if (st.global_active) msgs.push('⚠️ Your share page may be under brute-force attack and is temporarily locked');
+            if (st.ip_locked) msgs.push(st.ip_locked + ' suspicious IP(s) locked');
+            if (st.failed_today) msgs.push(st.failed_today + ' failed attempt(s) today');
+            var bar = document.createElement('div');
+            bar.style.cssText = 'position:relative;z-index:5;margin:0 auto 12px;max-width:1100px;padding:10px 14px;border-radius:10px;background:rgba(208,86,107,.10);border:1px solid rgba(208,86,107,.4);color:#b03a50;font-size:13px;line-height:1.7;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
+            var txt = document.createElement('span');
+            txt.style.cssText = 'flex:1';
+            txt.textContent = msgs.join(' · ');
+            var btn = document.createElement('button');
+            btn.textContent = 'Reset now';
+            btn.style.cssText = 'border:0;background:#b03a50;color:#fff;border-radius:999px;padding:6px 16px;font-size:12px;font-weight:600;cursor:pointer';
+            btn.onclick = function () {
+                fetch('/api/share/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+                  .then(function (r) { return r.json(); }).then(function (d) {
+                    if (d && d.success) { bar.remove(); if (window._toast) window._toast('Reset done', 'success'); }
+                  }).catch(function () {});
+            };
+            bar.appendChild(txt); bar.appendChild(btn);
+            var app = document.querySelector('.app') || document.body;
+            app.insertBefore(bar, app.firstChild);
+        }).catch(function () {});
+    })();
+}
 </script>
 </body>
 </html>

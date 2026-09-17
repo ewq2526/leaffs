@@ -236,6 +236,13 @@ a:hover { text-decoration: underline; }
     .header { padding: 12px 0 16px; }
     .header .info { gap: 16px; }
     .dark-toggle { width: 34px; height: 34px; font-size: 17px; }
+    /* 浏览页的 header 比别的页多一个统计块，且按钮已移出 .info：
+       宽屏（flex + space-between）下让「统计 + 按钮」整体靠右，
+       否则 space-between 会把统计甩到正中间。
+       ⚠️ 只能待在宽屏块里 —— 窄屏 .header-stats 是 grid，grid 项的 auto 外边距
+       会吃掉自由空间、且让它不被拉伸，于是缩成 fit-content 被推到格子右侧
+       （实测小字左端空一截、跟标题对不齐）。 */
+    .header-stats .info { margin-left: auto; }
 }
 
 /* ========== 导航 ========== */
@@ -281,23 +288,36 @@ a:hover { text-decoration: underline; }
     .nav-bar a { padding: 6px 14px; font-size: 13px; }
 }
 
-/* 手机适配：标题大字后紧跟状态；放不下时只留圆点 */
+/* 手机适配：第一行固定「标题 + 已连接 …… 主题按钮」，统计信息单独占第二行 ——
+   header 本身不换行（主题按钮是常用操作，要一直在顶部）；h1 也不换行，
+   放不下时标题自己截断（.ht 有省略号）、已连接保持完整。
+   info 竖排、子项拉伸到容器宽度，长统计文字在自己那行内部换行。
+   踩过的两个坑：① info 子项默认 min-width:auto 不可收缩，会把标题挤成一个字；
+   ② column 容器配 align-items:flex-end 时子项按内容宽度排，长统计会直接撑破
+   header 把主题按钮推出屏幕 —— 所以用 stretch，再让按钮自己 align-self 靠右。 */
 @media (max-width: 767px) {
-    .header { flex-wrap: nowrap; }
-    .header h1 { flex: 1; min-width: 0; font-size: 16px; }
+    .header { flex-wrap: nowrap; align-items: flex-start; }
+    .header h1 { flex: 1 1 auto; min-width: 6em; font-size: 16px; }
     .header h1 .ht { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .header h1 .ws-status { flex-shrink: 0; }
-    .header .info { flex-wrap: nowrap; gap: 6px; flex-shrink: 0; min-width: 0; }
+    .header .info { flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 4px; min-width: 0; }
+    .header .info > * { min-width: 0; overflow-wrap: anywhere; text-align: right; }
+    /* 按钮提到最上（跟标题同一行）且不拉伸，自己靠右 */
+    .header .info > .dark-toggle { order: -1; align-self: flex-end; }
+    /* 浏览页的 header 里同时有标题、统计、主题按钮三样，用 grid 明确分区：
+       第一行「标题 + 已连接 …… 按钮」，第二行统计。靠 flex 自动分配时按钮和统计
+       互相挤，怎么调都有一头顾不住（实测按钮被挤出屏幕）。 */
+    .header-stats { display: grid; grid-template-columns: 1fr auto;
+                    grid-template-areas: "h1 btn" "stats stats";
+                    align-items: center; row-gap: 4px; }
+    .header-stats h1 { grid-area: h1; min-width: 0; }
+    .header-stats .info { grid-area: stats; flex-direction: row; align-items: center;
+                          justify-content: flex-start; flex-wrap: wrap; gap: 8px; min-width: 0; }
+    /* 左对齐、跟标题同一起点（否则右对齐会在右边空一截） */
+    .header-stats .info > * { min-width: 0; overflow-wrap: anywhere; text-align: left; }
+    .header-stats .dark-toggle { grid-area: btn; }
     .nav-bar { flex-wrap: wrap; }
     .nav-bar a { white-space: nowrap; }
-}
-/* 空间不足：隐藏“已连接”文字，只保留圆点 */
-@media (max-width: 379px) {
-    .header h1 .ws-status #wsLabel { display: none; }
-}
-@media (max-width: 479px) {
-    .header h1 .ws-status #dlWsLabel,
-    .header h1 .ws-status #dlAriaLabel { display: none; }
 }
 
 /* ========== 面包屑 ========== */
@@ -656,13 +676,6 @@ input[type=file] { display: none; }
 /* 文件夹特殊样式（网格） */
 .file-card.folder .icon { color: var(--primary); }
 .file-card.folder .name { color: var(--primary); }
-.file-card.folder .folder-link {
-    display: block;
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    z-index: 1;
-    border-radius: var(--radius);
-}
 
 .file-card .mtime {
     display: none;
@@ -689,9 +702,6 @@ input[type=file] { display: none; }
     border-color: var(--upload-zone-dash);
 }
 .file-card.list-item:active { transform: none; }
-.file-card.list-item.folder .folder-link {
-    display: none;
-}
 
 .file-card.list-item .checkbox {
     position: static;
@@ -780,19 +790,9 @@ input[type=file] { display: none; }
     white-space: nowrap;
 }
 
-/* 列表视图：文件夹打开需要点击其他地方 */
+/* 列表视图：文件夹卡片同样点即选中 */
 .file-card.list-item.folder {
     cursor: pointer;
-}
-.file-card.list-item.folder .folder-link {
-    display: none;
-}
-.file-card.list-item.folder .folder-open-area {
-    display: block;
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    z-index: 1;
-    border-radius: var(--radius-sm);
 }
 
 @media (min-width: 768px) {
@@ -1441,33 +1441,45 @@ input[type=file] { display: none; }
 }
 
 /* ============================================================
-   缩略图加载中提示（图片/视频封面未就绪时显示“加载中”）
+   缩略图（图片/视频封面）
+   占位图标先摆在那儿，图片在后台下载：成功才淡入盖住图标，失败静默重试，
+   彻底失败就一直保持图标 —— 全程没有“加载中”这类中间状态。
+   图片不能用 display:none 藏（带 loading="lazy" 时根本不会开始下载），所以用 opacity:0。
    ============================================================ */
 .thumb-wrap { position: relative; display: inline-block; flex-shrink: 0; }
+
+/* 浏览页卡片 */
 .file-card .thumb-wrap { width: 60px; height: 60px; margin: 2px 0 4px; }
-.file-card .thumb-wrap .preview-thumb { width: 56px; height: 56px; margin: 0; display: block; }
-.file-card .thumb-wrap .thumb-loading {
-    position: absolute; top: 0; left: 0; width: 56px; height: 56px;
+.file-card .thumb-wrap .icon {
     display: flex; align-items: center; justify-content: center;
-    font-size: 10px; color: var(--text-light); background: var(--chip-bg);
-    border-radius: var(--radius-sm); pointer-events: none;
+    width: 56px; height: 56px; margin: 0; font-size: 26px;
 }
+.file-card .thumb-wrap .preview-thumb {
+    position: absolute; top: 0; left: 0; width: 56px; height: 56px;
+    margin: 0; display: block; opacity: 0; transition: opacity .18s;
+}
+.file-card .thumb-wrap .preview-thumb.loaded { opacity: 1; }
 .file-card.list-item .thumb-wrap { width: 32px; height: 32px; margin: 0; }
-.file-card.list-item .thumb-wrap .preview-thumb,
-.file-card.list-item .thumb-wrap .thumb-loading { width: 28px; height: 28px; border-radius: 4px; }
+.file-card.list-item .thumb-wrap .icon { width: 28px; height: 28px; font-size: 16px; }
+.file-card.list-item .thumb-wrap .preview-thumb { width: 28px; height: 28px; border-radius: 4px; }
 @media (min-width: 768px) {
     .file-card.list-item .thumb-wrap { width: 36px; height: 36px; }
-    .file-card.list-item .thumb-wrap .preview-thumb,
-    .file-card.list-item .thumb-wrap .thumb-loading { width: 32px; height: 32px; }
+    .file-card.list-item .thumb-wrap .icon { width: 32px; height: 32px; }
+    .file-card.list-item .thumb-wrap .preview-thumb { width: 32px; height: 32px; }
 }
-.gallery-item .thumb-wrap { display: block; width: 100%; height: 86px; margin-bottom: 6px; }
-.gallery-item .thumb-wrap .thumb { width: 100%; height: 80px; margin: 0; }
-.gallery-item .thumb-wrap .thumb-loading {
-    position: absolute; top: 0; left: 0; width: 100%; height: 80px;
+
+/* 预览页网格 */
+.gallery-item .thumb-wrap { position: relative; display: block; width: 100%; height: 86px; margin-bottom: 6px; }
+.gallery-item .thumb-wrap .icon-large {
     display: flex; align-items: center; justify-content: center;
-    font-size: 11px; color: var(--text-light); background: var(--chip-bg);
-    border-radius: var(--radius-sm); pointer-events: none;
+    width: 100%; height: 80px; font-size: 40px; cursor: pointer;
 }
+.gallery-item .thumb-wrap .thumb {
+    position: absolute; top: 0; left: 0; width: 100%; height: 80px; margin: 0;
+    object-fit: cover; border-radius: var(--radius-sm); cursor: pointer;
+    opacity: 0; transition: opacity .18s;
+}
+.gallery-item .thumb-wrap .thumb.loaded { opacity: 1; }
 
 /* ============================================================
    卡片 — 玻璃半透明 + 从外到内淡渐变（配色与按钮同主题）
@@ -1715,3 +1727,7 @@ input[type=file] { display: none; }
     --orb2: rgba(180,65,75,.36);
     --orb3: rgba(160,55,65,.22);
 }
+
+/* 文件卡片选中态（点卡片即选择） */
+.file-card.sel{border-color:var(--primary,#0ea5e9)!important;box-shadow:0 0 0 1.5px var(--primary,#0ea5e9) inset,var(--shadow-hover)}
+

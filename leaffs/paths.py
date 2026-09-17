@@ -50,15 +50,40 @@ else:
 PROJECT_DIR = APP_DIR  # 兼容旧名：项目/应用根目录
 
 UPLOAD_DIR = os.path.join(PROJECT_DIR, 'shared_files')   # 共享上传数据
+# 上传临时目录（LF-22）：上传先写临时文件、全部字节成功后 os.replace 原子落位。
+# 临时文件**必须落在用户看不见的地方** —— 原先写成 `<目标>.part.<线程id>.<纳秒>` 直接躺在
+# 共享目录里，于是它出现在文件列表、搜索、文件夹大小统计里，还能被直链下载
+# （用户看到的就是"一个正在写入、大小还在涨的怪文件"，而删它会被 Windows 的写句柄挡住）。
+# 放在 UPLOAD_DIR 之下而不是 CACHE_DIR：os.replace 要求同盘（CACHE_DIR 同盘但不保证），
+# 且这样它对配额口径的影响与原来一致。
+UPLOAD_TMP_DIRNAME = '.uploads'
+UPLOAD_TMP_DIR = os.path.join(UPLOAD_DIR, UPLOAD_TMP_DIRNAME)
 CACHE_DIR = os.path.join(PROJECT_DIR, '.cache')          # 缩略图/文件夹大小等缓存
 THUMB_DIR = os.path.join(CACHE_DIR, 'thumbs')
 CONFIG_DIR = os.path.join(PROJECT_DIR, 'config')         # 服务端/下载器/账号等运行配置
 
 # 数据根运行目录即时确保存在（原 ut_core import 期行为，语义不变）
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(UPLOAD_TMP_DIR, exist_ok=True)   # 上传临时目录（对用户不可见，见上）
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(THUMB_DIR, exist_ok=True)
 os.makedirs(CONFIG_DIR, exist_ok=True)
+
+
+def is_upload_tmp_entry(name):
+    """目录项名是否就是上传临时目录本身（列表/扫描时用它跳过）"""
+    return name == UPLOAD_TMP_DIRNAME
+
+
+def is_upload_tmp_relpath(rel):
+    """相对共享根的路径是否落在上传临时目录里。
+
+    判定收在**这一个地方**：所有面向用户的读取路径（列表 / 搜索 / 下载 / 缩略图 /
+    文件夹大小统计）都调它。各处各写一份条件的写法必然漏掉某一处 —— `.part` 当初
+    就是这么漏出来的（写的时候只想着"上传"，没想过列表和搜索也在读同一个目录）。
+    """
+    r = (rel or '').replace('\\', '/').strip('/')
+    return r == UPLOAD_TMP_DIRNAME or r.startswith(UPLOAD_TMP_DIRNAME + '/')
 
 
 def find_bundled_exe(name):

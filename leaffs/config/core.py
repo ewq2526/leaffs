@@ -78,7 +78,7 @@ _session_expiry_days = 30
 # IC-CFG（定稿修订 R3；与 §4 冲突处以 R3 为准）：新增安全配置键及默认值。
 # 说明：D1 采用 R1 拍板值 guest 可新建但禁覆盖/删除（上传自动改名由 fs_core 落盘处实现）；
 # D5 采用 R1「保守加固」，auto_trust_ca 默认 true（同指纹 no-op、同名异指纹并存新名）。
-_guest_public_write = True            # D1/R1：guest 是否允许在 public[/子目录] 下新建文件
+_guest_public_write = False           # D1/R1：guest 是否允许在 public[/子目录] 下新建文件（默认关）
 _downloader_guest_allowed = False     # D2：guest 是否允许使用 URL 下载器（默认禁用）
 # CA 信任策略（用户决定制 v2，2026-09-03 拍板）：默认 false = 绝不自动安装、绝不主动询问，
 # 仅引导页(8082)手动安装（指纹+一次性接入码）；置 true = 首次启动询问一次（交互 y/N），
@@ -119,73 +119,69 @@ def load_config():
             # max_concurrent=10 是旧全局槽时代的过期值，不再读取 —— UI“并发数”回显
             # 恒镜像真实上限（见 _max_concurrent = _max_total_conns 与
             # update_concurrent_limit/get_max_concurrent），保证“显示即真实、改了即生效”。
-            _max_total_conns = max(1, int(cfg.get('max_total_conns', 256)))
+            _max_total_conns = _clamp_num(cfg.get('max_total_conns', 256), 8, 20000)
             _max_concurrent = _max_total_conns
-            try:
-                _io_idle_timeout_secs = max(1.0, float(cfg.get('io_idle_timeout_secs', 120.0)))
-            except (TypeError, ValueError):
-                _io_idle_timeout_secs = 120.0
+            _io_idle_timeout_secs = _clamp_num(cfg.get('io_idle_timeout_secs', 120.0),
+                                               1.0, 3600.0, float)
             _speed_limit = cfg.get('download_speed_limit', 0)
             if 'auth_enabled' in cfg:
-                _guest_mode = not bool(cfg['auth_enabled'])
+                _guest_mode = not _to_bool(cfg['auth_enabled'])
             else:
-                _guest_mode = cfg.get('guest_mode', False)
+                _guest_mode = _to_bool(cfg.get('guest_mode', False))
             _user_quota = cfg.get('user_quota', 5368709120)
             _public_quota = cfg.get('public_quota', 5368709120)
             _total_quota = cfg.get('total_quota', 53687091200)
             if 'http_port' in cfg:
-                PORT = int(cfg['http_port'])
+                PORT = _clamp_num(cfg['http_port'], 1024, 65535)
             if 'ws_port' in cfg:
-                WS_PORT = int(cfg['ws_port'])
-            # B-11 载入钳制：配置文件被手改低于下限也不生效（钳到下限，save_config 按钳制后值写回）
-            _pbkdf2_iterations = max(PBKDF2_ITER_MIN, int(cfg.get('pbkdf2_iterations', 600000)))
-            _salt_length = max(SALT_LEN_MIN, int(cfg.get('salt_length', 32)))
-            _thumb_sample_ratio = cfg.get('thumb_sample_ratio', 0.1)
-            _thumb_miss_threshold = cfg.get('thumb_miss_threshold', 0.05)
-            _thumb_scan_batch = cfg.get('thumb_scan_batch', 100)
-            _thumb_scan_interval = cfg.get('thumb_scan_interval', 0.5)
-            _upload_max_size = cfg.get('upload_max_size', 10 * 1024 * 1024 * 1024)
-            _copy_buffer_size = cfg.get('copy_buffer_size', 16 * 1024 * 1024)
-            _cache_max_items = cfg.get('cache_max_items', 50)
-            _cache_ttl = cfg.get('cache_ttl', 5)
-            _folder_size_ttl = cfg.get('folder_size_ttl', 5)
-            _debounce_delay = cfg.get('debounce_delay', 2.0)
-            _max_api_body_size = cfg.get('max_api_body_size', 1 * 1024 * 1024)
-            _preview_max_size = cfg.get('preview_max_size', 10 * 1024 * 1024)
-            _session_expiry_days = cfg.get('session_expiry_days', 30)
-            _upload_chunk = cfg.get('upload_chunk', 1 * 1024 * 1024)
-            _zip_max_files = cfg.get('zip_max_files', 500)
+                WS_PORT = _clamp_num(cfg['ws_port'], 1024, 65535)
+            # B-11 载入钳制：配置文件被手改到区间外也不生效（钳到边界，save_config 按钳制后值写回）
+            _pbkdf2_iterations = _clamp_num(cfg.get('pbkdf2_iterations', 600000),
+                                            PBKDF2_ITER_MIN, 10000000)
+            _salt_length = _clamp_num(cfg.get('salt_length', 32), SALT_LEN_MIN, 64)
+            _thumb_sample_ratio = _clamp_num(cfg.get('thumb_sample_ratio', 0.1), 0.001, 1.0, float)
+            _thumb_miss_threshold = _clamp_num(cfg.get('thumb_miss_threshold', 0.05), 0.001, 1.0, float)
+            _thumb_scan_batch = _clamp_num(cfg.get('thumb_scan_batch', 100), 1, 10000)
+            _thumb_scan_interval = _clamp_num(cfg.get('thumb_scan_interval', 0.5), 0.01, 60.0, float)
+            _upload_max_size = _clamp_num(cfg.get('upload_max_size', 10 * 1024 * 1024 * 1024), 0, 1 << 40)
+            _copy_buffer_size = _clamp_num(cfg.get('copy_buffer_size', 16 * 1024 * 1024), 4096, 16 << 20)
+            _cache_max_items = _clamp_num(cfg.get('cache_max_items', 50), 0, 100000)
+            _cache_ttl = _clamp_num(cfg.get('cache_ttl', 5), 0, 86400)
+            _folder_size_ttl = _clamp_num(cfg.get('folder_size_ttl', 5), 0, 86400)
+            _debounce_delay = _clamp_num(cfg.get('debounce_delay', 2.0), 0.0, 60.0, float)
+            _max_api_body_size = _clamp_num(cfg.get('max_api_body_size', 1 * 1024 * 1024), 4096, 64 << 20)
+            _preview_max_size = _clamp_num(cfg.get('preview_max_size', 10 * 1024 * 1024), 0, 1 << 30)
+            _session_expiry_days = _clamp_num(cfg.get('session_expiry_days', 30), 1, 3650)
+            _upload_chunk = _clamp_num(cfg.get('upload_chunk', 1 * 1024 * 1024), 4096, 16 << 20)
+            _zip_max_files = _clamp_num(cfg.get('zip_max_files', 500), 0, 100000)
             _zip_streaming = _to_bool(cfg.get('zip_streaming', True))
-            _tls_enabled = bool(cfg.get('tls_enabled', True))
+            _tls_enabled = _to_bool(cfg.get('tls_enabled', True))
             _tls_cert = str(cfg.get('tls_cert', '') or '')
             _tls_key = str(cfg.get('tls_key', '') or '')
-            _tls_trust_port = int(cfg.get('tls_trust_port', 8082))
-            _guest_public_write = bool(cfg.get('guest_public_write', True))
-            _downloader_guest_allowed = bool(cfg.get('downloader_guest_allowed', False))
-            _auto_trust_ca = bool(cfg.get('auto_trust_ca', False))
+            _tls_trust_port = _clamp_num(cfg.get('tls_trust_port', 8082), 1024, 65535)
+            _guest_public_write = _to_bool(cfg.get('guest_public_write', False))
+            _downloader_guest_allowed = _to_bool(cfg.get('downloader_guest_allowed', False))
+            _auto_trust_ca = _to_bool(cfg.get('auto_trust_ca', False))
             _ca_trust_decision = cfg.get('ca_trust_decision', 'unset')
             if _ca_trust_decision not in ('unset', 'accepted', 'declined'):
                 _ca_trust_decision = 'unset'
             _trust_bind_host = str(cfg.get('trust_bind_host', '0.0.0.0') or '0.0.0.0').strip() or '0.0.0.0'
-            _ca_validity_days = max(1, int(cfg.get('ca_validity_days', 730)))
-            _max_conn_per_ip = max(1, int(cfg.get('max_conn_per_ip', 20)))
-            _ws_max_conn_per_ip = max(1, int(cfg.get('ws_max_conn_per_ip', 8)))
-            _access_log = bool(cfg.get('access_log', True))
-            _harden_config_acls_enabled = bool(cfg.get('harden_config_acls', False))
+            _ca_validity_days = _clamp_num(cfg.get('ca_validity_days', 730), 1, 36500)
+            _max_conn_per_ip = _clamp_num(cfg.get('max_conn_per_ip', 20), 1, 1000)
+            _ws_max_conn_per_ip = _clamp_num(cfg.get('ws_max_conn_per_ip', 8), 1, 256)
+            _access_log = _to_bool(cfg.get('access_log', True))
+            _harden_config_acls_enabled = _to_bool(cfg.get('harden_config_acls', False))
     except Exception:
         pass
-    save_config()
-    sync_all_constants()
-    import logging
-    logging.getLogger('wifi_convey').info('配置已加载（共 %d 项）', len(get_deep_config_dict()))
-
-
-def save_config():
-    # 整个写配置过程加锁（RLock 可重入：apply_deep_config/set_tls_enabled 等调用方
-    # 已持锁时也能正常进入），临时文件名按线程唯一，写完原子替换，
-    # 避免多线程并发写同一临时文件导致配置损坏。
-    with _config_lock:
-        cfg = {
+    # 载入时被钳制/归一过的键：盘上的值跟我们实际用的不一致 —— 那是**我们改的**。
+    # 真机上配置改错了救不回来，所以这里先备份原文件、再记一条明确的日志，
+    # 绝不静默改用户配置（备份文件是 server_config.json.bak，只在下一次钳制时覆盖）。
+    drift = []
+    try:
+        # 覆盖**我们管理的全部键**（与 save_config 写出的那份同源，12 + 30 个），
+        # 且比较**盘上的原值**而不是归一后的值 —— 否则 `'false'` / `'8082'` 这种
+        # "语义等价、类型不对"的值永远不会被判定成 drift，也就永远不会被修正。
+        _managed = {
             'max_concurrent': _max_concurrent,
             'download_speed_limit': _speed_limit,
             'guest_mode': _guest_mode,
@@ -196,17 +192,126 @@ def save_config():
             'tls_cert': _tls_cert,
             'tls_key': _tls_key,
             'tls_trust_port': _tls_trust_port,
+            'http_port': PORT,
+            'ws_port': WS_PORT,
         }
-        deep_cfg = get_deep_config_dict()
-        cfg.update(deep_cfg)
-        save_ports_to_config(cfg)
+        _managed.update(get_deep_config_dict())
+        drift = [(k, cfg[k], v) for k, v in _managed.items() if k in cfg and cfg[k] != v]
+    except Exception:
+        drift = []
+    if drift:
         try:
-            tmp = f"{CONFIG_FILE}.{threading.get_ident()}.tmp"
-            with open(tmp, 'w') as f:
-                json.dump(cfg, f, indent=2)
-            os.replace(tmp, CONFIG_FILE)
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, 'rb') as _src:
+                    _raw = _src.read()
+                with open(CONFIG_FILE + '.bak', 'wb') as _dst:
+                    _dst.write(_raw)
         except Exception:
             pass
+        _detail = '; '.join('%s: %r -> %r' % (k, o, n) for k, o, n in drift)
+        try:
+            import logging as _lg
+            _lg.getLogger('wifi_convey').warning(
+                '配置载入时被钳制/归一（原文件已备份为 %s.bak）：%s',
+                os.path.basename(CONFIG_FILE), _detail)
+        except Exception:
+            pass
+        # 再写进**运行日志**（leaffs.log）—— 那才是管理页日志页能看到的地方
+        try:
+            from leaffs.runtime_log import add_log as _ral
+            _ral('配置载入时被钳制/归一（原文件已备份为 server_config.json.bak）：' + _detail,
+                 'warn')
+        except Exception:
+            pass
+    if drift:
+        # **只把被钳制的那几个键写回**，绝不整份重写 —— 全量写回会连带抹掉我们不认识的键
+        # （用户手加的、将来版本才有的），那等于替用户重写配置。
+        # 原子替换（tmp + os.replace）保持不变；写失败要说话，不能静默。
+        try:
+            try:
+                with open(CONFIG_FILE, 'r', encoding='utf-8') as _rf:
+                    _disk = json.load(_rf)
+                if not isinstance(_disk, dict):
+                    _disk = {}
+            except Exception:
+                _disk = {}
+            for _k, _old, _new in drift:
+                _disk[_k] = _new
+            _tmp = '%s.%d.tmp' % (CONFIG_FILE, threading.get_ident())
+            with open(_tmp, 'w', encoding='utf-8') as _wf:
+                json.dump(_disk, _wf, indent=2)
+            os.replace(_tmp, CONFIG_FILE)
+        except Exception:
+            try:
+                import logging as _lg3
+                _lg3.getLogger('wifi_convey').warning(
+                    '配置钳制写回失败（原值仍在 %s.bak 里）', os.path.basename(CONFIG_FILE))
+            except Exception:
+                pass
+    elif not os.path.exists(CONFIG_FILE):
+        # 首次启动：盘上还没有配置文件，生成一份完整的
+        save_config()
+    sync_all_constants()
+    import logging
+    logging.getLogger('wifi_convey').info('配置已加载（共 %d 项）', len(get_deep_config_dict()))
+
+
+def save_config():
+    """把运行时配置写回 `server_config.json`；返回是否写成功。
+
+    **读-改-写**：先读盘上的 dict，只覆盖我们自己管理的那些键，其余**原样保留** ——
+    从内存变量整份重建再覆盖，会抹掉我们不认识的键（用户手加的、将来版本才有的），
+    等于替用户重写配置。
+
+    写失败**不能静默**：磁盘满 / 权限不足 / 文件被占用都会让配置停在内存里、
+    下次重启就没了。调用方拿到 False 必须如实回给用户，不能让接口回 success。
+    临时文件 + `os.replace` 保持原子替换（多线程并发写同一临时文件的问题照旧规避）。
+    """
+    with _config_lock:
+        # 1) 读盘上的现状（读不到就当空：首次启动，或文件坏了）
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as _rf:
+                disk = json.load(_rf)
+            if not isinstance(disk, dict):
+                disk = {}
+        except Exception:
+            disk = {}
+        # 2) 只覆盖我们管理的键，其它键原样留着
+        disk['max_concurrent'] = _max_concurrent
+        disk['download_speed_limit'] = _speed_limit
+        disk['guest_mode'] = _guest_mode
+        disk['user_quota'] = _user_quota
+        disk['public_quota'] = _public_quota
+        disk['total_quota'] = _total_quota
+        disk['tls_enabled'] = _tls_enabled
+        disk['tls_cert'] = _tls_cert
+        disk['tls_key'] = _tls_key
+        disk['tls_trust_port'] = _tls_trust_port
+        save_ports_to_config(disk)
+        disk.update(get_deep_config_dict())
+        # 3) 原子写回
+        tmp = '%s.%d.tmp' % (CONFIG_FILE, threading.get_ident())
+        try:
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(disk, f, indent=2)
+            os.replace(tmp, CONFIG_FILE)
+            return True
+        except Exception:
+            try:
+                os.remove(tmp)
+            except Exception:
+                pass
+            try:
+                import logging as _lg
+                _lg.getLogger('wifi_convey').exception('配置保存失败（本次改动没落盘）')
+            except Exception:
+                pass
+            try:
+                from leaffs.runtime_log import add_log as _ral
+                _ral('配置保存失败：本次改动只在内存里，重启后会丢', 'err')
+            except Exception:
+                pass
+            return False
 
 
 def get_speed_limit(): return _speed_limit
@@ -217,24 +322,27 @@ def get_total_quota(): return _total_quota
 
 
 def set_speed_limit(bytes_per_sec):
+    """设置限速；返回是否落盘成功（False = 只在内存里，重启后会丢）"""
     global _speed_limit
     _speed_limit = max(0, bytes_per_sec)
     _user_limiter._users.clear()
-    save_config()
+    return save_config()
 
 
 def set_guest_mode(val):
+    """切换游客模式；返回是否落盘成功"""
     global _guest_mode
     _guest_mode = bool(val)
-    save_config()
+    return save_config()
 
 
 def set_quotas(user_q=None, public_q=None, total_q=None):
+    """改配额；返回是否落盘成功"""
     global _user_quota, _public_quota, _total_quota
     if user_q is not None: _user_quota = int(user_q)
     if public_q is not None: _public_quota = int(public_q)
     if total_q is not None: _total_quota = int(total_q)
-    save_config()
+    return save_config()
 
 
 def get_pbkdf2_iterations(): return _pbkdf2_iterations
@@ -260,12 +368,12 @@ def get_tls_key(): return _tls_key
 def get_tls_trust_port(): return _tls_trust_port
 
 def set_tls_enabled(enabled):
-    """保存 TLS 开关（重启后由 run_http/run_ws 生效）"""
+    """保存 TLS 开关（重启后由 run_http/run_ws 生效）；返回是否落盘成功"""
     global _tls_enabled
     with _config_lock:
         _tls_enabled = bool(enabled)
-        save_config()
-    return True
+        ok = save_config()
+    return ok
 def get_session_expiry_days(): return _session_expiry_days
 
 def get_guest_public_write(): return _guest_public_write
@@ -281,8 +389,7 @@ def set_ca_trust_decision(value):
         if value not in ('unset', 'accepted', 'declined'):
             return False
         _ca_trust_decision = value
-        save_config()
-        return True
+        return save_config()
 def get_trust_bind_host(): return _trust_bind_host
 def get_ca_validity_days(): return _ca_validity_days
 def get_max_conn_per_ip(): return _max_conn_per_ip
@@ -337,12 +444,79 @@ def _to_bool(v):
     return bool(v)
 
 
+def _clamp_num(v, lo, hi, cast=int):
+    """配置文件**载入**时的容错钳制：值不合法就退回边界。
+
+    与 `apply_deep_config` 的拒绝式校验配套 —— 那边拒绝非法输入，这边保证"盘上被手改坏的
+    值"不会让服务带着非法状态跑起来（`upload_max_size` 为负、`max_total_conns` 为 0 之类）。
+    `load_config` 末尾的 `save_config()` 会把钳制后的值写回。
+    """
+    try:
+        v = cast(v)
+    except Exception:
+        return lo
+    if isinstance(v, float) and not math.isfinite(v):
+        return lo
+    return lo if v < lo else (hi if v > hi else v)
+
+
+# 深度配置的**已知键白名单**：不在此列的键一律拒绝。
+# 原来未知键不进任何 `if` 分支 → changed 一直是 False → 函数却照样 return True，
+# 接口回 {"success": true, "配置已更新"} —— 用户以为改成功了，其实什么都没发生。
+_DEEP_KNOWN_KEYS = frozenset((
+    'pbkdf2_iterations', 'salt_length',
+    'thumb_sample_ratio', 'thumb_miss_threshold', 'thumb_scan_batch', 'thumb_scan_interval',
+    'upload_max_size', 'copy_buffer_size', 'cache_max_items', 'cache_ttl', 'folder_size_ttl',
+    'debounce_delay', 'max_api_body_size', 'preview_max_size', 'upload_chunk', 'zip_max_files',
+    'zip_streaming', 'max_total_conns', 'io_idle_timeout_secs', 'session_expiry_days',
+    'guest_public_write', 'downloader_guest_allowed', 'auto_trust_ca', 'ca_trust_decision',
+    'access_log', 'trust_bind_host', 'ca_validity_days', 'max_conn_per_ip',
+    'ws_max_conn_per_ip', 'harden_config_acls',
+))
+
+
+def _deep_num(data, key, cast, lo, hi=None):
+    """取一个数值键并校验区间，返回 (值, 错误文案)。
+
+    越界一律**拒绝**，不做静默钳制 —— 钳制等于"用户提交 0、系统悄悄存成别的值"，
+    和"未知键假成功"是同一类毛病。hi=None 表示只限下限。
+    """
+    raw = data[key]
+    if isinstance(raw, bool):
+        # JSON 的 true/false 落到数值键上没有意义（int(True)==1），直接拒
+        return None, '%s 必须是数字' % key
+    try:
+        val = cast(raw)
+    except Exception:
+        return None, '%s 必须是数字' % key
+    if isinstance(val, float) and not math.isfinite(val):
+        return None, '%s 必须是有限数字' % key
+    if val < lo or (hi is not None and val > hi):
+        if hi is None:
+            return None, '%s 不得低于 %s' % (key, lo)
+        return None, '%s 必须在 %s~%s 之间' % (key, lo, hi)
+    return val, None
+
+
+def _deep_bool(data, key):
+    """取一个布尔键，只接受 JSON 的 true/false。
+
+    配置文件那边仍用宽松的 `_to_bool`（历史落盘值可能是字符串），但 API 输入要严格：
+    否则 `access_log: "garbage"` 会被静默当成 False —— 又是一种"假成功"。
+    """
+    v = data[key]
+    if isinstance(v, bool):
+        return v, None
+    return None, '%s 必须是 true 或 false' % key
+
+
 def apply_deep_config(data):
-    """应用深度配置并返回 (ok: bool, err: str)。
+    """应用深度配置并返回 (ok: bool, err: str, changed: bool)。
 
     B-11：pbkdf2_iterations 低于 PBKDF2_ITER_MIN / salt_length 低于 SALT_LEN_MIN →
     返回 (False, 具体文案) 且本次整体失败（不落任何键、不落盘），由 cfg_api 转 400。
-    全部通过才保存并同步运行时常量；成功返回 (True, '')。
+    全部通过才保存并同步运行时常量；成功返回 (True, '', changed)。
+    未知键一律拒绝（不静默忽略）；数值键越界一律拒绝（不静默钳制）。
     """
     with _config_lock:
         global _pbkdf2_iterations, _salt_length
@@ -357,134 +531,170 @@ def apply_deep_config(data):
         global _ca_trust_decision
         global _harden_config_acls_enabled
         global _max_total_conns, _max_concurrent, _io_idle_timeout_secs
-        # B-11 下限预检：任一违规 → 整体失败，本次不应用任何键
-        if 'pbkdf2_iterations' in data:
-            try:
-                _chk = int(data['pbkdf2_iterations'])
-            except Exception:
-                return False, 'pbkdf2_iterations 必须是整数'
-            if _chk < PBKDF2_ITER_MIN:
-                return False, 'pbkdf2_iterations 不得低于 %d' % PBKDF2_ITER_MIN
-        if 'salt_length' in data:
-            try:
-                _chk = int(data['salt_length'])
-            except Exception:
-                return False, 'salt_length 必须是整数'
-            if _chk < SALT_LEN_MIN:
-                return False, 'salt_length 不得低于 %d' % SALT_LEN_MIN
+        if not isinstance(data, dict):
+            return False, '请求体必须是 JSON 对象', False
+        unknown = sorted(k for k in data if k not in _DEEP_KNOWN_KEYS)
+        if unknown:
+            return False, '未知配置项：' + '、'.join(unknown), False
         changed = False
+        # B-11：pbkdf2_iterations / salt_length 只限下限 —— 下调口令哈希强度必须整体失败，
+        # 不落任何键、不改运行时值。
         if 'pbkdf2_iterations' in data:
-            _pbkdf2_iterations = int(data['pbkdf2_iterations']); changed = True
+            # 下限是 B-11（不得下调哈希强度）；上限防"设成天文数字让每次登录卡死"
+            val, err = _deep_num(data, 'pbkdf2_iterations', int, PBKDF2_ITER_MIN, 10000000)
+            if err: return False, err, False
+            _pbkdf2_iterations = val; changed = True
         if 'salt_length' in data:
-            _salt_length = int(data['salt_length']); changed = True
+            val, err = _deep_num(data, 'salt_length', int, SALT_LEN_MIN, 64)
+            if err: return False, err, False
+            _salt_length = val; changed = True
+        # 这四个原来写成 `if 0.001 <= val <= 1.0: 赋值` —— 越界**静默丢掉**、连错都不报，
+        # 而 float()/int() 没包 try 时类型错误又会 500。统一改成拒绝式。
         if 'thumb_sample_ratio' in data:
-            val = float(data['thumb_sample_ratio'])
-            if 0.001 <= val <= 1.0: _thumb_sample_ratio = val; changed = True
+            val, err = _deep_num(data, 'thumb_sample_ratio', float, 0.001, 1.0)
+            if err: return False, err, False
+            _thumb_sample_ratio = val; changed = True
         if 'thumb_miss_threshold' in data:
-            val = float(data['thumb_miss_threshold'])
-            if 0.001 <= val <= 1.0: _thumb_miss_threshold = val; changed = True
+            val, err = _deep_num(data, 'thumb_miss_threshold', float, 0.001, 1.0)
+            if err: return False, err, False
+            _thumb_miss_threshold = val; changed = True
         if 'thumb_scan_batch' in data:
-            val = int(data['thumb_scan_batch'])
-            if 1 <= val <= 10000: _thumb_scan_batch = val; changed = True
+            val, err = _deep_num(data, 'thumb_scan_batch', int, 1, 10000)
+            if err: return False, err, False
+            _thumb_scan_batch = val; changed = True
         if 'thumb_scan_interval' in data:
-            val = float(data['thumb_scan_interval'])
-            if 0.01 <= val <= 60.0: _thumb_scan_interval = val; changed = True
+            val, err = _deep_num(data, 'thumb_scan_interval', float, 0.01, 60.0)
+            if err: return False, err, False
+            _thumb_scan_interval = val; changed = True
         if 'upload_max_size' in data:
-            _upload_max_size = max(0, int(data['upload_max_size'])); changed = True
+            # 0 = 不限制（页面文案如此）；非 0 时必须够大，否则等于把上传功能关掉
+            val, err = _deep_num(data, 'upload_max_size', int, 0, 1 << 40)
+            if err: return False, err, False
+            if 0 < val < (1 << 20):
+                return False, 'upload_max_size 取 0（不限制）或不小于 1 MiB', False
+            _upload_max_size = val; changed = True
         if 'copy_buffer_size' in data:
-            _copy_buffer_size = int(data['copy_buffer_size']); changed = True
+            val, err = _deep_num(data, 'copy_buffer_size', int, 4096, 16 << 20)
+            if err: return False, err, False
+            _copy_buffer_size = val; changed = True
+        # cache_* / folder_size_ttl：页面文案是「0 = 禁用缓存」→ 下限必须是 0 不是 1
         if 'cache_max_items' in data:
-            _cache_max_items = int(data['cache_max_items']); changed = True
+            val, err = _deep_num(data, 'cache_max_items', int, 0, 100000)
+            if err: return False, err, False
+            _cache_max_items = val; changed = True
         if 'cache_ttl' in data:
-            _cache_ttl = int(data['cache_ttl']); changed = True
+            val, err = _deep_num(data, 'cache_ttl', int, 0, 86400)
+            if err: return False, err, False
+            _cache_ttl = val; changed = True
         if 'folder_size_ttl' in data:
-            _folder_size_ttl = int(data['folder_size_ttl']); changed = True
+            val, err = _deep_num(data, 'folder_size_ttl', int, 0, 86400)
+            if err: return False, err, False
+            _folder_size_ttl = val; changed = True
         if 'debounce_delay' in data:
-            _debounce_delay = float(data['debounce_delay']); changed = True
+            val, err = _deep_num(data, 'debounce_delay', float, 0.0, 60.0)
+            if err: return False, err, False
+            _debounce_delay = val; changed = True
         if 'max_api_body_size' in data:
-            _max_api_body_size = int(data['max_api_body_size']); changed = True
+            val, err = _deep_num(data, 'max_api_body_size', int, 4096, 64 << 20)
+            if err: return False, err, False
+            _max_api_body_size = val; changed = True
         if 'preview_max_size' in data:
-            _preview_max_size = int(data['preview_max_size']); changed = True
+            val, err = _deep_num(data, 'preview_max_size', int, 0, 1 << 30)
+            if err: return False, err, False
+            _preview_max_size = val; changed = True
         if 'upload_chunk' in data:
-            _upload_chunk = max(4096, int(data['upload_chunk'])); changed = True
+            # 原来是 max(4096, int(...)) 静默钳制，且 int() 未包 try（类型错误 → 500）
+            val, err = _deep_num(data, 'upload_chunk', int, 4096, 16 << 20)
+            if err: return False, err, False
+            _upload_chunk = val; changed = True
         if 'zip_max_files' in data:
-            _zip_max_files = max(0, int(data['zip_max_files'])); changed = True
+            # 0 = 不限（页面文案如此）
+            val, err = _deep_num(data, 'zip_max_files', int, 0, 100000)
+            if err: return False, err, False
+            _zip_max_files = val; changed = True
         if 'zip_streaming' in data:
-            _zip_streaming = _to_bool(data['zip_streaming']); changed = True
+            val, err = _deep_bool(data, 'zip_streaming')
+            if err: return False, err, False
+            _zip_streaming = val; changed = True
         # R4：整机总连接/线程准入上限（无排队资源保护；改小可即时收紧、改大立即放量）。
         # UI“并发数”(max_concurrent) 回显随本值同步镜像，保证显示即真实。
         # 校验与 B-11（pbkdf2/salt）同模式：非法值整体失败(400)、不改运行时值、不落盘。
         if 'max_total_conns' in data:
-            try:
-                _chk = int(data['max_total_conns'])
-            except Exception:
-                return False, 'max_total_conns 必须在 1~20000 之间'
-            if _chk < 1 or _chk > 20000:
-                return False, 'max_total_conns 必须在 1~20000 之间'
-            _max_total_conns = _chk
-            _max_concurrent = _chk
+            # 下限 8：改成 1 会让服务**自锁** —— 连"改回来"的请求都抢不到连接槽，
+            # 全员 503 且改不回来（黑盒测试实测到过这个状态）。
+            val, err = _deep_num(data, 'max_total_conns', int, 8, 20000)
+            if err: return False, err, False
+            _max_total_conns = val
+            _max_concurrent = val
             changed = True
-        # R4：慢客户端写侧无进展超时（秒，>=1）；非法/非有限值整体失败(400)、不改值
+        # R4：慢客户端写侧无进展超时（秒，1~3600）；非法/非有限值整体失败(400)、不改值
         if 'io_idle_timeout_secs' in data:
-            try:
-                _chk = float(data['io_idle_timeout_secs'])
-            except Exception:
-                return False, 'io_idle_timeout_secs 必须 ≥1'
-            if not math.isfinite(_chk) or _chk < 1.0:
-                return False, 'io_idle_timeout_secs 必须 ≥1'
-            _io_idle_timeout_secs = _chk
+            val, err = _deep_num(data, 'io_idle_timeout_secs', float, 1.0, 3600.0)
+            if err: return False, err, False
+            _io_idle_timeout_secs = val
             changed = True
         if 'session_expiry_days' in data:
-            _session_expiry_days = int(data['session_expiry_days']); changed = True
+            val, err = _deep_num(data, 'session_expiry_days', int, 1, 3650)
+            if err: return False, err, False
+            _session_expiry_days = val; changed = True
         # IC-CFG（R3）新增键
         if 'guest_public_write' in data:
-            _guest_public_write = _to_bool(data['guest_public_write']); changed = True
+            val, err = _deep_bool(data, 'guest_public_write')
+            if err: return False, err, False
+            _guest_public_write = val; changed = True
         if 'downloader_guest_allowed' in data:
-            _downloader_guest_allowed = _to_bool(data['downloader_guest_allowed']); changed = True
+            val, err = _deep_bool(data, 'downloader_guest_allowed')
+            if err: return False, err, False
+            _downloader_guest_allowed = val; changed = True
         if 'auto_trust_ca' in data:
+            val, err = _deep_bool(data, 'auto_trust_ca')
+            if err: return False, err, False
             _old_auto = _auto_trust_ca
-            _auto_trust_ca = _to_bool(data['auto_trust_ca']); changed = True
+            _auto_trust_ca = val; changed = True
             if _auto_trust_ca and not _old_auto:
                 # 用户决定制：深度配置重新开启 = 重新同意 → 清除既往 declined，下次启动重新询问/安装
                 _ca_trust_decision = 'unset'
         if 'ca_trust_decision' in data:
+            # 原来是"取值不认识就静默丢掉"（还照样回 success）—— 改成明确拒绝
             _d = str(data['ca_trust_decision']).strip().lower()
-            if _d in ('unset', 'accepted', 'declined'):
-                _ca_trust_decision = _d; changed = True
+            if _d not in ('unset', 'accepted', 'declined'):
+                return False, 'ca_trust_decision 只能是 unset/accepted/declined', False
+            _ca_trust_decision = _d; changed = True
         if 'access_log' in data:
-            _access_log = _to_bool(data['access_log']); changed = True
+            val, err = _deep_bool(data, 'access_log')
+            if err: return False, err, False
+            _access_log = val; changed = True
         if 'trust_bind_host' in data:
+            # 只查"非空"不够：这个值会被拿去绑监听地址，必须是真正的 IP / 主机名
+            from leaffs.server.hosts import is_valid_host
             host = str(data['trust_bind_host']).strip()
             if not host:
-                return False, 'trust_bind_host 不能为空'
+                return False, 'trust_bind_host 不能为空', False
+            if not is_valid_host(host):
+                return False, 'trust_bind_host 不是合法的主机名或 IP', False
             _trust_bind_host = host; changed = True
         if 'ca_validity_days' in data:
-            try:
-                _ca_validity_days = max(1, int(data['ca_validity_days']))
-            except Exception:
-                return False, 'ca_validity_days 必须是整数'
-            changed = True
+            val, err = _deep_num(data, 'ca_validity_days', int, 1, 36500)
+            if err: return False, err, False
+            _ca_validity_days = val; changed = True
         if 'max_conn_per_ip' in data:
-            try:
-                _max_conn_per_ip = max(1, int(data['max_conn_per_ip']))
-            except Exception:
-                return False, 'max_conn_per_ip 必须是整数'
-            changed = True
+            val, err = _deep_num(data, 'max_conn_per_ip', int, 1, 1000)
+            if err: return False, err, False
+            _max_conn_per_ip = val; changed = True
         if 'ws_max_conn_per_ip' in data:
-            try:
-                _chk_ws = int(data['ws_max_conn_per_ip'])
-            except Exception:
-                return False, 'ws_max_conn_per_ip 必须是整数'
-            if _chk_ws < 1 or _chk_ws > 256:
-                return False, 'ws_max_conn_per_ip 必须在 1~256 之间'
-            _ws_max_conn_per_ip = _chk_ws
+            val, err = _deep_num(data, 'ws_max_conn_per_ip', int, 1, 256)
+            if err: return False, err, False
+            _ws_max_conn_per_ip = val
             changed = True
         if 'harden_config_acls' in data:
-            _harden_config_acls_enabled = _to_bool(data['harden_config_acls']); changed = True
+            val, err = _deep_bool(data, 'harden_config_acls')
+            if err: return False, err, False
+            _harden_config_acls_enabled = val; changed = True
         if changed:
-            save_config()
+            if not save_config():
+                return False, '保存失败：改动只在内存里，重启后会丢', False
             sync_all_constants()
-        return True, ''
+        return True, '', changed
 
 
 def sync_all_constants():
@@ -671,12 +881,17 @@ def update_concurrent_limit(new_max):
     """
     global _max_concurrent, _max_total_conns
     try:
-        new_max = max(1, int(new_max))
-        _max_total_conns = new_max
-        _max_concurrent = new_max
-        save_config()
-        return True, ''
-    except Exception as e: return False, str(e)
+        new_max = int(new_max)
+    except Exception:
+        return False, '并发数必须是整数'
+    # 下限与 apply_deep_config 对齐（8）：设成 1 会让服务**自锁**（连改回来的请求都抢不到槽）
+    if new_max < 8 or new_max > 20000:
+        return False, '并发数必须在 8~20000 之间'
+    _max_total_conns = new_max
+    _max_concurrent = new_max
+    if not save_config():
+        return False, '保存失败：改动只在内存里，重启后会丢'
+    return True, ''
 
 
 # 用户级共享限速器
@@ -789,7 +1004,8 @@ def set_ports(http_port=None, ws_port=None):
     if new_w == _tls_trust_port:
         return False, f'WebSocket 端口 {new_w} 与证书引导页端口重复'
     PORT, WS_PORT = new_p, new_w
-    save_config()
+    if not save_config():
+        return False, '保存失败：端口只在内存里，重启后仍是原端口'
     return True, '端口已保存，重启后生效'
 
 def set_tls_trust_port(port):
@@ -802,5 +1018,7 @@ def set_tls_trust_port(port):
         return False, '引导页端口不能与 HTTP/WebSocket 端口重复'
     with _config_lock:
         _tls_trust_port = port
-        save_config()
+        ok = save_config()
+    if not ok:
+        return False, '保存失败：引导页端口只在内存里，重启后仍是原端口'
     return True, '引导页端口已保存，重启后生效'

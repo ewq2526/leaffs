@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  长按浮层里的那张卡片（**只有卡片**）。外层是一层**全屏透明遮罩**，由
+  LfDialog.buildPopup 用代码套上 —— 遮罩负责接住"卡片外"的点击并关掉浮层，
+  不靠系统转发触摸（`FLAG_NOT_TOUCH_MODAL` 那条路实测不生效）。
+
+  · 卡片由 placePopup 用 translationX/Y 贴锚点摆（不居中）
+  · 紧凑排版：预览限单行（长文本截断，不换行撑高卡片），内边距压到 6dp
+  · id 与 lf_dialog.xml 对齐（lfCard / lfMessage / lfContent），
+    好让 LfDialog 里 message/content 这些辅助函数直接复用
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/lfCard"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="6dp">
+
+    <TextView
+        android:id="@+id/lfMessage"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="3dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:maxWidth="180dp"
+        android:textColor="@color/lf_text_secondary"
+        android:textSize="11sp"
+        android:visibility="gone" />
+
+    <FrameLayout
+        android:id="@+id/lfContent"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+</LinearLayout>
