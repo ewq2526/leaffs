@@ -49,6 +49,58 @@ from leaffs.server.hosts import (  # 主机名/IP 工具（过渡期别名，随
 _dl_manager = _dl_mgr.get_manager()
 
 MAX_API_BODY_SIZE = 1024 * 1024
+# LF-31：连接关闭前"补读完剩余请求体"的上限与时限。
+# 这是给正常客户端擦屁股用的（不读完就关连接，对端会收到 RST，拿不到我们刚发出去的
+# 错误 JSON），**不是**给慢速攻击留的钉子 —— 时限一到就不再等。
+_DRAIN_LIMIT = 4 * 1024 * 1024
+_DRAIN_SECONDS = 3.0
+_DRAIN_POLL = 0.05
+
+
+class _CountingReader:
+    """只读包装：记录**已经从 rfile 交给调用方**的字节数。
+
+    为什么需要它：请求被拒时服务端常常没读请求体就关连接，而对端从 RST 里拿不到
+    我们发出的错误 JSON（LF-31）。要"把没读的补读完"，前提是知道**到底读了没有、
+    读了多少** —— 这个信息在 handler 里原本根本不存在，所以第一版只能靠
+    "看当下 socket 里有没有残留"猜，而正文还在路上时就会猜错。
+
+    ⚠️ 为什么数"交给调用方的量"是安全方向：底层是 `BufferedReader`，它会**预读**，
+    所以这个数**不会大于**真正从内核读走的量 ⇒ 我们算出来的"剩余"只会**偏多**、
+    不会偏少 ⇒ 最坏是多等一小会儿，而不是漏读之后照样发 RST。
+
+    只显式实现会被用到的读取方法，其余属性（close/closed/flush/fileno…）直接转发。
+    """
+
+    def __init__(self, raw):
+        self._raw = raw
+        self.bytes_read = 0
+
+    def read(self, *a):
+        b = self._raw.read(*a)
+        self.bytes_read += len(b)
+        return b
+
+    def readline(self, *a):
+        b = self._raw.readline(*a)
+        self.bytes_read += len(b)
+        return b
+
+    def read1(self, *a):
+        b = self._raw.read1(*a)
+        self.bytes_read += len(b)
+        return b
+
+    def readinto(self, buf):
+        n = self._raw.readinto(buf)
+        self.bytes_read += n or 0
+        return n
+
+    def peek(self, *a):
+        return self._raw.peek(*a)      # peek 不消耗字节，不计入
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
 PREVIEW_MAX_SIZE = 10 * 1024 * 1024   # 在线预览大小上限（可由 cfg_core 动态覆盖，见 sync_all_constants）
 
 # ---------- A-01：管理类 API 统一 admin/super_admin 门槛 ----------
@@ -254,6 +306,101 @@ class HTTPHandler(BaseHTTPRequestHandler):
                     _http_ip_conn_release(ip)
         finally:
             _cfg.release_thread()
+
+    def setup(self):
+        """接上 `_CountingReader`：必须在任何读取之前（请求行、请求头都在它之后读）"""
+        super().setup()
+        self.rfile = _CountingReader(self.rfile)
+
+    def parse_request(self):
+        """请求头读完的那一刻记下基线 —— 之后 rfile 上读到的就都是请求体了（LF-31）。
+
+        没有这个基线就没法把"请求行 + 请求头"的字节从正文计数里摘出去。
+        """
+        ok = super().parse_request()
+        self._body_base = getattr(self.rfile, 'bytes_read', None)
+        return ok
+
+    def finish(self):
+        """连接收尾：**先 flush 响应 → 再补读完剩余正文 → 最后才关 rfile**（LF-31）。
+
+        为什么必须补完：请求被拒时服务端往往**根本没读请求体**就发了响应并准备关连接
+        （同源 403、无效会话 401、`Content-Length` 超限 413，以及各 API 在
+        `rfile.read` 之前的权限/参数拒绝），而内核在关闭一个**接收缓冲仍非空**的连接时
+        会回 **RST** —— 对端收到 RST 时会丢掉尚未读走的响应，于是它看到的是"网络错误"
+        （WinError 10053/10054），而不是我们刚发出去的那份错误 JSON。
+        ⚠️ 只"清一下当下残留"不够：对端还在发，缓冲区就一直是满的，读一下就走等于没读
+        （第一版实测大 body 仍 97% 失败）。
+
+        ⚠️ 这里**不能**直接 `super().finish()` 之后再补读：`StreamRequestHandler.finish()`
+        会**关掉 rfile**，而残留正文恰恰躺在它里面（它读请求头时已把正文预读进用户态
+        缓冲）。第二版就是这么写的，拿到 `ValueError: read of closed file` 被兜底吞掉，
+        表现是"一个字节都没读"、连接照样 RST —— 实测日志里 `left` 一点没减。
+        所以按需要的顺序自己走完这三步，步骤与标准库一致。
+        """
+        if not self.wfile.closed:
+            try:
+                self.wfile.flush()
+            except socket.error:
+                pass
+        self.wfile.close()
+        self._drain_unread_input()
+        self.rfile.close()
+
+    def _drain_unread_input(self):
+        """补读完本次请求剩余的正文字节，然后才允许连接真正关闭（LF-31）。
+
+        剩余量 = `Content-Length` −（`rfile.bytes_read` − 请求头读完时的基线）。
+        `<= 0` 说明正文早已读完 ⇒ 立刻返回，**正常请求在这里零开销**。
+
+        ⚠️ 必须**从 `rfile` 读**，不能用 `conn.recv`：底层 `BufferedReader` 读请求头时
+        会把正文一起预读进**用户态缓冲**，此时内核缓冲是空的 —— 用 `select`/`recv`
+        看过去"没有数据"，于是干等到时限（第一版就栽在这里：每个被拒请求白等 3 秒）。
+        `rfile.read1()` 会先取用户态缓冲、不够再碰 socket，两个来源一起覆盖。
+
+        ⚠️ 也不能用 `rfile.read(n)`：它要**读满 n** 才返回，对端不再发时同样会挂住。
+        `read1()` 只返回"当前已可用的数据"，配合临时压短的 socket 超时，
+        没数据时抛 `socket.timeout`，我们下一轮再看 —— 全程不阻塞线程。
+        """
+        conn = getattr(self, 'connection', None)
+        rfile = getattr(self, 'rfile', None)
+        if conn is None or rfile is None:
+            return
+        base = getattr(self, '_body_base', None)
+        if base is None:
+            return                      # 没走过 parse_request：不猜，什么都不做
+        try:
+            cl = int(self.headers.get('Content-Length') or 0)
+        except (TypeError, ValueError):
+            return
+        left = min(cl - (getattr(rfile, 'bytes_read', 0) - base), _DRAIN_LIMIT)
+        if left <= 0:
+            return                      # 正文读完了 ⇒ 关闭就是干净的 FIN
+
+        prev_to = None
+        try:
+            prev_to = conn.gettimeout()
+            conn.settimeout(_DRAIN_POLL)
+        except Exception:
+            pass
+        try:
+            deadline = time.monotonic() + _DRAIN_SECONDS
+            while left > 0 and time.monotonic() < deadline:
+                try:
+                    chunk = rfile.read1(min(65536, left))
+                except (socket.timeout, TimeoutError):
+                    continue            # 这一轮没数据：接着等，由 deadline 兜底
+                except Exception:
+                    return
+                if not chunk:
+                    return              # 对端已关
+                left -= len(chunk)
+        finally:
+            try:
+                if prev_to is not None:
+                    conn.settimeout(prev_to)
+            except Exception:
+                pass
 
     def _reject_over_capacity(self):
         """总并发超限拒绝：尽力读走请求行后回 503 并关闭（不再为慢连接保留线程/资源）。
