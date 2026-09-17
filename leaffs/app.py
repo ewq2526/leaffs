@@ -217,20 +217,65 @@ def _is_internal_webview_url(url):
     return host_only in ('127.0.0.1', 'localhost', '[::1]')
 
 
-def _webview2_args(existing=''):
-    """算出内嵌 WebView2 该用的启动参数（纯函数，便于单测）。
+def _install_webview_guard(cwv2, win):
+    """装配内嵌窗口的出站守卫。**必须在 UI 线程调用** —— CoreWebView2 只能从 UI 线程访问
+    （从别的线程碰它会抛 `InvalidOperationException: CoreWebView2 can only be accessed
+    from the UI thread`，实测）。
 
-    只有一条：`--ignore-certificate-errors` —— 放行本机自签证书（不装 CA，只影响这个控件）。
+    三层，全是 WebView2 官方接口，每一层的行为都用真窗口实测过（见 .cache/probe_pwv6_*.py）：
 
-    ⚠️ 曾经想用 `--host-resolver-rules`（让外部域名解析失败）一次解决"软件内不访问外部
-    链接"，但**实测无效**：用全新 user data folder、与"不设参数"做了对照，加了规则照样能
-    打开 https://example.com/ —— WebView2 会过滤这个参数。外链防护于是改在**导航层**做
-    （见 `_start_webview_window` 的守卫线程）。**别再往这里加那条规则，它是假的。**
+      1. 导航层：外链导航 `args.Cancel = True` —— **导航根本不发生**。
+         实测：页面内 `location.href = 外链`、页面内链接点击，都拦得住。
+         ⚠️ 拦不住 Python 侧 `win.load_url()`（编程式导航不走这一层）—— 但威胁来自页面内，
+         而且真有人这么调的话，第 2 层会把内容一起堵掉。
+      2. 网络层：非本机请求塞一个 403 空响应。WebView2 收到 Response 就**跳过网络层**，
+         实测：本机起 8123 监听，两个外部子资源都被拦下时，监听端**一个请求都没收到** ——
+         是真的没发包，不是发了包再丢响应。
+      3. 新窗口：先摘掉 pywebview 自己的 `on_new_window_request`，再换成 `Handled=True`。
+         ⚠️ 不摘不行 —— 它默认 `webbrowser.open()`（把外链甩给**系统浏览器**），
+         把 settings 的 OPEN_EXTERNAL_LINKS_IN_BROWSER 设成 False 之后它改走
+         `load_url()`（在**窗口内**加载外链）。两条路都不行，所以只能自己接管。
+
+    `WebResourceRequested` 的 URL 过滤器由 pywebview 注册（`AddWebResourceRequestedFilter('*',
+    All)`，在它自己的 on_webview_ready 里）—— 那是同一个 CoreWebView2InitializationCompleted
+    的**第一个**订阅者，先于本函数执行，所以这里不用再注册一遍。
+
+    ⚠️ 为什么不用 pywebview 的 `before_load` 事件（5.4 才引入）：它对应 DOMContentLoaded，
+    页面**已经在下载了**；而且 `util.py` 里 `window.events.before_load.set()` 的返回值被直接
+    丢掉，根本没有取消通道 —— 它拦不住导航。
+    ⚠️ 为什么不再用 0.4 秒轮询 URL：那是"跳走之后再拉回来"，站外页面至少有 0.4 秒的加载窗口；
+       现在是**零窗口**。
+    ⚠️ 为什么只挂 CoreWebView2 级、不挂控件级 `wv.NavigationStarting`：实测单独一级就够；
+    两级都挂会让同一个导航被处理两遍、日志重复。
+    ⚠️ 别再回头去试 WebView2 的 host-resolver-rules 那一类"改 DNS 解析"的启动参数：**实测被
+    过滤**，加了照样能打开外部站点，是假保护。也别再用环境变量往 WebView2 塞浏览器参数。
     """
-    args = (existing or '').strip()
-    if '--ignore-certificate-errors' not in args:
-        args = (args + ' --ignore-certificate-errors').strip()
-    return args
+    def _on_navigation_starting(sender, args):
+        uri = str(args.Uri)
+        if _is_internal_webview_url(uri):
+            return
+        args.Cancel = True          # 先取消再打日志：日志出问题也不能影响拦截
+        add_log(f'已阻止内嵌窗口访问外部地址: {uri[:120]}', 'warn')
+
+    def _on_web_resource_requested(sender, args):
+        uri = str(args.Request.Uri)
+        if _is_internal_webview_url(uri):
+            return
+        args.Response = sender.Environment.CreateWebResourceResponse(
+            None, 403, 'Blocked', 'Content-Type: text/plain')
+        add_log(f'已阻止内嵌窗口的外部请求: {uri[:120]}', 'warn')
+
+    def _on_new_window_requested(sender, args):
+        args.set_Handled(True)      # 不开新窗口、不交给系统浏览器、也不 load_url
+        add_log(f'已阻止内嵌窗口打开新窗口: {str(args.Uri)[:120]}', 'warn')
+
+    cwv2.NavigationStarting += _on_navigation_starting
+    cwv2.WebResourceRequested += _on_web_resource_requested
+
+    old_handler = getattr(getattr(win.native, 'browser', None), 'on_new_window_request', None)
+    if old_handler is not None:
+        cwv2.NewWindowRequested -= old_handler
+    cwv2.NewWindowRequested += _on_new_window_requested
 
 
 def _start_webview_window():
@@ -248,43 +293,62 @@ def _start_webview_window():
             url += '?leaf=' + _ltok
         return url
     try:
-        # 出站防护（用户要求「不能在我们软件内出事」）：内嵌窗口只允许停在本机服务上。
-        # ⚠️ WebView2 的 `--host-resolver-rules` **实测无效**（被过滤，见 _webview2_args），
-        # 所以改成**导航层守卫**：起一个轻量线程盯当前 URL，出了白名单就立刻拉回登录页。
-        # 代价：站外页面最多被加载出来约 0.4 秒 —— 但它跨源、拿不到本站任何凭据，
-        # 而且窗口没有地址栏、站内页面本身也没有任何外链，现实里几乎不会触发。
-        _args = _webview2_args(os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', ''))
-        if _args:
-            os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = _args
         import webview
-        import time
-        time.sleep(0.3)
+
+        # 出站防护（用户要求「不能在我们软件内出事」）。三条 settings 必须在 start() 之前设，
+        # pywebview 只在启动时读一次：
+        #   OPEN_EXTERNAL_LINKS_IN_BROWSER=False —— 否则它会把 target=_blank 的链接用
+        #     webbrowser.open() 甩给**系统浏览器**（那等于我们主动把外链放出去）；设成 False
+        #     之后它改走 load_url()，正好落进 _install_webview_guard 第 3 层的接管范围。
+        #   ALLOW_DOWNLOADS=False —— 显式写上（本来也是 pywebview 的默认值）。
+        #   IGNORE_SSL_ERRORS=True —— 放行本机自签证书。取代以前往环境变量里塞
+        #     `--ignore-certificate-errors` 的写法：那个参数还依赖 WebView2 把环境变量与
+        #     AdditionalBrowserArguments 合并的行为，不如这个官方开关直白。
+        webview.settings['OPEN_EXTERNAL_LINKS_IN_BROWSER'] = False
+        webview.settings['ALLOW_DOWNLOADS'] = False
+        webview.settings['IGNORE_SSL_ERRORS'] = True
         webview.create_window('LeafFS 文件传输', _local_url(),
                               width=1200, height=800, resizable=True)
 
-        def _guard_external_navigation():
-            home = _local_url()
-            while True:
-                time.sleep(0.4)
-                try:
-                    wins = webview.windows
-                    if not wins:
-                        return
-                    cur = wins[0].get_current_url() or ''
-                except Exception:
-                    return
-                if not _is_internal_webview_url(cur):
-                    try:
-                        add_log(f'已阻止内嵌窗口访问外部地址: {cur[:120]}', 'warn')
-                    except Exception:
-                        pass
-                    try:
-                        wins[0].load_url(home)
-                    except Exception:
-                        return
+        installed = threading.Event()
 
         def _after_start():
-            threading.Thread(target=_guard_external_navigation, daemon=True).start()
+            """等窗口和 WebView2 就绪，把三层守卫装上。
+
+            ⚠️ 这里跑在 pywebview 起的**非 UI 线程**里（webview/__init__.py 里 func 是
+            `Thread(target=func).start()`，而且**早于** `guilib.create_window()`），所以：
+              - `webview.windows[0].native` 一开始是 None，必须等；
+              - `native` 比 `native.webview` **早赋值**（winforms.py 第 195 行 vs 第 281 行，
+                都在同一个构造函数里），只等 native 会拿到 None；
+              - CoreWebView2 只能从 UI 线程访问，所以真正的装配放进
+                CoreWebView2InitializationCompleted 回调（那个回调在 UI 线程）。
+            """
+            win = webview.windows[0]
+            wv = None
+            deadline = time.time() + 20
+            while time.time() < deadline:
+                native = win.native
+                if native is not None:
+                    wv = getattr(native, 'webview', None)
+                    if wv is not None:
+                        break
+                time.sleep(0.05)
+            if wv is None:
+                add_log('内嵌窗口守卫未装配：拿不到 WebView2 控件（窗口可用，但没有出站防护）', 'warn')
+                return
+
+            def _on_core_ready(sender, args):
+                cwv2 = sender.CoreWebView2
+                if cwv2 is None:
+                    add_log('内嵌窗口守卫未装配：CoreWebView2 初始化失败', 'warn')
+                    return
+                _install_webview_guard(cwv2, win)
+                installed.set()
+
+            wv.CoreWebView2InitializationCompleted += _on_core_ready
+            if not installed.wait(20):
+                # 装配不上就是安全缺口，必须看得见，不静默
+                add_log('内嵌窗口守卫未装配：CoreWebView2 初始化回调没到', 'warn')
 
         webview.start(_after_start)
         return True

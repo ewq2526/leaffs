@@ -6,18 +6,22 @@
 （网页里的站外链接、**PDF 里的外链**会在 App 内嵌浏览器里打开）。
 用户明确要求：**软件内不访问外部链接**，并要求 **Windows 的 webview 一起防护**。
 
-**改动（三处）**：
-1. 安卓：删掉「在浏览器打开」整项 + `openExternal()`；
-2. 安卓：`onLoadRequest` 加白名单 —— 只放行 `127.0.0.1` / `localhost` / `[::1]`、
-   `leaffs://`、`data:`、`about:`、`blob:`，其余 `DENY` 并提示；
-3. 桌面（pywebview + WebView2）：给内嵌窗口加
-   `--host-resolver-rules=MAP * ~NOTFOUND,EXCLUDE localhost,EXCLUDE 127.0.0.1`
-   ⇒ **除本机外的域名一律解析失败**，外部站点根本连不上。
+**安卓侧（两处）**：
+1. 删掉「在浏览器打开」整项 + `openExternal()`；
+2. `onLoadRequest` 加白名单 —— 只放行 `127.0.0.1` / `localhost` / `[::1]`、
+   `leaffs://`、`data:`、`about:`、`blob:`，其余 `DENY` 并提示。
 
-⚠️ **子资源那一层**（`<img src="外部">` / 外链脚本）：GeckoView 没有公开的拦截 API
-（要 WebExtension 的 webRequest），所以安卓侧**没做**，靠**服务端 CSP** 兜 ——
-`send_raw` 与 `_share_stream_file` 都发 `sandbox; default-src 'none'; style-src
-'unsafe-inline'; img-src data:`，且站内页面本身没有任何外链。桌面侧那层由 DNS 阻断一并覆盖。
+**桌面侧（2026-09-18 晚，升级 pywebview 4.2.2 → 6.2.1 后重做）**：
+三层，全在 `_install_webview_guard()` 里，都走 WebView2 官方接口：
+导航层 `NavigationStarting` 取消外链、网络层 `WebResourceRequested` 给外部请求塞空响应、
+新窗口 `NewWindowRequested` 自己接管。
+⚠️ 每一层的行为都用**真窗口实测**过（`.cache/probe_pwv6_*.py`），不是照文档抄的 ——
+本文件只做静态断言，行为验证看那些探针。
+
+⚠️ **子资源那一层**：安卓侧**没做**（GeckoView 没有公开的拦截 API，要 WebExtension 的
+webRequest），靠**服务端 CSP** 兜 —— `send_raw` 与 `_share_stream_file` 都发
+`sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:`，且站内页面本身
+没有任何外链。桌面侧这一层**做了**（`WebResourceRequested`，实测真的不发包）。
 """
 import os
 import re
@@ -64,16 +68,77 @@ def test_android_browser_menu_item_removed():
     assert 'Intent(Intent.ACTION_VIEW' not in src, '还有 ACTION_VIEW 打开链接的路径'
 
 
-# ---------- 桌面：WebView2 阻断外部域名 ----------
+# ---------- 桌面：三层出站守卫 ----------
 
-def test_desktop_navigation_guard_present():
-    """★ 桌面端：靠**导航层守卫**（不是 WebView2 参数）挡外链"""
+def test_desktop_guard_three_layers():
+    """★ 桌面端三层守卫都在位：导航取消 + 网络阻断 + 接管新窗口
+
+    这里断言的每一条都有对应的实测（.cache/probe_pwv6_*.py）：
+      - 只挂 CoreWebView2 级 `NavigationStarting` **一级就够**（探针 F）；
+      - `args.Cancel` 对**页面内**导航有效（探针 E 的 T1 页面内 JS、T2 链接点击），
+        对 Python 侧 `win.load_url()` **无效**（T3）—— 但威胁来自页面内，且第 2 层会兜住内容；
+      - `WebResourceRequested` 里设 `Response` 是**真的不发包**，不是发了包丢响应
+        （探针 D：本机 8123 监听端一个请求都没收到）；
+      - UI 线程里能把 pywebview 自己挂的 `on_new_window_request` 摘掉（探针 F）——
+        不摘的话它会 `webbrowser.open()` 把外链甩给系统浏览器。
+    """
     src = _read(APP_PY)
+    assert 'def _install_webview_guard(' in src, '没有守卫装配函数'
+
+    # (1) 三条 settings —— 少一条都漏
+    assert "webview.settings['OPEN_EXTERNAL_LINKS_IN_BROWSER'] = False" in src, \
+        '没关掉「target=_blank 甩给系统浏览器」'
+    assert "webview.settings['ALLOW_DOWNLOADS'] = False" in src, '没关下载'
+    assert "webview.settings['IGNORE_SSL_ERRORS'] = True" in src, \
+        '没用官方开关放行本机自签证书'
+
+    # (2) 导航层
+    assert 'cwv2.NavigationStarting += _on_navigation_starting' in src, '没挂导航层'
+    assert 'args.Cancel = True' in src, '导航层没有取消动作'
+
+    # (3) 网络层
+    assert 'cwv2.WebResourceRequested += _on_web_resource_requested' in src, '没挂网络层'
+    assert 'CreateWebResourceResponse' in src, '网络层没有塞空响应'
+
+    # (4) 新窗口：必须先摘掉 pywebview 自己的，否则它先执行就晚了
+    assert 'cwv2.NewWindowRequested -= old_handler' in src, '没摘掉 pywebview 自己的新窗口处理'
+    assert 'cwv2.NewWindowRequested += _on_new_window_requested' in src, '没接管新窗口请求'
+    assert 'args.set_Handled(True)' in src, '接管后没有 Handled'
+
+    # (5) 判定规则仍然复用同一个函数（安卓/桌面共用一套白名单语义）
     assert '_is_internal_webview_url' in src, '没有内网 URL 判定'
-    assert '已阻止内嵌窗口访问外部地址' in src, '没有拦到时的日志/拉回逻辑'
-    assert 'load_url(home)' in src or 'load_url(home' in src, '没有把窗口拉回首页'
-    # ⚠️ （"不许再留 host-resolver-rules" 由 test_webview2_args_only_cert 从**返回值**断言 ——
-    #    这里不断言"文件里不出现这个词"，因为注释里会解释它为什么被撤掉。）
+
+
+def test_desktop_guard_installed_on_ui_thread():
+    """★ 装配必须发生在 UI 线程的回调里 —— CoreWebView2 只能从 UI 线程碰
+
+    实测教训（探针 E）：在 `webview.start()` 起的 worker 线程里访问
+    `wv.CoreWebView2` 会抛
+    `InvalidOperationException: CoreWebView2 can only be accessed from the UI thread.`
+    所以装配只能写在 `CoreWebView2InitializationCompleted` 的回调里。
+    """
+    src = _read(APP_PY)
+    assert 'wv.CoreWebView2InitializationCompleted += _on_core_ready' in src, \
+        '没有在初始化完成回调里装配'
+    assert '_install_webview_guard(cwv2, win)' in src, '装配调用不在回调里'
+    # ⚠️ 等的是 native.webview，不是 native —— native 比 .webview 早赋值（winforms.py 195 vs 281）
+    assert "getattr(native, 'webview', None)" in src, \
+        '等窗口时用了 native 而不是 native.webview（会拿到 None）'
+
+
+def test_desktop_guard_no_polling_left():
+    """★ 旧的「0.4 秒轮询 URL 再拉回」必须整个删掉，也不能再有命令行 hack
+
+    ⚠️ 这几条断言是"整个文件里不出现"，所以注释里也不能留这些词 ——
+    已经确认删干净了。
+    """
+    src = _read(APP_PY)
+    assert '_guard_external_navigation' not in src, '旧的轮询守卫线程还在'
+    assert 'time.sleep(0.4)' not in src, '还有 0.4 秒轮询'
+    assert '_webview2_args' not in src, '旧的命令行参数函数还在'
+    assert 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS' not in src, '还在塞环境变量传浏览器参数'
+    assert '--host-resolver-rules' not in src, \
+        '又把 host-resolver-rules 加回来了 —— 它被 WebView2 过滤，实测无效'
 
 
 def test_is_internal_webview_url():
@@ -92,20 +157,10 @@ def test_is_internal_webview_url():
     assert ok('') and ok(None)
 
 
-def test_webview2_args_only_cert():
-    """参数里只该有证书放行那一条"""
-    from leaffs.app import _webview2_args
-    out = _webview2_args('')
-    assert '--ignore-certificate-errors' in out
-    assert '--host-resolver-rules' not in out
-    assert _webview2_args('--disable-gpu').startswith('--disable-gpu'), '把用户的参数冲掉了'
-    assert _webview2_args(out) == out, '重复调用会重复追加'
-
-
 # ---------- 服务端兜底：外来文档一律不许执行/连外网 ----------
 
 def test_server_sandbox_csp_on_raw_and_share():
-    """可内联文档强制纯文本 + sandbox CSP（子资源那层靠它兜）"""
+    """可内联文档强制纯文本 + sandbox CSP（安卓侧子资源那层靠它兜）"""
     need = "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"
     for rel in (RAW_API, HANDLER):
         src = _read(rel)
