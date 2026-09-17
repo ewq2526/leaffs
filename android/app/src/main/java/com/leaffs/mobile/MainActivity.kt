@@ -278,6 +278,17 @@ class MainActivity : ComponentActivity() {
                     }
                     return GeckoResult.fromValue(AllowOrDeny.DENY) // DENY = 已自行处理
                 }
+                // 2026-09-18：只允许访问**本机服务**，其余一律拒绝 —— 用户要求
+                // 「软件内不允许访问外部链接」（网页里的站外链接、PDF 里的外链都不许在
+                // App 内打开）。放行名单见 isInternalUrl()。
+                if (!isInternalUrl(uri)) {
+                    android.util.Log.w("LeafFS", "已阻止外部链接: $uri")
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "已阻止访问外部链接",
+                                       Toast.LENGTH_SHORT).show()
+                    }
+                    return GeckoResult.fromValue(AllowOrDeny.DENY)
+                }
                 // 单视图应用：网页要"新窗口"（target="_blank" / window.open）时不另开会话，
                 // 改为当前视图加载 —— 下载类响应会走 onExternalResponse 落盘到下载目录。
                 // 注意：不能在 onNewSession 里 load（javadoc 明令禁止），故在此拦截。
@@ -1386,8 +1397,8 @@ class MainActivity : ComponentActivity() {
         if (!link.isNullOrEmpty()) {
             labels += "复制链接"
             actions += { copyText(link) }
-            labels += "在浏览器打开"
-            actions += { openExternal(link) }
+            // 2026-09-18：原来这里还有一项「在浏览器打开」（openExternal → ACTION_VIEW 甩给
+            // 系统浏览器）。用户要求「软件内不允许访问外部链接」⇒ 整项删除，只留复制。
         }
         if (!src.isNullOrEmpty() && src != link) {
             labels += if (element.type == GeckoSession.ContentDelegate.ContextElement.TYPE_IMAGE)
@@ -1419,12 +1430,28 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(this, "已复制", Toast.LENGTH_SHORT).show()
     }
 
-    private fun openExternal(url: String) {
-        try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        } catch (t: Throwable) {
-            Toast.makeText(this, "无法打开: ${t.message}", Toast.LENGTH_SHORT).show()
-        }
+    /**
+     * 只放行**本机服务**与内部 scheme —— 用户要求「软件内不允许访问外部链接」。
+     *
+     * 放行：`http(s)://127.0.0.1|localhost|[::1]`（本机服务，任意端口）、`leaffs://`（证书流程
+     * 用的自定义 scheme）、`data:`（证书错误页就是 data: URL）、`about:`、`blob:`。
+     * 其余一律拒绝 —— 包括 `https://外部站点`、`javascript:`、`file:`、各种 App scheme。
+     *
+     * 说明：这里只管**导航**。子资源（`<img src="外部">` 之类）GeckoView 没有公开的拦截
+     * API，靠**服务端**的 sandbox CSP 兜（`send_raw` / `_share_stream_file` 都带
+     * `sandbox; default-src 'none'; img-src data:`），而站内页面本身没有任何外链。
+     */
+    private fun isInternalUrl(uri: String): Boolean {
+        val u = uri.trim()
+        if (u.isEmpty()) return false
+        if (u.startsWith("leaffs://")) return true
+        if (u.startsWith("data:") || u.startsWith("about:") || u.startsWith("blob:")) return true
+        val lower = u.lowercase()
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) return false
+        val host = lower.substringAfter("://").substringBefore('/')
+            .substringBefore('?').substringBefore('#')
+        val hostOnly = if (host.startsWith("[")) host.substringBefore(']') + "]" else host.substringBefore(':')
+        return hostOnly == "127.0.0.1" || hostOnly == "localhost" || hostOnly == "[::1]"
     }
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()

@@ -198,6 +198,41 @@ def start_server():
         except KeyboardInterrupt:
             print('  服务器已停止。')
 
+def _is_internal_webview_url(url):
+    """内嵌窗口允许停留的地址：本机（127.0.0.1 / localhost / [::1]）+ about:/data:/blob:。
+
+    端口**不限定** —— 服务自己会用到 8080/8081/8082 几个端口，卡死端口只会误伤自己。
+    纯函数，便于单测（这条逻辑没法用窗口反复验证）。
+    """
+    u = (url or '').strip().lower()
+    if not u:
+        return True          # 还没拿到 URL（加载中）：别乱跳
+    if u.startswith('about:') or u.startswith('data:') or u.startswith('blob:'):
+        return True
+    if not (u.startswith('http://') or u.startswith('https://')):
+        return False
+    rest = u.split('://', 1)[1]
+    host = rest.split('/', 1)[0].split('?', 1)[0].split('#', 1)[0]
+    host_only = (host.rsplit(']', 1)[0] + ']') if host.startswith('[') else host.split(':', 1)[0]
+    return host_only in ('127.0.0.1', 'localhost', '[::1]')
+
+
+def _webview2_args(existing=''):
+    """算出内嵌 WebView2 该用的启动参数（纯函数，便于单测）。
+
+    只有一条：`--ignore-certificate-errors` —— 放行本机自签证书（不装 CA，只影响这个控件）。
+
+    ⚠️ 曾经想用 `--host-resolver-rules`（让外部域名解析失败）一次解决"软件内不访问外部
+    链接"，但**实测无效**：用全新 user data folder、与"不设参数"做了对照，加了规则照样能
+    打开 https://example.com/ —— WebView2 会过滤这个参数。外链防护于是改在**导航层**做
+    （见 `_start_webview_window` 的守卫线程）。**别再往这里加那条规则，它是假的。**
+    """
+    args = (existing or '').strip()
+    if '--ignore-certificate-errors' not in args:
+        args = (args + ' --ignore-certificate-errors').strip()
+    return args
+
+
 def _start_webview_window():
     """pywebview 原生窗口（D4：URL 带一次性令牌 ?leaf=，本机自动登录走令牌而非无条件免密）
 
@@ -213,16 +248,45 @@ def _start_webview_window():
             url += '?leaf=' + _ltok
         return url
     try:
-        # 仅供内嵌 WebView 放行本地自签证书；不装 CA；只影响本进程该控件。
-        # 仅当用户未自定义时写入默认值（setdefault），不覆盖已有设置。
-        os.environ.setdefault('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS',
-                              '--ignore-certificate-errors')
+        # 出站防护（用户要求「不能在我们软件内出事」）：内嵌窗口只允许停在本机服务上。
+        # ⚠️ WebView2 的 `--host-resolver-rules` **实测无效**（被过滤，见 _webview2_args），
+        # 所以改成**导航层守卫**：起一个轻量线程盯当前 URL，出了白名单就立刻拉回登录页。
+        # 代价：站外页面最多被加载出来约 0.4 秒 —— 但它跨源、拿不到本站任何凭据，
+        # 而且窗口没有地址栏、站内页面本身也没有任何外链，现实里几乎不会触发。
+        _args = _webview2_args(os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', ''))
+        if _args:
+            os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS'] = _args
         import webview
         import time
         time.sleep(0.3)
         webview.create_window('LeafFS 文件传输', _local_url(),
                               width=1200, height=800, resizable=True)
-        webview.start()
+
+        def _guard_external_navigation():
+            home = _local_url()
+            while True:
+                time.sleep(0.4)
+                try:
+                    wins = webview.windows
+                    if not wins:
+                        return
+                    cur = wins[0].get_current_url() or ''
+                except Exception:
+                    return
+                if not _is_internal_webview_url(cur):
+                    try:
+                        add_log(f'已阻止内嵌窗口访问外部地址: {cur[:120]}', 'warn')
+                    except Exception:
+                        pass
+                    try:
+                        wins[0].load_url(home)
+                    except Exception:
+                        return
+
+        def _after_start():
+            threading.Thread(target=_guard_external_navigation, daemon=True).start()
+
+        webview.start(_after_start)
         return True
     except Exception as e:
         print(f'  窗口启动失败 ({e})，使用浏览器打开')
