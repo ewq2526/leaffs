@@ -76,6 +76,8 @@ def start_server():
     setup_logging()
     _cfg.load_config()
     _ac.load_users()
+    # 会话表已落盘，启动时要读回来 —— 否则重启一次所有人被登出（2026-09-17）
+    _ac.load_sessions()
     _ac.start_session_cleanup()
     _fs.cleanup_orphan_thumbs()
     # LF-26：进程被 kill / 崩溃时，正在写的上传临时文件会留在 UPLOAD_DIR/.uploads/ 里，

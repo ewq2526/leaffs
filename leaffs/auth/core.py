@@ -127,6 +127,68 @@ def _same_client(ip_a, ip_b):
         return True
     return a == b
 
+# ========== 会话持久化（2026-09-17）==========
+# 会话表原来是**纯内存 dict**（上面那句注释自述"重启即清空，可接受"）。实测下来
+# **不可接受**：每次重启服务、每次安卓 App 被系统杀掉后重启，用户都要重新登录一遍。
+# 现在落盘到 config/sessions.json，重启后会话仍有效。
+#
+# ⚠️ 这个文件里装着 **sid**（等于会话凭据）：与同目录的 users.json（口令哈希）、
+#    share_access.json（授权票据）同级敏感。`.gitignore` 已挡住 `config/`，不入库；
+#    `harden_config_acls` 那个开关也顺带覆盖它。
+#
+# ⚠️ **只在"会话集合发生变化"时落盘**（新建 / 删除 / 踢人 / 容量淘汰 / 扫码兑换）——
+#    `get_session` 只读、每次请求都会走，绝不能在那里写盘（那会把每个请求都变成一次 IO）。
+#    盘上留着已过期的条目没关系：`load_sessions()` 启动时会清掉。
+SESSIONS_FILE = os.path.join(CONFIG_DIR, 'sessions.json')
+
+
+def _save_sessions_locked():
+    """会话表写盘（**须持 `_sessions_lock`**）。
+
+    原子写：先写 `.tmp` 再 `os.replace` —— 进程写到一半被杀，也不会留下半截 JSON
+    把整张表废掉（那是"重启后所有人被登出"的另一种形式）。
+    写失败**不抛**：内存里的会话仍然有效，只是退化成"重启后要重登"的旧行为，
+    不该因为存不下盘而把用户这次请求打挂。
+    """
+    try:
+        tmp = SESSIONS_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump(_sessions, f, ensure_ascii=False)
+        os.replace(tmp, SESSIONS_FILE)
+    except Exception:
+        pass
+
+
+def load_sessions():
+    """启动时把会话表读回来（`app.start_server` 调，紧跟 `load_users()`）。
+
+    文件不存在 / 读不出来 / 结构损坏 → 空表（用户重登一次，好过带着半张坏表跑）。
+    **顺手丢弃已过期的条目**，也丢弃单项结构不合法的（缺 expiry/username/role）——
+    一个坏条目不该让整张表加载失败。
+    """
+    global _sessions
+    now = time.time()
+    loaded = {}
+    try:
+        with open(SESSIONS_FILE, 'r', encoding='utf-8') as f:
+            raw = json.load(f)
+        if isinstance(raw, dict):
+            for sid, info in raw.items():
+                if not isinstance(sid, str) or not isinstance(info, dict):
+                    continue
+                if not isinstance(info.get('expiry'), (int, float)) or info['expiry'] <= now:
+                    continue
+                if not isinstance(info.get('username'), str) or not isinstance(info.get('role'), str):
+                    continue
+                loaded[sid] = info
+    except FileNotFoundError:
+        pass
+    except Exception:
+        pass
+    with _sessions_lock:
+        _sessions = loaded
+
+
 def create_session(username, role, client_ip=''):
     sid = _gen_id()
     with _sessions_lock:
@@ -137,6 +199,7 @@ def create_session(username, role, client_ip=''):
         _sessions[sid] = entry
         _clean_sessions()
         _enforce_session_caps(username, client_ip, keep_sid=sid)   # B-06/B-07
+        _save_sessions_locked()      # 落盘：重启后这个会话仍然有效
     return sid
 
 def get_session(cookie_header, client_ip=''):
@@ -206,12 +269,17 @@ def _enforce_session_caps(username, client_ip='', keep_sid=''):
         pass
 
 def _revoke_user_sessions(username, keep_sid=''):
-    """撤销该用户名的全部会话（keep_sid 除外）。角色/口令/改名/删除即时生效（B-10/IC-SESS）。"""
+    """撤销该用户名的全部会话（keep_sid 除外）。角色/口令/改名/删除即时生效（B-10/IC-SESS）。
+
+    ⚠️ **必须落盘**：不落盘的话，"被踢掉的会话"只从内存消失 —— 重启之后它又回来了
+    （删掉的用户、降权过的账号会带着旧会话复活）。这是本条修复附带的安全要求。
+    """
     with _sessions_lock:
         for sid in list(_sessions.keys()):
             info = _sessions.get(sid)
             if info and info.get('username') == username and sid != keep_sid:
                 del _sessions[sid]
+        _save_sessions_locked()
 
 def refresh_session_role(sid, ip=''):
     """按用户“当前”角色实时刷新会话角色（IC-SESS，供 A-07 WS 复查）。
@@ -243,12 +311,14 @@ def refresh_session_role(sid, ip=''):
 def remove_session(sid):
     with _sessions_lock:
         _sessions.pop(sid, None)
+        _save_sessions_locked()      # 登出要让盘上也消失，否则重启后"登出"白做
 
 def remove_guest_sessions():
     """移除所有游客会话（关闭游客模式时调用，使其立即失效）"""
     with _sessions_lock:
         for sid in [s for s, i in _sessions.items() if i.get('username') == '游客']:
             del _sessions[sid]
+        _save_sessions_locked()
 
 def get_session_username(sid):
     with _sessions_lock:
@@ -548,6 +618,8 @@ def delete_user(username, caller_role='admin'):
         with _sessions_lock:
             for sid in list(_sessions.keys()):
                 if _sessions[sid]['username'] == username: del _sessions[sid]
+            # ⚠️ 必须落盘：否则被删用户的会话只从内存消失，**重启后会复活**
+            _save_sessions_locked()
     return True, ''
 
 def change_password(username, new_password, caller_role='admin', keep_sid=''):
@@ -646,6 +718,7 @@ def create_qr_session(username, role, expiry_days=None, expiry_minutes=None):
     sid = secrets.token_hex(24)
     with _sessions_lock:
         _sessions[sid] = {'expiry': time.time() + ttl, 'username': username, 'role': role}
+        _save_sessions_locked()      # 待扫码状态也要落盘：重启后二维码仍可扫
     return sid
 
 def consume_qr_session(sid, client_ip=''):
@@ -661,6 +734,7 @@ def consume_qr_session(sid, client_ip=''):
             if client_ip:
                 entry['ip'] = client_ip
             _sessions[new_sid] = entry
+            _save_sessions_locked()  # 扫码登录出来的会话同样要落盘
             return new_sid, username, role
     return None
 
