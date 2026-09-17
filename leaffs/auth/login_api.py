@@ -5,6 +5,7 @@ import os
 import time
 import logging
 import threading
+import ipaddress
 
 from leaffs.utils import log as _ut_log   # B-09/B-13：日志脱敏与安全事件
 
@@ -89,7 +90,8 @@ def _is_login_locked(ip, username):
 def _record_login_fail(ip, username):
     """记录 (IP,用户名) 失败与账户级失败计数。
 
-    返回 True 表示本次触发账户级锁定（调用方应据此发告警），否则 False。
+    返回 `(account_locked, spray)`：前者=本次触发账户级锁定；后者=本次让"窗口内不同
+    用户名数"达到喷洒阈值。两者可能同时为真（不同指纹），调用方各发各的告警。
     """
     global _login_last_clean
     username = _normalize_username(username)
@@ -110,6 +112,7 @@ def _record_login_fail(ip, username):
     except Exception:
         pass
     triggered = False
+    spray = False
     with _login_fail_lock:
         now = time.time()
         key = (ip, username)
@@ -128,7 +131,9 @@ def _record_login_fail(ip, username):
         _acct_fail[username] = acc
         if acc['n'] == _ACCOUNT_LOCK_AFTER:
             triggered = True
-    return triggered
+        # 喷洒看的是"窗口内不同用户名数"，复用刚更新的 _acct_fail（同一把锁内，一致）
+        spray = _spray_user_count(now) >= _SPRAY_USERS
+    return triggered, spray
 
 
 def _reset_login_fail(ip, username):
@@ -222,6 +227,118 @@ def _login_ip_refund(ip):
                 _login_ip_rate.pop(ip, None)
 
 
+# ========== 第五层：全局登录限速 + 密码喷洒告警（2026-09-17） ==========
+# 上面四层全是"按维度收敛"的：(IP,用户名)、用户名、游客 IP、每 IP 总数。
+# 攻击者**换 IP ＋ 每个名字只试 1~2 次**就能同时躲开前两层，只剩"每 IP 30/分钟"挡着，
+# 而那是可以靠换 IP 线性扩展的 ⇒ 总尝试速率与 PBKDF2 的 CPU 消耗都没有上限。
+# 这一层看**总量**：60 秒窗口内非环回来源的登录尝试超过阈值 ⇒ 之后非环回登录一律 429。
+#
+# 口径（用户拍板）：「**就是自保**，打满了服务本来就会崩，还不如全局锁带提示」。
+# 用**滑动窗口**而不是固定长锁：攻击进行中一直限，攻击停手后最多一个窗口自动恢复。
+# 固定长锁有两个坑 —— 攻击停手后合法用户还要白等；若实现成"每次超限都续期"，
+# 攻击者"隔几分钟碰一下"就能把锁无限延长，反而成了**他可控的拒绝服务**。
+#
+# ⚠️ **环回豁免**：127.0.0.1 / ::1 永不拦、也不计入窗口 —— 攻击者触发全局锁时，
+# 管理员仍能从本机进去处理。来源 IP 伪造不了（要完成 TCP 握手），所以这条是安全的。
+_GLOBAL_LOGIN_WINDOW = 60     # 滑动窗口（秒）
+_GLOBAL_LOGIN_MAX = 100       # 窗口内允许的非环回登录尝试总数（含成功与失败）
+_global_login_rate = []       # [时间戳]，只收非环回来源；长度天然 ≤ _GLOBAL_LOGIN_MAX
+_global_login_lock = threading.Lock()
+_global_login_warned_at = 0.0  # 上次"全局限速触发"告警时间（同窗口只报一次）
+
+# 密码喷洒告警：60 秒窗口内**出现过登录失败的「不同用户名」个数**。
+# 这是"喷洒"的指纹（大量不同名字各试少量）；单账号爆破去重后只有 1，
+# 已由账户级锁定覆盖，不该在这里重复告警。
+_SPRAY_WINDOW = 60
+_SPRAY_USERS = 8
+_spray_warned_at = 0.0        # 上次喷洒告警时间（同窗口只报一次）
+
+
+def _is_loopback_ip(ip):
+    """来源是否环回（用 ipaddress 判，顺带覆盖 ::ffff:127.0.0.1 这类 IPv4-mapped）。
+
+    解析不了就按"不是环回"处理 —— 宁可多限一个看不懂的地址，
+    也不能因为解析失败给全局限速开口子。
+    """
+    try:
+        return ipaddress.ip_address((ip or '').split('%')[0]).is_loopback
+    except Exception:
+        return False
+
+
+def _login_global_allowed(ip):
+    """全局登录限速（第五层）：60 秒窗口内非环回尝试 ≤ _GLOBAL_LOGIN_MAX。
+
+    环回来源直接放行，**不入表也不判表**（因此不占非环回的额度）。
+    放行即记账（判定与 append 在同一把锁内完成），防并发穿透；
+    表长天然不超过阈值，不需要额外清理。
+    """
+    if _is_loopback_ip(ip):
+        return True
+    now = time.time()
+    with _global_login_lock:
+        cutoff = now - _GLOBAL_LOGIN_WINDOW
+        _global_login_rate[:] = [t for t in _global_login_rate if t > cutoff]
+        if len(_global_login_rate) >= _GLOBAL_LOGIN_MAX:
+            return False
+        _global_login_rate.append(now)
+        return True
+
+
+def _warn_login_flood(add_log):
+    """全局限速触发告警：security_event + 运行日志，**同一窗口只报一次**。
+
+    只报一次是必须的 —— 否则每条被拒的请求都写一行日志，"告警"本身就成了新的洪水面。
+    """
+    global _global_login_warned_at
+    now = time.time()
+    with _global_login_lock:
+        if now - _global_login_warned_at < _GLOBAL_LOGIN_WINDOW:
+            return
+        _global_login_warned_at = now
+    detail = ('全局登录限速触发: %d 秒内非环回登录尝试超过 %d 次，已临时限制'
+              % (_GLOBAL_LOGIN_WINDOW, _GLOBAL_LOGIN_MAX))
+    try:
+        _ut_log.security_event('login_flood', detail, 'warn')
+    except Exception:
+        pass
+    try:
+        if add_log is not None:
+            add_log(detail, 'warn')
+    except Exception:
+        pass
+
+
+def _spray_user_count(now):
+    """60 秒内出现过登录失败的**不同用户名**个数（调用方须持 _login_fail_lock）。
+
+    直接复用 `_acct_fail` 的 `t`（最近失败时间），不需要新结构。
+    """
+    return sum(1 for rec in _acct_fail.values()
+               if now - rec.get('t', 0) <= _SPRAY_WINDOW)
+
+
+def _warn_login_spray(safe_user, add_log):
+    """密码喷洒告警（同窗口只报一次，理由同 `_warn_login_flood`）"""
+    global _spray_warned_at
+    now = time.time()
+    with _login_fail_lock:
+        if now - _spray_warned_at < _SPRAY_WINDOW:
+            return
+        _spray_warned_at = now
+    detail = ('疑似密码喷洒: %d 秒内有 %d 个不同用户名登录失败（阈值 %d），最近一个 %s'
+              % (_SPRAY_WINDOW, _SPRAY_USERS, _SPRAY_USERS, safe_user))
+    try:
+        _ut_log.security_event('login_spray', detail, 'warn')
+    except Exception:
+        pass
+    try:
+        if add_log is not None:
+            add_log(detail, 'warn')
+    except Exception:
+        pass
+
+
 def serve_login_page(handler, base_dir, read_file_cached, get_guest_mode):
     """渲染登录页面
 
@@ -268,7 +385,16 @@ def auth_login(handler, add_log, logger, UPLOAD_DIR, verify_login,
     """登录"""
     client_ip = handler.client_address[0]
     try:
-        # 每 IP 总限速置于最前（JSON 解析 / 任何锁定检查 / PBKDF2 校验之前）：放行即记账防并发穿透，
+        # 第五层（全局，2026-09-17）置于最前：让**所有**尝试都进全局窗口 ——
+        # 若放在每 IP 之后，被每 IP 拒掉的那部分就不计入，分布式尝试更容易漏网。
+        # 环回不在此列（见 _login_global_allowed）：管理员始终能从本机登录。
+        if not _login_global_allowed(client_ip):
+            _warn_login_flood(add_log)
+            handler.send_json({'success': False,
+                               'error': '检测到大量登录尝试，已临时限制登录以保护服务，请稍后再试'},
+                              429)
+            return
+        # 每 IP 总限速置于其后（JSON 解析 / 任何锁定检查 / PBKDF2 校验之前）：放行即记账防并发穿透，
         # 成功/失败/畸形请求体均计入同一窗口，轮换用户名无法绕开高频 PBKDF2 计费
         if not _login_ip_allowed(client_ip):
             handler.send_json({'success': False, 'error': '登录尝试过于频繁，请稍后再试'}, 429)
@@ -298,8 +424,11 @@ def auth_login(handler, add_log, logger, UPLOAD_DIR, verify_login,
         #    _login_ip_allowed 已对放行请求先行记账 → 畸形包无法绕过任何一级限流做
         #    无限试探/日志洪水。
         if not isinstance(raw_user, str) or not isinstance(raw_pass, str):
-            if _record_login_fail(client_ip, safe_user):
+            locked, spray = _record_login_fail(client_ip, safe_user)
+            if locked:
                 _warn_account_lock(safe_user, client_ip, add_log)
+            if spray:
+                _warn_login_spray(safe_user, add_log)
             handler.send_json({'success': False, 'error': '用户名或密码格式错误'}, 400)
             return
         username = raw_user.strip()
@@ -330,12 +459,14 @@ def auth_login(handler, add_log, logger, UPLOAD_DIR, verify_login,
             handler.end_headers()
             handler.wfile.write(json.dumps({'success': True, 'role': role}).encode('utf-8'))
         else:
-            locked = _record_login_fail(client_ip, username)   # True=本次触发账户级锁定
+            locked, spray = _record_login_fail(client_ip, username)
             # 时间侧信道等化已收敛到 ac_core.verify_login：
             # “用户不存在”分支做一次与真实校验等代价的 PBKDF2，失败路径不再重复计费
             logger.warning(f'登录失败: {safe_user} ({client_ip})')
             if locked:
                 _warn_account_lock(safe_user, client_ip, add_log)
+            if spray:
+                _warn_login_spray(safe_user, add_log)
             handler.send_json({'success': False, 'error': '用户名或密码错误'}, 403,
                               exempt=True)
     except json.JSONDecodeError:
