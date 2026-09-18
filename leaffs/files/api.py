@@ -225,8 +225,12 @@ def send_raw(handler, UPLOAD_DIR, PREVIEW_MAX_SIZE, is_path_safe, get_mime, DISC
         if not is_path_safe(UPLOAD_DIR, full): handler.send_error(403); return
         if not os.path.exists(full) or os.path.isdir(full): handler.send_error(404); return
         if os.path.getsize(full) > PREVIEW_MAX_SIZE:
-            handler.send_response(413); handler.end_headers()
-            handler.wfile.write('[文件过大]'.encode('utf-8')); return
+            # HTTP/1.1 预备（2026-09-18）：正文必须有定界
+            _oversize = '[文件过大]'.encode('utf-8')
+            handler.send_response(413)
+            handler.send_header('Content-Length', str(len(_oversize)))
+            handler.end_headers()
+            handler.wfile.write(_oversize); return
         mime = get_mime(p)
         # 可执行/可内联文档类型不再同源渲染：HTML/SVG/XML/JS/JSON/RSS/Atom 强制以
         # 纯文本直出并附加下载头，浏览器不会内联解析执行，同时纯文本内容仍可直接预览。
@@ -243,6 +247,9 @@ def send_raw(handler, UPLOAD_DIR, PREVIEW_MAX_SIZE, is_path_safe, get_mime, DISC
             force_plain = True
         handler.send_response(200)
         handler.send_header('Content-Type', mime or 'text/plain; charset=utf-8')
+        # HTTP/1.1 预备（2026-09-18）：正文必须有定界 —— 文件大小是现成的
+        # （上面刚做过存在性检查），发出去客户端才能知道正文到哪儿结束。
+        handler.send_header('Content-Length', str(os.path.getsize(full)))
         # 同源内容隔离：sandbox 阻止脚本执行/表单提交等，且不信任任何同源资源
         # （外部图片等也仅允许 data: 内嵌）；配合 nosniff 防止 MIME 嗅探。
         # 公共头走统一入口（这处特有的 sandbox CSP 一并交给它）；手写会跟自动补的重复
@@ -389,6 +396,8 @@ def handle_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, get_mim
         if range_err is not None:
             handler.send_response(range_err)
             handler.send_header('Content-Range', f'bytes */{file_size}')
+            # HTTP/1.1 预备（2026-09-18）：416 允许带正文，必须显式声明空正文
+            handler.send_header('Content-Length', '0')
             handler.end_headers()
             return
         is_range = range_header and range_header.startswith('bytes=') and (start > 0 or end < file_size - 1)
@@ -968,18 +977,45 @@ class _ZipStreamWriter:
     该对象刻意不可 seek —— zipfile 检测到不可 seek 的输出会自动改用 data
     descriptor（local header 标志位 bit 3），并在 close() 时顺序追加中央目录，
     从而实现对网络流的“边压边发”，无需任何临时文件。
+
+    HTTP/1.1 预备（2026-09-18）：流式打包事先不知道总长度，所以在 1.1 下改用
+    **chunked** 定界（`chunked=True`）；1.0 下沿用旧行为（靠关闭连接定界），
+    所以协议开关没切之前一切照旧。
     """
 
-    def __init__(self, handler):
+    def __init__(self, handler, chunked=False):
         self._handler = handler
+        self._chunked = chunked
 
     def write(self, data):
-        if data:
+        if not data:
+            return 0
+        n = len(data)
+        if self._chunked:
+            # HTTP chunked 分块：<十六进制长度>\r\n<数据>\r\n
+            _stream_write(self._handler, b'%x\r\n' % n + data + b'\r\n')
+        else:
             _stream_write(self._handler, data)
-        return len(data)
+        return n                      # ⚠️ 必须是**原始**长度：zipfile 靠它记账
 
     def flush(self):
         try:
+            self._handler.wfile.flush()
+        except Exception:
+            pass
+
+    def finish(self):
+        """chunked 的终止块（0 长度块）；非 chunked 时是空操作。
+
+        ⚠️ 正文**正常写完**之后必须调用一次 —— 少了它客户端会一直等下一个块。
+        连接已经断开时不用（也写不出去）。
+        """
+        if not self._chunked:
+            return
+        try:
+            _stream_write(self._handler, b'0\r\n\r\n')
+            # 终止块只有 5 字节，不 flush 就可能一直躺在 wfile 的写缓冲里，
+            # 客户端于是收不到结束标记 —— chunked 下这是正确性问题，不是优化。
             self._handler.wfile.flush()
         except Exception:
             pass
@@ -1101,12 +1137,19 @@ def zip_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, DISCONNECT
             streaming = True
         disp = f'attachment; filename="files_{int(time.time())}.zip"'
         if streaming:
-            # ===== 全流式：边压边发、零临时磁盘；HTTP/1.0 以关闭连接定界（无 Content-Length）=====
+            # ===== 全流式：边压边发、零临时磁盘。定界方式随协议版本走：
+            # 1.0 靠关闭连接（无 Content-Length），1.1 用 chunked =====
             handler.send_response(200)
             handler.send_header('Content-Type', 'application/zip')
             handler.send_header('Content-Disposition', disp)
+            # HTTP/1.1 预备（2026-09-18）：1.1 下必须自带定界，否则客户端会一直等正文。
+            # 现在 protocol_version 还是 1.0 ⇒ 这段不启用，行为与改动前完全一致；
+            # 等切换协议那一行落地，它自动生效。
+            chunked = getattr(handler, 'protocol_version', 'HTTP/1.0') == 'HTTP/1.1'
+            if chunked:
+                handler.send_header('Transfer-Encoding', 'chunked')
             handler.end_headers()      # 公共头（含 nosniff）由 end_headers 统一补
-            writer = _ZipStreamWriter(handler)
+            writer = _ZipStreamWriter(handler, chunked=chunked)
             try:
                 zf = zipfile.ZipFile(writer, 'w', zipfile.ZIP_DEFLATED)
                 try:
@@ -1119,6 +1162,7 @@ def zip_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, DISCONNECT
                         raise
                     except Exception:
                         pass
+                writer.finish()      # 正文写完 ⇒ 发 chunked 终止块（非 chunked 时空操作）
             except DISCONNECTED_EXCEPTIONS:
                 raise
             except Exception:

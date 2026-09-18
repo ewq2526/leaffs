@@ -155,6 +155,15 @@ _INVALID_SESSION_API_WHITELIST = frozenset((
 
 # ---------- A-11：请求级时长 / 每 IP HTTP 连接配额 / 整机总并发准入 ----------
 REQ_TOTAL_TIMEOUT = 180       # 单请求总时长预算（秒）；上传/下载/打包长流豁免
+
+# HTTP/1.1 预备（2026-09-18）：已经告警过的"缺正文定界"端点，按 (method, path) 去重 ——
+# 只是免得同一个端点每次请求都刷一行日志，不影响判定本身。
+_no_delim_warned = set()
+
+# 有意不发正文定界、且**在 HTTP/1.1 下自带替代方案**的端点，不算漏：
+#   GET /api/zip —— 全流式打包事先不知道总长度，1.0 下靠关闭连接定界；
+#   1.1 下会自动改用 chunked（见 files/api.py 的 zip_download）。所以不告警。
+_DELIM_EXEMPT = frozenset({('GET', '/api/zip')})
 # 架构修订 R4：请求级“全局并发槽”已整体取消（不再有 CONC_SLOT_TIMEOUT 等待/503）；
 # 资源保护改由整机“总连接/线程准入”（cfg_core.max_total_conns，默认 256）+ 每 IP 连接
 # 上限承担，两者都是“超限立即拒绝、绝不排队”。长流路径：不套用“请求总时长”预算。
@@ -476,6 +485,8 @@ class HTTPHandler(BaseHTTPRequestHandler):
         c = f'{_ac.AUTH_COOKIE}={sid}; Path=/; Max-Age={_ac.SESSION_EXPIRY_DAYS * 86400}; HttpOnly; SameSite=Lax'
         if self._is_secure(): c += '; Secure'
         self.send_header('Set-Cookie', c)
+        # HTTP/1.1 预备（2026-09-18）：302 允许带正文，必须显式声明空正文
+        self.send_header('Content-Length', '0')
         self._common_security_headers()
         self.end_headers()
         return True
@@ -576,15 +587,26 @@ class HTTPHandler(BaseHTTPRequestHandler):
         """
         self._sec_headers_sent = False
         self._cache_control_sent = False
+        # 正文定界的记录同样必须每请求清 —— 清不干净会让"上一个请求发过 Content-Length"
+        # 被当成"这个请求也有"，缺定界的告警就永远不会响。
+        self._status_code = code
+        self._content_length_sent = False
+        self._transfer_encoding_sent = False
+        self._body_delim_checked = False
         super().send_response(code, message)
 
     def send_header(self, keyword, value):
         """记下"这次响应已经有人显式声明过缓存策略"（见 `end_headers` 的兜底）。
 
-        只加一个标记，不改任何头的发送行为。
+        只加标记，不改任何头的发送行为。顺带记下正文定界用的两种头。
         """
-        if not getattr(self, '_cache_control_sent', False) and keyword.lower() == 'cache-control':
+        kw = keyword.lower()
+        if not getattr(self, '_cache_control_sent', False) and kw == 'cache-control':
             self._cache_control_sent = True
+        if kw == 'content-length':
+            self._content_length_sent = True
+        elif kw == 'transfer-encoding':
+            self._transfer_encoding_sent = True
         super().send_header(keyword, value)
 
     def end_headers(self):
@@ -604,7 +626,37 @@ class HTTPHandler(BaseHTTPRequestHandler):
         if not getattr(self, '_cache_control_sent', False):
             self.send_header('Cache-Control', 'no-store')
         self._common_security_headers()
+        self._warn_missing_body_delimiter()
         super().end_headers()
+
+    def _warn_missing_body_delimiter(self):
+        """HTTP/1.1 预备（2026-09-18）：正文必须有定界 —— `Content-Length` 或 chunked。
+
+        HTTP/1.0 允许靠"关闭连接"定界，所以现在这些响应都还能正常工作；但换成 keep-alive
+        之后，没有定界客户端就会一直等正文直到超时。这个方法先把**所有**这样的端点点出来。
+
+        ⚠️ 只告警、**不自动补** Content-Length：自动补一个长度会掩盖"这个端点压根算错了
+        长度"这类问题，变成不报错的静默劣化 —— 和 CC2 那个 304 被兜底成 `no-store`
+        是同一类坑。要修就回各自端点按真实长度发。
+        """
+        if getattr(self, '_body_delim_checked', False):
+            return
+        self._body_delim_checked = True
+        if getattr(self, '_content_length_sent', False) or \
+                getattr(self, '_transfer_encoding_sent', False):
+            return
+        status = getattr(self, '_status_code', 0)
+        if status in (204, 304) or 100 <= status < 200:
+            return                                  # 这些状态码按定义没有正文
+        if getattr(self, 'command', '') == 'HEAD':
+            return
+        key = (getattr(self, 'command', '?'), (self.path or '').split('?', 1)[0])
+        if key in _DELIM_EXEMPT:
+            return
+        if key in _no_delim_warned:
+            return
+        _no_delim_warned.add(key)
+        add_log(f'响应缺少正文定界（无 Content-Length 且非 chunked）: {key[0]} {key[1]}', 'warn')
 
     def _dl_allowed(self):
         """A-03：下载器门槛 —— user/admin/super_admin 可用；guest 依配置开关（默认禁）"""
@@ -623,8 +675,11 @@ class HTTPHandler(BaseHTTPRequestHandler):
         # 这个资源、这个用户是存在的，只是你没权限"。豁免清单见 _REJECT_AS_NOT_FOUND。
         if not exempt and status in _REJECT_AS_NOT_FOUND:
             status = 404
+        body = json.dumps(data).encode('utf-8')
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
+        # HTTP/1.1 预备（2026-09-18）：正文必须有定界。JSON 的长度是现成的，先算再发头。
+        self.send_header('Content-Length', str(len(body)))
         self.send_header('Access-Control-Allow-Origin', '*')
         # LF-10：JSON 一律不许缓存 —— 这些响应装的是"当前是谁 / 文件列表 / 配置值"，
         # 被缓存下来就会出现"换了账号还看到旧身份""删掉的文件还在列表里"这类怪事。
@@ -633,11 +688,14 @@ class HTTPHandler(BaseHTTPRequestHandler):
         # A-10：JSON 响应无子资源，CSP 收紧到 default-src 'none' + nosniff/XFO/Referrer
         self._common_security_headers(csp="default-src 'none'")
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode('utf-8'))
+        self.wfile.write(body)
 
     def redirect(self, path):
         self.send_response(302)
         self.send_header('Location', urllib.parse.quote(path, safe='/:?=&'))
+        # HTTP/1.1 预备（2026-09-18）：302 **是允许**带正文的状态码，所以不能靠"关连接"
+        # 定界 —— 显式声明一个空正文。
+        self.send_header('Content-Length', '0')
         self._common_security_headers()
         self.end_headers()
 
@@ -1168,11 +1226,14 @@ class HTTPHandler(BaseHTTPRequestHandler):
             if self._is_secure():
                 # Cookie 不隔离端口：明文模式下不带 Secure 的话，访问一次 8082 那类明文页就可能把它带走
                 sc += '; Secure'
+            _ok_body = b'{"ok": true}'
             self.send_response(200)
             self.send_header('Set-Cookie', sc)
             self.send_header('Content-Type', 'application/json')
+            # HTTP/1.1 预备（2026-09-18）：正文必须有定界
+            self.send_header('Content-Length', str(len(_ok_body)))
             self.end_headers()
-            self.wfile.write(b'{"ok": true}')
+            self.wfile.write(_ok_body)
             _sacc.on_success(username, ip)
             return
         ev = _sacc.record_failure(username, ip)
@@ -1374,6 +1435,8 @@ class HTTPHandler(BaseHTTPRequestHandler):
             self.send_response(302)
             self._set_session_cookie(ns)
             self.send_header('Location', '/browse/')
+            # HTTP/1.1 预备（2026-09-18）：302 允许带正文，必须显式声明空正文
+            self.send_header('Content-Length', '0')
             self._common_security_headers()
             self.end_headers()
         else:

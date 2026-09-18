@@ -450,14 +450,17 @@ def auth_login(handler, add_log, logger, UPLOAD_DIR, verify_login,
                     with _sessions_lock:
                         if sid in _sessions:
                             _sessions[sid]['need_change_password'] = True
+            _ok = json.dumps({'success': True, 'role': role}).encode('utf-8')
             handler.send_response(200)
             handler._set_session_cookie(sid)
             handler.send_header('Content-Type', 'application/json')
             handler.send_header('Access-Control-Allow-Origin', '*')
+            # HTTP/1.1 预备（2026-09-18）：正文必须有定界（这条手写响应不走 send_json）
+            handler.send_header('Content-Length', str(len(_ok)))
             # LF-10：登录响应含身份信息，绝不缓存（安全头由 handler.end_headers 统一补）
             handler.send_header('Cache-Control', 'no-store')
             handler.end_headers()
-            handler.wfile.write(json.dumps({'success': True, 'role': role}).encode('utf-8'))
+            handler.wfile.write(_ok)
         else:
             locked, spray = _record_login_fail(client_ip, username)
             # 时间侧信道等化已收敛到 ac_core.verify_login：
@@ -514,6 +517,8 @@ def auth_logout(handler, get_session, remove_session, AUTH_COOKIE):
     handler.send_response(302)
     handler.send_header('Location', '/login')
     handler.send_header('Set-Cookie', sc)
+    # HTTP/1.1 预备（2026-09-18）：302 允许带正文，必须显式声明空正文
+    handler.send_header('Content-Length', '0')
     handler.end_headers()
 
 
@@ -530,14 +535,17 @@ def guest_login(handler, create_session, get_guest_mode=None):
             handler.send_json({'success': False, 'error': '游客登录过于频繁'}, 429)
             return
         sid = create_session('游客', 'guest', client_ip=ip)
+        _ok = json.dumps({'success': True, 'role': 'guest'}).encode('utf-8')
         handler.send_response(200)
         handler._set_session_cookie(sid)
         handler.send_header('Content-Type', 'application/json')
         handler.send_header('Access-Control-Allow-Origin', '*')
+        # HTTP/1.1 预备（2026-09-18）：正文必须有定界（这条手写响应不走 send_json）
+        handler.send_header('Content-Length', str(len(_ok)))
         # LF-10：游客登录响应同样含身份信息，绝不缓存
         handler.send_header('Cache-Control', 'no-store')
         handler.end_headers()
-        handler.wfile.write(json.dumps({'success': True, 'role': 'guest'}).encode('utf-8'))
+        handler.wfile.write(_ok)
     except Exception:
         # B-15：内部错误不回显细节
         handler.send_json({'error': '服务器内部错误'}, 500)
