@@ -276,10 +276,11 @@ class HTTPHandler(BaseHTTPRequestHandler):
     # ⚠️ 回退就是删掉这一行。
     protocol_version = 'HTTP/1.1'
 
-    # HTTP/1.1 预备（2026-09-18）：keep-alive 下**等待下一个请求**时的空闲超时（秒）。
-    # 比 READ_TIMEOUT 短得多，理由见 handle_one_request 的说明。它只在连接**已经确定要复用**
-    # 时才生效 —— 那个条件现在是 `close_connection is False`，而 1.0 下永远是 True
-    # ⇒ 换句话说，协议切到 1.1 之前，这个常量不会改变任何行为。
+    # HTTP/1.1（2026-09-18）：keep-alive 下**等待下一个请求**时的空闲超时（秒）**回退值**。
+    # 实际生效值取深配键 `keepalive_timeout`（默认 15，见 cfg_core 与 `_keepalive_idle_seconds`）；
+    # 这里只是配置层不可用时的兜底 —— 与 fs_api 的 `WRITE_STALL_TIMEOUT` 同一写法。
+    # 比 READ_TIMEOUT 短得多的理由见 handle_one_request 的说明；而且它只在连接**已经确定要
+    # 复用**（`close_connection is False`）时才生效，所以 1.0 下不影响任何行为。
     KEEPALIVE_IDLE_TIMEOUT = 15
 
     # 忽略客户端强制断连的错误（远程主机强迫关闭连接等）
@@ -388,7 +389,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
         """
         if getattr(self, 'close_connection', True) is False:
             try:
-                self.connection.settimeout(self.KEEPALIVE_IDLE_TIMEOUT)
+                self.connection.settimeout(self._keepalive_idle_seconds())
             except Exception:
                 pass
         try:
@@ -396,6 +397,20 @@ class HTTPHandler(BaseHTTPRequestHandler):
         finally:
             if not self._drain_unread_input():
                 self.close_connection = True
+
+    def _keepalive_idle_seconds(self):
+        """keep-alive 空闲超时的**实际生效值**（秒）。
+
+        取深配键 `keepalive_timeout`（默认 15，范围 1~300，可在管理页深处改）；配置层不可用时
+        退回类常量 `KEEPALIVE_IDLE_TIMEOUT` —— 与 `fs_api._stream_write` 取
+        `io_idle_timeout_secs` 的写法一致。
+        """
+        try:
+            from leaffs.config import core as _cc
+            return max(1.0, float(_cc.get_keepalive_timeout_secs()
+                                  or self.KEEPALIVE_IDLE_TIMEOUT))
+        except Exception:
+            return float(self.KEEPALIVE_IDLE_TIMEOUT)
 
     def finish(self):
         """连接收尾：**先 flush 响应 → 再补读完剩余正文 → 最后才关 rfile**（LF-31）。

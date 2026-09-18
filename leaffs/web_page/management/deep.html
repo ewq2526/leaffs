@@ -183,6 +183,19 @@
             </div>
         </div>
 
+        <!-- keep-alive 空闲超时 -->
+        <div class="admin-card">
+            <h3>keep-alive 空闲超时</h3>
+            <div class="config-group">
+                <label>HTTP/1.1 下一条连接可以连续处理多个请求。这个值是「等下一个请求」的耐心：超时就断开，把占着的连接与线程让出来。它比上面的「空闲断开时间」短得多 —— 因为一条连接就占一个线程；取值过小会让复用的连接频繁重建，取值过大则空闲连接占用资源更久（默认 15 秒）</label>
+                <div class="config-row">
+                    <input type="number" id="deepKeepaliveInput" min="1" max="300" step="any" value="15" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">秒（1 ~ 300，可带小数）</span>
+                    <button class="btn-admin primary" onclick="applyKeepalive()" style="font-size:11px">应用</button>
+                </div>
+            </div>
+        </div>
+
         <!-- 证书提示页监听地址 -->
         <div class="admin-card">
             <h3>证书提示页监听地址</h3>
@@ -273,6 +286,7 @@ function loadDeepConfig() {
             setCheck('accessLogInput', d.access_log);
             // 整机/单 IP 连接上限已移至管理首页；此处仅回填空闲断开时间（旧服务端未返回时按默认值）
             setNum('deepIdleTimeoutInput', (typeof d.io_idle_timeout_secs === 'number') ? d.io_idle_timeout_secs : 120);
+            setNum('deepKeepaliveInput', (typeof d.keepalive_timeout === 'number') ? d.keepalive_timeout : 15);
             var th = document.getElementById('trustBindHostInput');
             if (th) th.value = d.trust_bind_host || '0.0.0.0';
             // 只读存档值
@@ -287,7 +301,7 @@ function loadDeepConfig() {
             var _expected = ['pbkdf2_iterations', 'pbkdf2_iterations_min', 'salt_length', 'salt_length_min',
                 'thumb_sample_ratio', 'thumb_miss_threshold', 'thumb_scan_batch', 'thumb_scan_interval',
                 'session_expiry_days', 'guest_public_write', 'downloader_guest_allowed', 'access_log',
-                'max_conn_per_ip', 'trust_bind_host', 'auto_trust_ca', 'ca_trust_decision',
+                'max_conn_per_ip', 'keepalive_timeout', 'trust_bind_host', 'auto_trust_ca', 'ca_trust_decision',
                 'ca_validity_days', 'harden_config_acls', 'username_max_length', 'password_max_length'];
             var _missing = _expected.filter(function (k) { return !(k in d); });
             if (_missing.length) {
@@ -384,6 +398,15 @@ function applyIdleTimeout() {
     var val = parseFloat(el.value);
     if (isNaN(val) || val < 1) { batchToast('空闲断开时间需不小于 1 秒', 'error'); return; }
     deepPost({ io_idle_timeout_secs: val }, '空闲断开时间已保存为 ' + val + ' 秒');
+}
+
+// keep-alive 空闲超时（keepalive_timeout，秒，1~300 可带小数）——走既有 deep 保存流程
+function applyKeepalive() {
+    var el = document.getElementById('deepKeepaliveInput');
+    if (!el) return;
+    var val = parseFloat(el.value);
+    if (isNaN(val) || val < 1) { batchToast('keep-alive 空闲超时需不小于 1 秒', 'error'); return; }
+    deepPost({ keepalive_timeout: val }, 'keep-alive 空闲超时已保存为 ' + val + ' 秒');
 }
 
 function applyTrustBindHost() {

@@ -98,12 +98,16 @@ def test_keepalive_idle_timeout_is_much_shorter_than_read_timeout():
 
 
 def test_idle_timeout_only_applies_to_reusable_connections():
-    """★ 空闲超时只在"连接已确定复用"时才设 —— 1.0 下 close_connection 恒为 True"""
+    """★ 空闲超时只在"连接已确定复用"时才设 —— 1.0 下 close_connection 恒为 True
+
+    ⚠️ 具体取值走 `_keepalive_idle_seconds()`（配置键 keepalive_timeout，见
+    tests/test_keepalive_config.py）；这里只钉"什么时候设"。
+    """
     import inspect
 
     from leaffs.server.handler import HTTPHandler
     src = inspect.getsource(HTTPHandler.handle_one_request)
-    assert 'KEEPALIVE_IDLE_TIMEOUT' in src, 'handle_one_request 没有设空闲超时'
+    assert '_keepalive_idle_seconds' in src, 'handle_one_request 没有设空闲超时'
     assert "getattr(self, 'close_connection', True) is False" in src, \
         '没有用"已确定复用"作为条件 —— 1.0 下也会被套上短超时'
 

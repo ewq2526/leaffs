@@ -184,6 +184,19 @@
             </div>
         </div>
 
+        <!-- keep-alive idle timeout -->
+        <div class="admin-card">
+            <h3>keep-alive Idle Timeout</h3>
+            <div class="config-group">
+                <label>Under HTTP/1.1 a single connection can serve several requests in a row. This value is how long it waits for the next request before dropping the connection and giving the thread back. It is far shorter than "Idle Disconnect Time" above, because one connection occupies one thread. Too small a value makes reused connections churn; too large a value lets idle connections hold resources longer (default 15 s)</label>
+                <div class="config-row">
+                    <input type="number" id="deepKeepaliveInput" min="1" max="300" step="any" value="15" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">s (1–300, decimals allowed)</span>
+                    <button class="btn-admin primary" onclick="applyKeepalive()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Certificate info page bind address -->
         <div class="admin-card">
             <h3>Certificate Info Page Bind Address</h3>
@@ -274,6 +287,7 @@ function loadDeepConfig() {
             setCheck('accessLogInput', d.access_log);
             // Whole-machine / per-IP connection limits moved to the admin home; only the idle timeout is backfilled here (default used when an old server omits it)
             setNum('deepIdleTimeoutInput', (typeof d.io_idle_timeout_secs === 'number') ? d.io_idle_timeout_secs : 120);
+            setNum('deepKeepaliveInput', (typeof d.keepalive_timeout === 'number') ? d.keepalive_timeout : 15);
             var th = document.getElementById('trustBindHostInput');
             if (th) th.value = d.trust_bind_host || '0.0.0.0';
             // Read-only archive values
@@ -288,7 +302,7 @@ function loadDeepConfig() {
             var _expected = ['pbkdf2_iterations', 'pbkdf2_iterations_min', 'salt_length', 'salt_length_min',
                 'thumb_sample_ratio', 'thumb_miss_threshold', 'thumb_scan_batch', 'thumb_scan_interval',
                 'session_expiry_days', 'guest_public_write', 'downloader_guest_allowed', 'access_log',
-                'max_conn_per_ip', 'trust_bind_host', 'auto_trust_ca', 'ca_trust_decision',
+                'max_conn_per_ip', 'keepalive_timeout', 'trust_bind_host', 'auto_trust_ca', 'ca_trust_decision',
                 'ca_validity_days', 'harden_config_acls', 'username_max_length', 'password_max_length'];
             var _missing = _expected.filter(function (k) { return !(k in d); });
             if (_missing.length) {
@@ -385,6 +399,15 @@ function applyIdleTimeout() {
     var val = parseFloat(el.value);
     if (isNaN(val) || val < 1) { batchToast('Idle disconnect time must be at least 1 second', 'error'); return; }
     deepPost({ io_idle_timeout_secs: val }, 'Idle disconnect time saved as ' + val + ' s');
+}
+
+// keep-alive idle timeout (keepalive_timeout, seconds, 1–300, decimals allowed) — uses the existing deep save flow
+function applyKeepalive() {
+    var el = document.getElementById('deepKeepaliveInput');
+    if (!el) return;
+    var val = parseFloat(el.value);
+    if (isNaN(val) || val < 1) { batchToast('keep-alive idle timeout must be at least 1 s', 'error'); return; }
+    deepPost({ keepalive_timeout: val }, 'keep-alive idle timeout saved as ' + val + ' s');
 }
 
 function applyTrustBindHost() {

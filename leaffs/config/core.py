@@ -33,9 +33,13 @@ _config_lock = threading.RLock()
 # config 文件里旧版写入的 max_concurrent=10 属旧全局槽时代的过期值，不再读取。
 # 慢客户端“无进展超时”（写侧）为 _io_idle_timeout_secs（默认 120s，配置键
 # io_idle_timeout_secs；读侧沿用 HTTPHandler 每连接 socket 读超时 60s）。
+# HTTP/1.1（2026-09-18）：keep-alive 下**等待下一个请求**的空闲超时为
+# _keepalive_timeout_secs（默认 15s，配置键 keepalive_timeout）—— 比读超时短得多，
+# 否则浏览器的空闲长连接会把线程和准入位占满（一个连接一个线程，上限 max_total_conns）。
 _max_concurrent = 10   # 启动后由 load_config 镜像为 _max_total_conns
 _max_total_conns = 256
 _io_idle_timeout_secs = 120.0
+_keepalive_timeout_secs = 15.0
 _speed_limit = 0
 _guest_mode = False
 _user_quota = 5368709120
@@ -96,7 +100,7 @@ _harden_config_acls_enabled = False   # 分发安全：默认不做运行时 con
 
 
 def load_config():
-    global _max_concurrent, _max_total_conns, _io_idle_timeout_secs, _speed_limit, _guest_mode, _user_quota, _public_quota, _total_quota, PORT, WS_PORT
+    global _max_concurrent, _max_total_conns, _io_idle_timeout_secs, _keepalive_timeout_secs, _speed_limit, _guest_mode, _user_quota, _public_quota, _total_quota, PORT, WS_PORT
     global _pbkdf2_iterations, _salt_length
     global _thumb_sample_ratio, _thumb_miss_threshold, _thumb_scan_batch, _thumb_scan_interval
     global _upload_max_size, _copy_buffer_size, _cache_max_items, _cache_ttl, _folder_size_ttl
@@ -123,6 +127,8 @@ def load_config():
             _max_concurrent = _max_total_conns
             _io_idle_timeout_secs = _clamp_num(cfg.get('io_idle_timeout_secs', 120.0),
                                                1.0, 3600.0, float)
+            _keepalive_timeout_secs = _clamp_num(cfg.get('keepalive_timeout', 15.0),
+                                                 1.0, 300.0, float)
             _speed_limit = cfg.get('download_speed_limit', 0)
             if 'auth_enabled' in cfg:
                 _guest_mode = not _to_bool(cfg['auth_enabled'])
@@ -423,6 +429,8 @@ def get_deep_config_dict():
         'max_total_conns': _max_total_conns,
         # R4：慢客户端“无进展超时”（写侧，秒；读侧沿用 60s socket 读超时）
         'io_idle_timeout_secs': _io_idle_timeout_secs,
+        # HTTP/1.1（2026-09-18）：keep-alive 等待下一个请求的空闲超时（秒）
+        'keepalive_timeout': _keepalive_timeout_secs,
         # IC-CFG（R3）：新增安全配置键（load/save/get/apply_deep 同步；save_config 经本函数落盘）
         'guest_public_write': _guest_public_write,
         'downloader_guest_allowed': _downloader_guest_allowed,
@@ -468,7 +476,8 @@ _DEEP_KNOWN_KEYS = frozenset((
     'thumb_sample_ratio', 'thumb_miss_threshold', 'thumb_scan_batch', 'thumb_scan_interval',
     'upload_max_size', 'copy_buffer_size', 'cache_max_items', 'cache_ttl', 'folder_size_ttl',
     'debounce_delay', 'max_api_body_size', 'preview_max_size', 'upload_chunk', 'zip_max_files',
-    'zip_streaming', 'max_total_conns', 'io_idle_timeout_secs', 'session_expiry_days',
+    'zip_streaming', 'max_total_conns', 'io_idle_timeout_secs', 'keepalive_timeout',
+    'session_expiry_days',
     'guest_public_write', 'downloader_guest_allowed', 'auto_trust_ca', 'ca_trust_decision',
     'access_log', 'trust_bind_host', 'ca_validity_days', 'max_conn_per_ip',
     'ws_max_conn_per_ip', 'harden_config_acls',
@@ -530,7 +539,7 @@ def apply_deep_config(data):
         global _ws_max_conn_per_ip
         global _ca_trust_decision
         global _harden_config_acls_enabled
-        global _max_total_conns, _max_concurrent, _io_idle_timeout_secs
+        global _max_total_conns, _max_concurrent, _io_idle_timeout_secs, _keepalive_timeout_secs
         if not isinstance(data, dict):
             return False, '请求体必须是 JSON 对象', False
         unknown = sorted(k for k in data if k not in _DEEP_KNOWN_KEYS)
@@ -632,6 +641,13 @@ def apply_deep_config(data):
             val, err = _deep_num(data, 'io_idle_timeout_secs', float, 1.0, 3600.0)
             if err: return False, err, False
             _io_idle_timeout_secs = val
+            changed = True
+        # HTTP/1.1（2026-09-18）：keep-alive 空闲超时（秒，1~300）。上限比读超时那档小得多
+        # —— 它只是"等下一个请求"的耐心，设大了就回到"空闲连接占满线程"的老问题。
+        if 'keepalive_timeout' in data:
+            val, err = _deep_num(data, 'keepalive_timeout', float, 1.0, 300.0)
+            if err: return False, err, False
+            _keepalive_timeout_secs = val
             changed = True
         if 'session_expiry_days' in data:
             val, err = _deep_num(data, 'session_expiry_days', int, 1, 3650)
@@ -823,6 +839,7 @@ _thread_slot_lock = threading.Lock()
 def get_max_concurrent(): return _max_concurrent      # 遗留回显（/api/config、/api/stats）
 def get_max_total_conns(): return _max_total_conns    # R4：整机总连接/线程准入上限
 def get_io_idle_timeout_secs(): return _io_idle_timeout_secs   # R4：写侧无进展超时（秒）
+def get_keepalive_timeout_secs(): return _keepalive_timeout_secs  # HTTP/1.1：空闲超时（秒）
 
 def try_acquire_thread():
     """无等待申请一个总并发准入位（O(1)）；已达 _max_total_conns 上限返回 False。

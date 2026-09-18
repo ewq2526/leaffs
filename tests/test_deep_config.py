@@ -135,7 +135,7 @@ def test_frontend_keys_still_save(client):
     keys = ('pbkdf2_iterations', 'salt_length', 'thumb_sample_ratio', 'thumb_miss_threshold',
             'thumb_scan_batch', 'thumb_scan_interval', 'session_expiry_days',
             'guest_public_write', 'downloader_guest_allowed', 'access_log',
-            'io_idle_timeout_secs', 'trust_bind_host', 'ws_max_conn_per_ip',
+            'io_idle_timeout_secs', 'keepalive_timeout', 'trust_bind_host', 'ws_max_conn_per_ip',
             'max_conn_per_ip', 'max_total_conns')
     cur = _deep(client)
     for k in keys:
