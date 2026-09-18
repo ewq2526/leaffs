@@ -275,9 +275,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             self.connection.settimeout(self.READ_TIMEOUT)
         except Exception:
             pass
-        # A-11：请求总时长预算起点（上传/下载/打包等长流豁免见 do_GET/do_POST）
-        self._req_t0 = time.monotonic()
-        self._exempt_total_timeout = False
+        # A-11：请求总时长预算起点已挪到 parse_request() —— **每请求**重算（HTTP/1.1 预备）
         # 架构修订 R4：连接级“整机总连接/线程准入” —— O(1) 无等待；超限立即拒绝（503/关闭），
         # 绝不排队。流式正文与快速 API 都在该总上限（cfg_core.max_total_conns，默认 256）内
         # 自由并发，互不阻塞；这才是唯一的应用层并发上限（每 IP 上限见下）。
@@ -327,10 +325,34 @@ class HTTPHandler(BaseHTTPRequestHandler):
         """请求头读完的那一刻记下基线 —— 之后 rfile 上读到的就都是请求体了（LF-31）。
 
         没有这个基线就没法把"请求行 + 请求头"的字节从正文计数里摘出去。
+
+        HTTP/1.1 预备（2026-09-18）：**每请求**的总时长预算也从这里起算。原来那两行在
+        `handle()` 开头，是"一条连接一个请求"时代的写法 —— keep-alive 下第 2、3 个请求会
+        继承第 1 个的起点和豁免，于是预算凭空少掉，或者一次上传的豁免传染给后面所有请求。
         """
+        # A-11：请求总时长预算起点（上传/下载/打包等长流豁免见 do_GET/do_POST）
+        self._req_t0 = time.monotonic()
+        self._exempt_total_timeout = False
         ok = super().parse_request()
         self._body_base = getattr(self.rfile, 'bytes_read', None)
         return ok
+
+    def handle_one_request(self):
+        """每个请求处理完，就地清空未读正文（HTTP/1.1 预备，2026-09-18）。
+
+        ⚠️ 不能只靠 `finish()`：`StreamRequestHandler.finish()` 在**整条连接**收尾时才调用
+        一次，而 keep-alive 下一条连接要处理多个请求。上一个请求没读完的正文会留在 `rfile`
+        里，被下一个请求当成它的请求行/请求头去解析 —— 那是请求走私式的错位，**而且不会
+        有任何报错**。
+
+        所以这里的原则是：**读不干净就关这条连接**。HTTP/1.0 下每个请求本来就是一条新连接，
+        这个判断永远走不到"关"；keep-alive 下它是复用安全的前提。
+        """
+        try:
+            super().handle_one_request()
+        finally:
+            if not self._drain_unread_input():
+                self.close_connection = True
 
     def finish(self):
         """连接收尾：**先 flush 响应 → 再补读完剩余正文 → 最后才关 rfile**（LF-31）。
@@ -372,21 +394,25 @@ class HTTPHandler(BaseHTTPRequestHandler):
         ⚠️ 也不能用 `rfile.read(n)`：它要**读满 n** 才返回，对端不再发时同样会挂住。
         `read1()` 只返回"当前已可用的数据"，配合临时压短的 socket 超时，
         没数据时抛 `socket.timeout`，我们下一轮再看 —— 全程不阻塞线程。
+
+        HTTP/1.1 预备（2026-09-18）：**返回值表示"这条连接还能不能复用"** ——
+        True＝正文已清空；False＝有残留或无法判定。`handle_one_request` 拿它决定要不要
+        关连接：keep-alive 下残留正文会被下一个请求当成自己的请求行来解析，必须先断开。
         """
         conn = getattr(self, 'connection', None)
         rfile = getattr(self, 'rfile', None)
         if conn is None or rfile is None:
-            return
+            return False
         base = getattr(self, '_body_base', None)
         if base is None:
-            return                      # 没走过 parse_request：不猜，什么都不做
+            return False                # 没走过 parse_request：无从判断，按不可复用处理
         try:
             cl = int(self.headers.get('Content-Length') or 0)
         except (TypeError, ValueError):
-            return
+            return False
         left = min(cl - (getattr(rfile, 'bytes_read', 0) - base), _DRAIN_LIMIT)
         if left <= 0:
-            return                      # 正文读完了 ⇒ 关闭就是干净的 FIN
+            return True                 # 正文读完了 ⇒ 关闭就是干净的 FIN
 
         prev_to = None
         try:
@@ -402,9 +428,9 @@ class HTTPHandler(BaseHTTPRequestHandler):
                 except (socket.timeout, TimeoutError):
                     continue            # 这一轮没数据：接着等，由 deadline 兜底
                 except Exception:
-                    return
+                    return False
                 if not chunk:
-                    return              # 对端已关
+                    return False        # 对端已关，剩下的正文永远不会到
                 left -= len(chunk)
         finally:
             try:
@@ -412,6 +438,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
                     conn.settimeout(prev_to)
             except Exception:
                 pass
+        return left <= 0                # 超时前没读完 ⇒ 有残留 ⇒ 不可复用
 
     def _reject_over_capacity(self):
         """总并发超限拒绝：尽力读走请求行后回 503 并关闭（不再为慢连接保留线程/资源）。
