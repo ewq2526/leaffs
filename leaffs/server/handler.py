@@ -264,6 +264,12 @@ class HTTPHandler(BaseHTTPRequestHandler):
     # 对正常 LAN 上的下载足够，无需在 /download/ 等路径上设更短的超时
     READ_TIMEOUT = 60
 
+    # HTTP/1.1 预备（2026-09-18）：keep-alive 下**等待下一个请求**时的空闲超时（秒）。
+    # 比 READ_TIMEOUT 短得多，理由见 handle_one_request 的说明。它只在连接**已经确定要复用**
+    # 时才生效 —— 那个条件现在是 `close_connection is False`，而 1.0 下永远是 True
+    # ⇒ 换句话说，协议切到 1.1 之前，这个常量不会改变任何行为。
+    KEEPALIVE_IDLE_TIMEOUT = 15
+
     # 忽略客户端强制断连的错误（远程主机强迫关闭连接等）
     def handle(self):
         ip = ''
@@ -334,6 +340,13 @@ class HTTPHandler(BaseHTTPRequestHandler):
         self._req_t0 = time.monotonic()
         self._exempt_total_timeout = False
         ok = super().parse_request()
+        if ok:
+            # 请求行/请求头读完了 ⇒ 后面（读正文）换回完整读超时；上面那个短的空闲超时
+            # 只负责"等下一个请求"这一段。
+            try:
+                self.connection.settimeout(self.READ_TIMEOUT)
+            except Exception:
+                pass
         self._body_base = getattr(self.rfile, 'bytes_read', None)
         return ok
 
@@ -347,7 +360,18 @@ class HTTPHandler(BaseHTTPRequestHandler):
 
         所以这里的原则是：**读不干净就关这条连接**。HTTP/1.0 下每个请求本来就是一条新连接，
         这个判断永远走不到"关"；keep-alive 下它是复用安全的前提。
+
+        HTTP/1.1 预备（2026-09-18）：**等下一个请求时改用短的空闲超时**。
+        `ThreadingMixIn` 是一个连接一个线程、准入位上限 256，而浏览器会把空闲连接挂上几分钟
+        —— 不主动收，几十个客户端就能把线程和准入位占满（等于自己给自己做 DoS）。
+        条件写成 `close_connection is False`（＝"这条连接已经确定要复用"），所以 1.0 下
+        永远不成立，那条路径的容忍度一点没动。
         """
+        if getattr(self, 'close_connection', True) is False:
+            try:
+                self.connection.settimeout(self.KEEPALIVE_IDLE_TIMEOUT)
+            except Exception:
+                pass
         try:
             super().handle_one_request()
         finally:
@@ -484,6 +508,22 @@ class HTTPHandler(BaseHTTPRequestHandler):
         if t0 is not None and time.monotonic() - t0 > REQ_TOTAL_TIMEOUT:
             self.close_connection = True
             raise TimeoutError('请求总时长超限')
+
+    def _reject_chunked_body(self):
+        """HTTP/1.1 预备（2026-09-18）：`Transfer-Encoding: chunked` 的请求体我们解析不了。
+
+        所有接口都按 `Content-Length` 读正文，遇到 chunked 会**静默当成 0 字节** ——
+        上传的内容凭空消失，比直接报错难查得多。HTTP/1.0 的客户端不用 chunked，1.1 的会用，
+        所以必须在切协议**之前**把这条路堵成一个明确的 411。
+
+        `identity` 是唯一还认的取值（等价于没有编码）。
+        """
+        te = (self.headers.get('Transfer-Encoding') or '').strip().lower()
+        if te and te != 'identity':
+            self.send_json({'error': '不支持 Transfer-Encoding: chunked，请带 Content-Length'},
+                           411)
+            return True
+        return False
 
     def _local_token_login(self):
         """一次性本机令牌登录（D4，替代原“本机自动登录超级管理员”）。
@@ -827,6 +867,8 @@ class HTTPHandler(BaseHTTPRequestHandler):
         return json.loads(bytes(raw).decode()) if raw else {}
 
     def do_GET(self):
+        if self._reject_chunked_body():
+            return
         path = urllib.parse.urlparse(self.path).path
         # 实测收口：携带无效/过期会话 Cookie 的 /api 请求路由前 401，不再静默降级匿名/游客
         if self._reject_invalid_session_api(path):
@@ -885,6 +927,8 @@ class HTTPHandler(BaseHTTPRequestHandler):
         return u.hostname.lower() == h_host and o_port == h_port
 
     def do_POST(self):
+        if self._reject_chunked_body():
+            return
         path = urllib.parse.urlparse(self.path).path
         # CSRF：所有改状态接口统一先过同源校验（原先后端零防护，只靠 SameSite=Lax 兜）
         if not self._same_origin_ok():
