@@ -264,6 +264,18 @@ class HTTPHandler(BaseHTTPRequestHandler):
     # 对正常 LAN 上的下载足够，无需在 /download/ 等路径上设更短的超时
     READ_TIMEOUT = 60
 
+    # ===== HTTP/1.1（2026-09-18）：一条连接处理多个请求（keep-alive）=====
+    # 起因：以前是 HTTP/1.0，一个请求一条 TCP 连接 —— 每打开一次页面，那 5~10 个静态资源
+    # 每个都要重新握手。切到 1.1 后连接可以复用。
+    #
+    # 前置工作见同日的前三步提交（都不是可选的）：
+    #   ① 补齐所有响应的**正文定界**（Content-Length / chunked）—— 1.1 不能靠关连接定界；
+    #   ② 总时长预算**每请求重算**、补读结果**决定连接能否复用**（残留正文会污染下一个请求）；
+    #   ③ **空闲超时**（防空闲连接占满线程与准入位）+ chunked 请求体一律 411。
+    #
+    # ⚠️ 回退就是删掉这一行。
+    protocol_version = 'HTTP/1.1'
+
     # HTTP/1.1 预备（2026-09-18）：keep-alive 下**等待下一个请求**时的空闲超时（秒）。
     # 比 READ_TIMEOUT 短得多，理由见 handle_one_request 的说明。它只在连接**已经确定要复用**
     # 时才生效 —— 那个条件现在是 `close_connection is False`，而 1.0 下永远是 True
@@ -347,6 +359,13 @@ class HTTPHandler(BaseHTTPRequestHandler):
                 self.connection.settimeout(self.READ_TIMEOUT)
             except Exception:
                 pass
+            # HTTP/1.1（2026-09-18）：基类判断"能不能复用"只看**服务端**的 protocol_version，
+            # 于是一个 HTTP/1.0 的客户端也会被当成支持持久连接 —— 而 1.0 客户端往往靠连接
+            # 关闭来判断正文结束，那样它会一直等下去。所以：1.0 的请求除非显式要 keep-alive，
+            # 一律按"一次性连接"处理。
+            if self.request_version == 'HTTP/1.0' and \
+                    (self.headers.get('Connection') or '').lower() != 'keep-alive':
+                self.close_connection = True
         self._body_base = getattr(self.rfile, 'bytes_read', None)
         return ok
 
@@ -694,6 +713,11 @@ class HTTPHandler(BaseHTTPRequestHandler):
             self.send_header('Cache-Control', 'no-store')
         self._common_security_headers()
         self._warn_missing_body_delimiter()
+        # HTTP/1.1（2026-09-18）：1.1 默认是**持久**连接，所以要关的时候必须明说 ——
+        # 否则客户端以为连接还在，会一直等下一个响应。
+        if getattr(self, 'close_connection', False) and \
+                getattr(self, 'protocol_version', 'HTTP/1.0') == 'HTTP/1.1':
+            self.send_header('Connection', 'close')
         super().end_headers()
 
     def _warn_missing_body_delimiter(self):
