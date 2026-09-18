@@ -1,5 +1,7 @@
 """页面管理 API — 管理页面和静态资源渲染（HTML 注入）"""
 
+import datetime
+import email.utils
 import os
 
 from leaffs.config import core as _cfg
@@ -264,6 +266,44 @@ def serve_file(handler, filename, content_type, BASE_DIR,
     handler.wfile.write(data)
 
 
+def _static_not_modified(handler, etag, mtime):
+    """条件请求判定（RFC 7232）：命中就 304，省掉整份静态资源的重传。
+
+    ⚠️ 优先序是规范规定的：请求里**只要带了 `If-None-Match` 就不再理会 `If-Modified-Since`**
+    —— 否则一个陈旧的 `If-Modified-Since` 会把 ETag 的判定推翻。
+    `If-None-Match` 用**弱比较**（`W/"x"` 与 `"x"` 等价，见 RFC 7232 §3.2）。
+    `If-Modified-Since` 只有秒精度，所以按秒取整比较（资源比它新才算变过）。
+    """
+    inm = handler.headers.get('If-None-Match')
+    if inm is not None:
+        for token in inm.split(','):
+            token = token.strip()
+            if token == '*':
+                return True             # "只要资源还在就别回正文"
+            if token.startswith('W/'):
+                token = token[2:]
+            if token == etag:
+                return True
+        return False
+    ims = handler.headers.get('If-Modified-Since')
+    if not ims:
+        return False
+    try:
+        since = email.utils.parsedate_to_datetime(ims)
+    except (TypeError, ValueError):
+        return False
+    if since is None:
+        return False
+    if since.tzinfo is None:
+        # 规范要求 HTTP 日期是 GMT；真收到不带时区的就按 UTC 解释，
+        # 不能落到系统本地时区（那会让判定整体偏移）
+        since = since.replace(tzinfo=datetime.timezone.utc)
+    try:
+        return int(mtime) <= int(since.timestamp())
+    except (OverflowError, OSError, ValueError):
+        return False
+
+
 def serve_static(handler, url_path, BASE_DIR, is_path_safe, get_mime, read_file_cached):
     """渲染静态资源（JS/CSS 等）"""
     filename = url_path.replace('/static/', '', 1)
@@ -288,9 +328,43 @@ def serve_static(handler, url_path, BASE_DIR, is_path_safe, get_mime, read_file_
     if data is None:
         handler.send_error(404)
         return
+
+    # ---- 条件请求（2026-09-18）：把 no-cache 从"每次全量重传"变成"回源验证后可以 304" ----
+    # `no-cache` 的语义是"**可以**存、但每次用之前必须回源验证"，而验证需要验证器 ——
+    # 以前一个都没发，于是每次都回完整的 200 ＋ 整个文件，`no-cache` 实际退化成了 `no-store`
+    # （静态资源共 653.9 KB）。这里补上 ETag（大小 + mtime 纳秒）与 Last-Modified。
+    #
+    # ⚠️ 安全前提：`/static/*` 发的是 `web_page/` 下的**原文件、不做任何替换** ⇒ 同一个 URL
+    # 对所有用户内容完全相同，304 不会串味。**按会话注入的页面是另一条路**（`serve_file`
+    # 与各页面 handler，会替换 `__MY_ROLE__` / `__MY_USERNAME__`），它们因人而异、
+    # 仍然是 `no-store`，**不要顺手也给它们加验证器**。
+    # ⚠️ 拿不到 stat 时宁可退回"每次全量"，也不假装有一个 ETag。
+    etag = last_modified = None
+    mtime = 0.0
+    try:
+        st = os.stat(filepath)
+        mtime = st.st_mtime
+        etag = '"%x-%x"' % (st.st_size, st.st_mtime_ns)
+        last_modified = email.utils.formatdate(mtime, usegmt=True)
+    except OSError:
+        pass
+
+    if etag and _static_not_modified(handler, etag, mtime):
+        handler.send_response(304)
+        handler.send_header('ETag', etag)
+        handler.send_header('Last-Modified', last_modified)
+        # ⚠️ 这行不能省：`send_header` 会记下"缓存策略已声明"，`end_headers` 才不会再补一个
+        # `no-store` —— 补上就把静态资源反而标成完全不可缓存了。有回归测试盯着这条。
+        handler.send_header('Cache-Control', 'no-cache')
+        handler.end_headers()
+        return
+
     handler.send_response(200)
     handler.send_header('Content-Type', mime)
     handler.send_header('Content-Length', str(len(data)))
+    if etag:
+        handler.send_header('ETag', etag)
+        handler.send_header('Last-Modified', last_modified)
     # 每次请求都校验新鲜度，避免改版后浏览器长期使用旧静态资源
     handler.send_header('Cache-Control', 'no-cache')
     # B-14：按 mime 补 CSP —— JS/CSS 无内联内容，可用 default-src 'self'；
