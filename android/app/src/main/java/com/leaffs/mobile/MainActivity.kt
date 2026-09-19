@@ -535,11 +535,17 @@ class MainActivity : ComponentActivity() {
      */
     private fun setupNetGuardExtension() {
         try {
+            android.util.Log.i("LeafFS", "netguard: 开始注册内置扩展")
             runtime().webExtensionController
                 .installBuiltIn(NETGUARD_EXTENSION)
                 .accept({ ext ->
-                    if (ext == null) return@accept
+                    if (ext == null) {
+                        android.util.Log.w("LeafFS", "netguard: installBuiltIn 回调拿到 null")
+                        return@accept
+                    }
+                    android.util.Log.i("LeafFS", "netguard: 扩展已安装，挂 message delegate")
                     ext.setMessageDelegate(netGuardMessageDelegate(), "browser")
+                    android.util.Log.i("LeafFS", "netguard: message delegate 已挂上")
                 }, { e ->
                     // ⚠️ 若这里报的是"缺权限"，说明内置扩展拿不到 webRequestBlocking —— 那就
                     // 改用 declarativeNetRequest（声明式规则，不需要 blocking 权限）
@@ -554,11 +560,15 @@ class MainActivity : ComponentActivity() {
      *
      *  ⚠️ `onConnect` 必须实现 —— 扩展那边用 `runtime.connectNative` 建 Port，
      *  App 侧不接的话连接建不起来，上报（以及验证"到底有没有生效"）就全没了。
-     *  这里不需要主动推数据，所以方法体是空的。
+     *
+     *  ⚠️ 这里的两条日志是**排查用**的，别删：以前成功路径一条日志都没有，于是
+     *  "扩展明明装上了、GeckoView 日志里也有 WebExtension:Message，可就是看不到上报"
+     *  这种情况根本没法定位（2026-09-19 真机上就是这么卡住的）。
      */
     private fun netGuardMessageDelegate() = object : WebExtension.MessageDelegate {
 
         override fun onConnect(port: WebExtension.Port) {
+            android.util.Log.i("LeafFS", "netguard: 扩展连上来了（Port 已建立）")
         }
 
         override fun onMessage(
@@ -566,6 +576,11 @@ class MainActivity : ComponentActivity() {
             message: Any,
             sender: WebExtension.MessageSender
         ): GeckoResult<Any>? {
+            // 原样打出来：消息**可能不是** JSONObject（类型不对时 `as?` 会安静地变成 null，
+            // 于是 when 全部跳过、什么都不打 —— 那样就又回到"查不出原因"了）
+            android.util.Log.i("LeafFS", "netguard: onMessage nativeApp=" + nativeApp
+                + " class=" + message.javaClass.simpleName
+                + " msg=" + message.toString())
             val json = message as? JSONObject
             when (json?.optString("type")) {
                 "ready" -> android.util.Log.i("LeafFS", "netguard 扩展已就绪（webRequest 可用）")
