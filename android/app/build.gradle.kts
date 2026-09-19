@@ -1,7 +1,19 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.chaquopy)
 }
+
+// release 签名：口令放在 android/keystore.properties（已被 .gitignore 挡住，绝不入库）。
+// ⚠️ 刻意做成"没有密钥也能构建" —— 别人 clone 或 CI 上只是产出未签名包，
+//    不会在配置阶段直接报错卡住。
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
+}
+val hasReleaseKey = keystoreProps.getProperty("storeFile")
+    ?.let { rootProject.file(it).isFile } == true
 
 // LeafFS Python 源码单一事实来源：仓库根 leaffs/ 包目录。
 // 构建前同步（排除桌面二进制 exe/dll），生成干净源码树供 Chaquopy 打包。
@@ -54,11 +66,25 @@ android {
         }
     }
 
+    // release 签名：口令来自 android/keystore.properties（文件不在就跳过，见文件顶部说明）。
+    // 没有签名配置时 release 产出的是**未签名**包，装不上 —— 要装就必须有这一节。
+    if (hasReleaseKey) {
+        signingConfigs {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             optimization {
                 enable = false
             }
+            if (hasReleaseKey) signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {

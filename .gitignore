@@ -30,6 +30,11 @@ android/.kotlin/
 android/captures/
 android/local.properties
 
+# 签名密钥与口令（绝不入库 —— 密钥泄露等于别人能冒充本应用签名发版）
+keystore.properties
+*.jks
+*.keystore
+
 # 安装包产物（通用保险）
 # ⚠️ 这里**不要**写 `*.jar` —— `android/gradle/wrapper/gradle-wrapper.jar` 是要入库的
 *.apk
