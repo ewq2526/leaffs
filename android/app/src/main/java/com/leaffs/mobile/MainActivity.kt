@@ -359,6 +359,9 @@ class MainActivity : ComponentActivity() {
 
         // 扩展的注入脚本是 content script，消息代理必须等 session 打开之后再挂
         setupInsetsExtension()
+        // netguard 是 background script（没有 content script），不依赖 session 是否打开；
+        // 放在同一处注册只是为了一眼看到"这个 App 装了两个内置扩展"
+        setupNetGuardExtension()
 
         // 启动前台服务：退到后台也继续共享（常驻通知）
         LeafService.start(this)
@@ -517,6 +520,59 @@ class MainActivity : ComponentActivity() {
                 })
         } catch (t: Throwable) {
             android.util.Log.w("LeafFS", "安全区扩展不可用", t)
+        }
+    }
+
+    /**
+     * 注册内置扩展（assets/netguard）：**只放行本机**（127.0.0.1 / localhost / [::1]）的网络
+     * 请求，其余一律 cancel。补的是**子资源**那一侧 —— `onLoadRequest` 只管**导航**，
+     * `<img src>`、外链脚本、fetch、WebSocket 都不走它。
+     *
+     * ⚠️ 这是深度防御的**第四层**，前面还有：属性位置 XSS 已修（2026-09-18）、用户文件里的
+     * HTML/SVG 不被内联渲染（服务端 force_plain）、页面 CSP（服务端，2026-09-19）。
+     * ⚠️ 消息走 `ext.setMessageDelegate` —— 那是 **background script** 那条路径；
+     * content script 才需要走 session，见上面 setupInsetsExtension 里的说明（挂错会静默丢消息）。
+     */
+    private fun setupNetGuardExtension() {
+        try {
+            runtime().webExtensionController
+                .installBuiltIn(NETGUARD_EXTENSION)
+                .accept({ ext ->
+                    if (ext == null) return@accept
+                    ext.setMessageDelegate(netGuardMessageDelegate(), "browser")
+                }, { e ->
+                    // ⚠️ 若这里报的是"缺权限"，说明内置扩展拿不到 webRequestBlocking —— 那就
+                    // 改用 declarativeNetRequest（声明式规则，不需要 blocking 权限）
+                    android.util.Log.w("LeafFS", "netguard 扩展注册失败", e)
+                })
+        } catch (t: Throwable) {
+            android.util.Log.w("LeafFS", "netguard 扩展不可用", t)
+        }
+    }
+
+    /** netguard 只往 App 报两件事：「我起来了」「我拦了谁」
+     *
+     *  ⚠️ `onConnect` 必须实现 —— 扩展那边用 `runtime.connectNative` 建 Port，
+     *  App 侧不接的话连接建不起来，上报（以及验证"到底有没有生效"）就全没了。
+     *  这里不需要主动推数据，所以方法体是空的。
+     */
+    private fun netGuardMessageDelegate() = object : WebExtension.MessageDelegate {
+
+        override fun onConnect(port: WebExtension.Port) {
+        }
+
+        override fun onMessage(
+            nativeApp: String,
+            message: Any,
+            sender: WebExtension.MessageSender
+        ): GeckoResult<Any>? {
+            val json = message as? JSONObject
+            when (json?.optString("type")) {
+                "ready" -> android.util.Log.i("LeafFS", "netguard 扩展已就绪（webRequest 可用）")
+                "blocked" -> android.util.Log.w(
+                    "LeafFS", "netguard 拦截外部请求: " + json.optString("url"))
+            }
+            return GeckoResult.fromValue("")
         }
     }
 
@@ -1734,6 +1790,9 @@ class MainActivity : ComponentActivity() {
 
         /** 内置扩展（assets/insets）：给页面注入系统栏安全区，让背景铺满而正文避开 */
         private const val INSETS_EXTENSION = "resource://android/assets/insets/"
+
+        /** 内置扩展（assets/netguard）：只放行本机的网络请求，其余一律取消（补子资源那层） */
+        private const val NETGUARD_EXTENSION = "resource://android/assets/netguard/"
 
         /** 文本选择菜单的显示顺序（只保留对用户有意义的动作；
          *  内核还会给出 HIDE / UNSELECT / COLLAPSE_* 等内部动作，一律不展示） */

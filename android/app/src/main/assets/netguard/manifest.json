@@ -1,0 +1,21 @@
+{
+  "manifest_version": 2,
+  "name": "LeafFS Net Guard",
+  "version": "1.0",
+  "description": "只放行本机（127.0.0.1 / localhost / [::1]）的网络请求，其余一律取消 —— 页面即使被注入外部资源也不会出网。",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "netguard@leaffs"
+    }
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "permissions": [
+    "webRequest",
+    "webRequestBlocking",
+    "<all_urls>",
+    "nativeMessaging",
+    "geckoViewAddons"
+  ]
+}
