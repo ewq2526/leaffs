@@ -28,8 +28,12 @@ android {
         applicationId = "com.leaffs.mobile"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1.0"
+        // 版本号：安卓版与服务端**共用同一份代码、同一套版本**，所以跟着主项目的版本走。
+        // 规则＝主×10000 + 次×100 + 修订（1.0.6 ⇒ 10006）—— 由 versionName 映射而来，
+        // 这样每版自己算得出，不靠"记住上次发到几"。
+        // ⚠️ versionCode 只增不减（Android 靠它判断是不是升级），改之前先确认不小于已发布的那个。
+        versionCode = 10006
+        versionName = "1.0.6"
     }
 
     // 按 ABI 分开出包：每个包只含单一架构的原生库（GeckoView 内核 + Python 运行时），
