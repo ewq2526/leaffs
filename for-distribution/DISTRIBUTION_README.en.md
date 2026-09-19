@@ -59,4 +59,4 @@ Ports can be changed in Advanced Settings on the Admin page.
 
 This project is heavily AI-assisted (mainly using DeepSeek V4 Flash). Third-party components, licenses and redistribution notes are in `THIRD_PARTY_NOTICES.md`. The author makes no warranty regarding the correctness, security or suitability of the software and accepts no liability for losses caused by its use; evaluate it yourself within a trusted network before using it.
 
-Author: ewq2526 (contact email ewq2526@163.com). Copyright (c) 2026 ewq2526, licensed under `LICENSE.txt`.
+Author: ewq2526 (contact email ewq2526@163.com). Copyright (c) 2026 ewq2526, licensed under `../LICENSE` at the repository root.

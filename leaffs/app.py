@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Copyright (c) 2026 ewq2526. 许可见 LICENSE.txt；联系 ewq2526@163.com
+# Copyright (c) 2026 ewq2526. 许可见 LICENSE；联系 ewq2526@163.com
 """LeafFS - 主入口：路由分发 + 服务器启动"""
 
 import os

@@ -57,4 +57,4 @@ LeafFS 是一个运行在局域网某台电脑上的文件分享/下载服务器
 
 本项目为高度 AI 辅助开发的项目（主要使用 DeepSeek V4 Flash）。第三方组件、许可证与再分发说明见 `THIRD_PARTY_NOTICES.md`。作者对软件的正确性、安全性及适用性不作担保，亦不对使用造成的损失承担责任；请在可信网络内自行评估后使用。
 
-作者：ewq2526（联系邮箱 ewq2526@163.com）。Copyright (c) 2026 ewq2526，许可见 `LICENSE.txt`。
+作者：ewq2526（联系邮箱 ewq2526@163.com）。Copyright (c) 2026 ewq2526，许可见项目根的 `../LICENSE`。
