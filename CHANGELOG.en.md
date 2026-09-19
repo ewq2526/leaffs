@@ -4,6 +4,50 @@
 
 Author: ewq2526. Version format: major.minor.patch. There were no earlier versions or change records; this file records changes starting from 1.0.3.
 
+## 1.0.6 - 2026-09-19
+
+> This release adds an Android version; the rest is security hardening and stability fixes.
+
+### Features
+
+- Added an Android version: run the LeafFS server on an Android phone. Once the app is started, other devices on the same Wi-Fi network or hotspot can browse, preview, upload and download files through a browser by visiting the phone's address, with nothing to install on those devices.
+- The Android version shares the same server and web pages as the desktop version: the interface, account system, configuration format and operation are identical. The two keep their data separately, and nothing is synchronized between them.
+- On the phone, data (accounts, shared files, configuration) is stored in the app's private directory, and uninstalling the app removes it; back up anything important beforehand.
+- Added file sharing: share files and folders from your own directory; shared items appear as "Public shares" in the browsing page's shares area, and others can also reach them directly through the share page `/p/<owner>`. A share is a reference, not a copy — the files stay where they are.
+- A share can be protected with an access code: once set, anyone who has not passed the check can see neither the listing nor the contents of that share; the owner, and shares without a code, are unaffected.
+
+### Security
+
+- This release includes a round of security hardening and permission corrections covering access control, uploads, sessions and credentials, page content policy, and outbound access blocking in the built-in window and on mobile; for security reasons the individual items are not listed here.
+
+### Fixes
+
+- Search for guests was always denied; it now returns the results the visitor is entitled to see, by role.
+- The upload quota used to fill up permanently: after a certain amount every upload failed, deleting already-uploaded files did not help, and only a restart recovered it; the quota is now returned when an upload ends.
+- Partially uploaded files used to appear with odd names in the file list, search results and folder-size totals; they are now completely invisible.
+- When an upload was interrupted midway, the partial data used to be saved as a complete file; it is no longer saved, and a clear error is returned instead.
+- Refreshing or leaving the page during an upload used to silently stall the queue, so later files were never sent; the page now explains what happened and the queue continues, and desktop browsers ask for confirmation before refreshing while files are uploading.
+- Deleting a file used to report success regardless of the outcome; the result is now reported honestly, "file in use" and "permission denied" are distinguished, and the list refreshes immediately on partial success.
+- A failed packaged download used to return an empty archive and still report success; it now returns a clear error.
+- The public shares folder used to disappear from the list after any file operation until the page was reopened; it now stays in place.
+- After a service restart (including the mobile app being killed and restarted by the system) everyone used to be signed out; sign-in state is now preserved, while sign-out, kicking a device and deleting an account still take effect immediately and do not come back after a restart.
+- Rejected requests often showed only a "network error" on the client instead of the reason returned by the server; the explicit message is now delivered.
+- The file selection outline and the check mark in the corner often disagreed; they are now always in sync.
+- Deleting an account used to leave that account's home directory in place; it is now archived, and recreating an account with the same name gets an empty directory.
+- Entering an invalid value or an unknown key in Deep Config used to report success without taking effect; it is now rejected with an explanation.
+- Non-admins used to see a downloader settings section that did nothing, and could read global policy through it; it is no longer shown or sent to them.
+- Temporary upload files left behind by a crash or force-stop used to occupy disk space indefinitely; they are now cleaned up when the service starts.
+
+### Architecture
+
+- The main service changed from one connection per request to connection reuse, with idle connections actively reclaimed; Advanced Settings gained an "idle connection timeout" (default 15 seconds, adjustable 1–300) — the batch of static resources loaded when a page opens no longer re-handshakes one by one, and idle connections held by browsers no longer fill up the server.
+- Supporting connection reuse: the time budget is recalculated for every request, and anything left unread from the previous request must be drained before the connection may be reused, so requests no longer slow each other down or mix up their content.
+- Static resources now use conditional requests: when a resource is unchanged only the response headers are returned, so reopening a page no longer re-transfers the whole static bundle, while updated pages still take effect immediately instead of showing a stale one.
+- The desktop built-in browser engine was upgraded from 4.2.2 to 6.2.1, and outbound blocking changed from polling the current address to hooking the engine's navigation, network and new-window events, removing the previous window of up to 0.4 seconds.
+- The two channels that build the directory listing (page requests and the live channel) were merged into a single implementation, so the two no longer disagree.
+- Cache policy now goes through a single exit point: caching is denied by default, and only what genuinely should be cached (static resources, thumbnails) declares it explicitly.
+- Identity and permission rejections now uniformly return 404 (previously split across 401 / 403 / 404).
+
 ## 1.0.5 - 2026-09-07
 
 ### Features
