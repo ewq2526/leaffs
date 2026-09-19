@@ -20,6 +20,12 @@
 Gradle 9.5.0 + AGP 9.3.0（AGP 9 内置 Kotlin，无需 KGP 插件）+ Chaquopy 17.0.0（Python 3.12）。
 minSdk 26 / targetSdk 37。
 
+**应用版本跟随主项目**：`versionName` 与服务端是同一套版本（当前 `1.0.6`）——
+两边共用同一份 `leaffs/` 源码，版本号不一致会让人分不清"这个 APK 里是哪一版服务端"。
+`versionCode = 主×10000 + 次×100 + 修订`（1.0.6 ⇒ 10006），定义在 `app/build.gradle.kts` 的
+`defaultConfig`。⚠️ **versionCode 只增不减**：Android 靠它判断升级，新包不比旧包大就装不上去，
+而且没有回头路。
+
 ## 常见问题
 
 - **AGP 9.3.0 与 Chaquopy 17 的兼容性**：Chaquopy 17 官方只测到 AGP 9.2.x，9.3 通常可用。
