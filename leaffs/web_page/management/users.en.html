@@ -26,10 +26,14 @@
 .user-avatar.admin { background: var(--primary); }
 .user-avatar.user { background: var(--muted-deep); }
 .user-summary-info { flex: 1; min-width: 0; }
-.user-summary-info .user-name { font-size: 15px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 6px; }
+.user-summary-info .user-name { font-size: 15px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .user-summary-info .user-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
 .user-tag { font-size: 11px; padding: 3px 10px; border-radius: 6px; background: var(--bg); border: 1.5px solid var(--border); color: var(--text); font-weight: 600; }
 .user-summary-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
+/* Narrow screens (phones): give the action row its own line so the username and the role badge
+   keep their width. The action row is flex-shrink:0, so it used to eat all the width and the
+   badge was squeezed to one character per line (Chinese has no word boundaries). */
+@media (max-width: 500px) { .user-summary { flex-wrap: wrap; } .user-summary-actions { width: 100%; justify-content: flex-end; } }
 /* Button styles are unified in the global style.css common buttons (.btn-sm.primary/danger/.btn-edit.* semantics also live globally) */
 .expand-arrow { font-size: 12px; color: var(--text); margin-left: 2px; transition: transform 0.2s; }
 .user-card.expanded .expand-arrow { transform: rotate(180deg); }
@@ -45,7 +49,7 @@
 .edit-controls input:focus { border-color: var(--primary); }
 .current-val { font-size: 12px; color: var(--text); background: var(--bg); border: 1.5px solid var(--border); padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: 600; }
 .pwd-hint { font-size: 11px; color: var(--text); font-weight: 600; margin-right: 2px; }
-.role-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+.role-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
 .role-badge.super { background: var(--danger); color: #fff; }
 .role-badge.admin { background: var(--primary); color: #fff; }
 .role-badge.user { background: var(--muted-deep); color: #fff; }
