@@ -568,6 +568,14 @@ class MainActivity : ComponentActivity() {
     private fun netGuardMessageDelegate() = object : WebExtension.MessageDelegate {
 
         override fun onConnect(port: WebExtension.Port) {
+            // ⚠️ 两件都必须做：
+            //   ① 把 Port **存住** —— 没人引用的话它会被回收，连接就断了；
+            //   ② 调 `setDelegate` —— **少了这行就收不到 Port 上的消息**。
+            // 2026-09-19 真机上就是卡在第 ②：扩展发了消息、GeckoView 日志里也有
+            // `WebExtension:Message`，但 App 侧一条都收不到（`onMessage` 从未被调用）。
+            // 官方文档的例子（web-extensions.html 的 port_messaging 一节）里就有这一步。
+            netGuardPort = port
+            port.setDelegate(netGuardPortDelegate)
             android.util.Log.i("LeafFS", "netguard: 扩展连上来了（Port 已建立）")
         }
 
@@ -576,18 +584,38 @@ class MainActivity : ComponentActivity() {
             message: Any,
             sender: WebExtension.MessageSender
         ): GeckoResult<Any>? {
-            // 原样打出来：消息**可能不是** JSONObject（类型不对时 `as?` 会安静地变成 null，
-            // 于是 when 全部跳过、什么都不打 —— 那样就又回到"查不出原因"了）
-            android.util.Log.i("LeafFS", "netguard: onMessage nativeApp=" + nativeApp
-                + " class=" + message.javaClass.simpleName
-                + " msg=" + message.toString())
-            val json = message as? JSONObject
-            when (json?.optString("type")) {
-                "ready" -> android.util.Log.i("LeafFS", "netguard 扩展已就绪（webRequest 可用）")
-                "blocked" -> android.util.Log.w(
-                    "LeafFS", "netguard 拦截外部请求: " + json.optString("url"))
-            }
+            // background script 的消息**可能**走这条，也可能走 PortDelegate（取决于扩展用
+            // connectNative 还是 sendNativeMessage）。两条是**不同的投递路径**、不会重复投递
+            // 同一条消息，所以都接上不会打两遍。等实测确认哪条生效后，把没用的那条删掉。
+            handleNetGuardMessage(message)
             return GeckoResult.fromValue("")
+        }
+    }
+
+    /** netguard 连上来的 Port —— 必须持有引用，否则被回收、连接就断 */
+    @Volatile private var netGuardPort: WebExtension.Port? = null
+
+    private val netGuardPortDelegate = object : WebExtension.PortDelegate {
+        override fun onPortMessage(message: Any, port: WebExtension.Port) {
+            handleNetGuardMessage(message)
+        }
+
+        override fun onDisconnect(port: WebExtension.Port) {
+            if (port == netGuardPort) netGuardPort = null
+        }
+    }
+
+    /** netguard 上报的唯一处理入口（两条投递路径共用） */
+    private fun handleNetGuardMessage(message: Any) {
+        // 原样打出来：消息**可能不是** JSONObject（`as?` 会安静地变成 null，于是 when 全部
+        // 跳过、什么都不打 —— 那就又回到"查不出原因"）。先看类型，再判断。
+        android.util.Log.i("LeafFS", "netguard: onMessage class="
+            + message.javaClass.simpleName + " msg=" + message.toString())
+        val json = message as? JSONObject
+        when (json?.optString("type")) {
+            "ready" -> android.util.Log.i("LeafFS", "netguard 扩展已就绪（webRequest 可用）")
+            "blocked" -> android.util.Log.w(
+                "LeafFS", "netguard 拦截外部请求: " + json.optString("url"))
         }
     }
 
