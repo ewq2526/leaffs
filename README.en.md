@@ -45,7 +45,7 @@ LeafFS is a LAN file sharing/download server implemented in Python 3.12. It runs
   2. existing `config/selfsigned.crt` and `selfsigned.key`;
   3. when neither exists and TLS is enabled, a random self-signed server certificate is generated automatically on first startup and written into config; it is reused afterwards. This certificate generates no CA and is not installed into any trust store.
 - The program refuses to start in plaintext mode only when no explicit certificate is available and automatic generation also fails.
-- Browsers show an insecure warning for self-signed certificates, which is normal. The certificate notice page on port 8082 explains this in plain language; a logged-in browser visiting that page is redirected back to the HTTPS main site.
+- Browsers show an insecure warning for self-signed certificates, which is normal. The certificate notice page on port 8082 explains this in plain language. That page performs **no automatic redirect** — use the button on it to go to the main site yourself.
 
 ## 5. Known Limitations and Notes
 

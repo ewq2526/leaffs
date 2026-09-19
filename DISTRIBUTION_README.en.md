@@ -10,8 +10,8 @@ This guide is for end users of the distribution package (executable file or pack
 
 1. Start the program (double-click the launcher, or run `python -m leaffs` as instructed).
 2. Find the local access address in the program startup message and open it in a browser.
-3. First sign-in on the server: open the one-time local token link in the startup message; it signs you in automatically as the default Super Admin (the token is one-time and local-only). Use it to enter the admin interface and change the default password promptly.
-4. The default account for the first sign-in is `admin` with password `admin`. After signing in, change the password immediately where the page prompts you.
+3. First sign-in on the server: open the one-time local token link in the startup message; it signs you in automatically as Super Admin (the token is one-time and local-only). Use it to enter the admin interface.
+4. The Super Admin account `admin` **has no password** on first start (there is no such thing as a default weak password here): after signing in, set a password immediately where the page prompts you; until you do, a banner at the top of the page keeps reminding you. To sign in with a password, you have to set one first.
 5. Other devices on the same network can use the service by opening `http(s)://<LAN-IP>:<port>` in a browser.
 
 ## 2. Default Ports
@@ -24,6 +24,7 @@ Ports can be changed in Advanced Settings on the Admin page.
 ## 3. Common Entries
 
 - Browse: view and operate on files.
+- Sharing: share files and folders from your own directory, optionally protected by an access code. Shared items appear as "Public shares" on the browse page, and you can send the share page address to others directly. A share is a reference, not a copy — the files stay where they are.
 - Gallery: browse images, videos and more by category.
 - Downloader: submit download tasks to the server (HTTP, magnet, torrent, m3u8).
 - My Account: current account information and Sign Out; the interface language (Chinese / English) is chosen here. The language is remembered by the browser; the English interface is AI-translated and may differ from the Chinese.
@@ -39,7 +40,7 @@ Ports can be changed in Advanced Settings on the Admin page.
 
 - When HTTPS is enabled with the automatically generated self-signed certificate, mobile browsers show an insecure warning, which is normal.
 - After confirming that the address is your local server, choose to continue as prompted.
-- The certificate notice page on port 8082 explains this phenomenon; devices that are signed in are redirected back to the main site when visiting that page.
+- The certificate notice page on port 8082 explains this phenomenon. That page performs **no automatic redirect of any kind** — use the button on it to go to the main site yourself.
 
 ## 6. FAQ
 
@@ -51,7 +52,7 @@ Ports can be changed in Advanced Settings on the Admin page.
 ## 7. Security Notes
 
 - This software is meant for trusted LANs; do not expose it directly to the public Internet.
-- Change the default Admin password as soon as possible.
+- Set a password for the admin account as soon as possible (on first start it has none, and only the local one-time token can get in).
 - Connection and concurrency limits can be adjusted on the Admin page; overly large values may slow down this machine.
 
 ## 8. Notices
