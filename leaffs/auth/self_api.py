@@ -183,16 +183,18 @@ def account_revoke_sessions(handler):
         handler.send_json({'success': False, 'error': '游客账号无可管理的会话'}, 403)
         return
     import leaffs.auth.core as _ac
-    n = 0
+    # LF-32：撤销一律走 _revoke_user_sessions —— 它**会落盘**。
+    # 原先这里手抄了一份同样的删除循环却没落盘：被踢的会话仍留在 sessions.json 里，
+    # 服务重启后 load_sessions() 会把它读回内存并重新生效，"踢下线"等于白做。
+    # 现在撤销逻辑只有一份，"必须落盘"这条要求不会再被抄漏一次。
     try:
-        with _ac._sessions_lock:
-            for sid2 in list(_ac._sessions.keys()):
-                i2 = _ac._sessions.get(sid2)
-                if i2 and i2.get('username') == username and sid2 != sid:
-                    del _ac._sessions[sid2]
-                    n += 1
-    except Exception:
-        pass
+        n = _ac._revoke_user_sessions(username, keep_sid=sid)
+    except Exception as e:
+        # LF-32：不吞异常 —— 踢失败却回 success，与"删除报成功但没删掉"是同一类假成功
+        from leaffs.runtime_log import log_exception
+        log_exception('自助踢除本账号其它会话', e)
+        handler.send_json({'success': False, 'error': '踢除会话失败'}, 500)
+        return
     # B-16：踢会话属安全事件，记审计（detail 内部会脱敏）
     try:
         from leaffs.utils import log as _ut_log

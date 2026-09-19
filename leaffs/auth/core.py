@@ -270,13 +270,18 @@ def _revoke_user_sessions(username, keep_sid=''):
 
     ⚠️ **必须落盘**：不落盘的话，"被踢掉的会话"只从内存消失 —— 重启之后它又回来了
     （删掉的用户、降权过的账号会带着旧会话复活）。这是本条修复附带的安全要求。
+
+    返回撤销的会话条数（LF-32：自助"退出其它设备"要用它回显踢掉了几台）。
     """
     with _sessions_lock:
+        n = 0
         for sid in list(_sessions.keys()):
             info = _sessions.get(sid)
             if info and info.get('username') == username and sid != keep_sid:
                 del _sessions[sid]
+                n += 1
         _save_sessions_locked()
+    return n
 
 def refresh_session_role(sid, ip=''):
     """按用户“当前”角色实时刷新会话角色（IC-SESS，供 A-07 WS 复查）。
