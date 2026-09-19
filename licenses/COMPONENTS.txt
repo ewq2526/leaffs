@@ -8,21 +8,35 @@ Component            Version           License                Bundled file(s)   
 -------------------  ----------------  ---------------------  ------------------------------  ---------------------------------------------------------
 Python runtime       3.12.10           PSF License v2          (runtime when packaged)         https://www.python.org/
 websockets           16.0              BSD-3-Clause            (Python package, runtime)        https://github.com/aaugustin/websockets
+httpx                0.28.1            BSD-3-Clause            (Python package, runtime)        https://github.com/encode/httpx
+cryptography         49.0.0            Apache-2.0 OR BSD-3    (Python package; cert gen)       https://github.com/pyca/cryptography
 QRCode.js (qrcode.min.js)  (repo)      MIT                     leaffs/web_page/common/qrcode.min.js  https://github.com/davidshimjs/qrcodejs
 OpenSSL              3.6.3             Apache-2.0              leaffs/openssl.exe, libssl-3-x64.dll, libcrypto-3-x64.dll, zlib1.dll  https://github.com/openssl/openssl
 aria2 (aria2c)       1.37.0            GPL-2.0-or-later        leaffs/aria2c.exe               https://github.com/aria2/aria2
-FFmpeg (ffmpeg)      gyan essentials 2026-06-15 git  LGPL-2.1+ (build)  leaffs/ffmpeg.exe         https://ffmpeg.org/ | https://www.gyan.dev/ffmpeg/builds/
+FFmpeg (ffmpeg)      gyan essentials 2026-06-15 git  GPL-3.0 (build)  leaffs/ffmpeg.exe   https://ffmpeg.org/ | https://www.gyan.dev/ffmpeg/builds/
 pythonnet            3.1.0             MIT                     (optional desktop window)        https://github.com/pythonnet/pythonnet
-pywebview            4.2.2             BSD-3-Clause            (optional desktop window)        https://github.com/r0x0r/pywebview
+clr-loader           0.3.1             MIT                     (pythonnet dependency)           https://github.com/pythonnet/clr-loader
+pywebview            6.2.1             BSD-3-Clause            (optional desktop window)        https://github.com/r0x0r/pywebview
+proxy_tools          0.1.0             MIT                     (pywebview dependency)           https://github.com/szabolcs-szilagyi/proxy_tools
+bottle               0.13.4            MIT                     (pywebview dependency)           https://github.com/bottlepy/bottle
+typing_extensions    4.15.0            PSF-2.0                 (pywebview dependency)           https://github.com/python/typing_extensions
+Chaquopy             17.0.0            see upstream            (Android build only)             https://chaquo.com/chaquopy/
+GeckoView            146.x             MPL-2.0                 (Android APK runtime)            https://github.com/mozilla/geckoview
+Android Gradle Plugin 9.3.0           Apache-2.0              (Android build only)             https://developer.android.com/build
+Gradle               9.5.0             Apache-2.0              (Android build only)             https://gradle.org/
+Kotlin               (via AGP 9)       Apache-2.0              (Android build only)             https://kotlinlang.org/
 
 Redistribution notes / 再分发注意
 1. All components are used unmodified. / 上述组件均原样使用、未修改。
 2. aria2 and FFmpeg are distributed as standalone executables invoked as processes. When you
-   redistribute the binaries, comply with GPL-2.0/LGPL-2.1: ship the license texts (in this
-   folder) and give recipients a way to obtain the corresponding source. For unmodified builds,
-   the official source locations above (and the FFmpeg build page) satisfy this in practice.
-   / aria2 与 FFmpeg 为随包二进制（进程调用）。再分发时请随附许可文本并指明对应源码获取方式；
-     未修改的构建以官方源码地址（及 gyan.dev 构建页）作为对应源码的提供方式。
+   redistribute the binaries, comply with their respective licenses: aria2 is GPL-2.0-or-later,
+   and **this FFmpeg build is GPL-3.0** (its build enables --enable-gpl --enable-version3).
+   Ship the license texts (in this folder) and give recipients a way to obtain the corresponding
+   source. For unmodified builds, the official source locations above (and the FFmpeg build page)
+   satisfy this in practice.
+   / aria2 与 FFmpeg 为随包二进制（进程调用）。再分发时请按各自许可执行：aria2 是 GPL-2.0-or-later，
+     **而本包内的 FFmpeg 是 GPL-3.0 构建**（启用了 --enable-gpl --enable-version3）。
+     请随附许可文本并指明对应源码获取方式；未修改的构建以官方源码地址（及 gyan.dev 构建页）为准。
 3. MIT / BSD-3 / Apache-2.0 / PSF components: keep the copyright and license notices with the
    distribution (see files in this folder). / MIT/BSD/Apache/PSF 组件：随分发保留版权与许可声明。
 4. License texts are provided for reference; the upstream official texts govern.

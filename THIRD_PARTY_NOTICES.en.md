@@ -15,8 +15,12 @@ This project is a **heavily AI-assisted development project**: during developmen
 | QRCode.js (`leaffs/web_page/common/qrcode.min.js`) | Generates QR codes on pages | MIT | github.com/davidshimjs/qrcodejs |
 | openssl (`leaffs/openssl.exe`) | Automatically generates a self-signed server certificate when no certificate is configured | Apache-2.0 | github.com/openssl/openssl |
 | aria2c (`leaffs/aria2c.exe`) | Downloader: magnet/torrent/HTTP direct-link tasks (aria2 RPC mode) | GPL-2.0-or-later | github.com/aria2/aria2 |
-| ffmpeg (`leaffs/ffmpeg.exe`) | Generates video/image thumbnails | LGPL-2.1+ (whether a specific build contains GPL parts is determined by its version info) | ffmpeg.org |
-| pythonnet / pywebview | Local desktop window (optional): the code dynamically `import webview` at the desktop window startup entry, which depends on pythonnet underneath | MIT / BSD family | respective official repositories |
+| httpx (Python dependency, 0.28.1) | The downloader's HTTP client (including the per-hop redirect address check hook); used on both desktop and Android | BSD-3-Clause | github.com/encode/httpx |
+| cryptography (Python dependency, 49.0.0) | Generates the self-signed server certificate (used on Android where there is no openssl; an optional path on desktop) | Apache-2.0 OR BSD-3-Clause (dual-licensed, pick either) | github.com/pyca/cryptography |
+| ffmpeg (`leaffs/ffmpeg.exe`) | Generates video/image thumbnails | **GPL-3.0** (this build enables `--enable-gpl --enable-version3` and links GPL components such as libx264/libx265 — **not** LGPL; provable from its `-version` output) | ffmpeg.org / build source gyan.dev |
+| pythonnet 3.1.0 / pywebview 6.2.1 | Local desktop window (optional): the code dynamically `import webview` at the desktop window startup entry, which depends on pythonnet underneath | MIT / BSD-3-Clause | respective official repositories |
+| pywebview runtime dependencies: clr-loader / proxy_tools / bottle / typing_extensions | Installed alongside pywebview (loaded only when the desktop window is used) | MIT / MIT / MIT / PSF | respective official repositories |
+| Android build chain: Chaquopy / GeckoView / Android Gradle Plugin / Gradle / Kotlin | **Used only to build the Android package** (the APK embeds Chaquopy's Python runtime and GeckoView) | Each component's own license (see upstream) | respective official repositories |
 
 ## Current Obligations and Practices of This Project
 
@@ -24,7 +28,19 @@ This project is a **heavily AI-assisted development project**: during developmen
 - **Source-form distribution**: the third-party files above are carried with the source directory in their original form; no separate packaged artifacts are produced or distributed at present.
 - **About pythonnet / pywebview**: this project's code references them (dynamic import at the desktop window entry, not statically linked) and they exist in the local runtime environment (site-packages). **Whether they are provided with the distribution depends on the release content**: if the source package or artifact includes these libraries or their installer files, attach their license texts and copyright notices as well; if the distribution does not include them (only this project's own files, with the libraries installed by the user), this item carries no redistribution obligation.
 - **If an executable artifact containing the components above is released in the future**: place the full license text and copyright notice of each component alongside the artifact (a `licenses/` directory is suggested) and note the component versions and official source addresses; aria2c, ffmpeg and openssl require the official source addresses to be given in the release notes.
+- ⚠️ **Treat `ffmpeg.exe` as GPL-3.0, not LGPL**: the bundled build enables `--enable-gpl --enable-version3` and links GPL components such as libx264/libx265 (provable from the build configuration in its `-version` output). When redistributing that binary the obligation falls under GPLv3: ship the GPL-3.0 text (already at `licenses/LICENSE.ffmpeg-GPL-3.0.txt`) and give recipients a way to obtain the corresponding source.
+  If you want lighter obligations, the **only** route is to switch to an LGPL build without `--enable-gpl` (which means finding another source) — editing a notice cannot achieve it.
 - **Modification obligations**: this project has not modified any of the components above. If any component is modified in the future, provide the corresponding source code or a written offer to obtain it as required by that component's license (especially strict for aria2c/ffmpeg when GPL/LGPL is involved).
+
+## Verification Record, 2026-09-19
+
+Each claim was checked against the actual environment; conclusions and evidence:
+
+- **Consistent**: OpenSSL `3.6.3`, aria2 `1.37.0`, websockets `16.0`, pythonnet `3.1.0`, QRCode.js (file present);
+- **Corrected**: `ffmpeg.exe` was measured to be a **GPL-3.0 build** (previously stated as LGPL-2.1+); the pywebview license text under `licenses/` was replaced from `4.2.2` to `6.2.1` (it was upgraded on 2026-09-18; the stale file was removed);
+- **Added**: `httpx`, `cryptography`, pywebview's runtime dependencies and the Android build chain — **none of these were declared before**, and `httpx` in particular is a runtime dependency on both desktop and Android.
+
+Method: bundled binaries were run with `-version` / `--version` to read their build configuration; Python dependencies were read via `importlib.metadata`; license texts were taken from each package's own `dist-info/licenses/`, so **versions match what is installed here**.
 
 > The above is compiled according to the current actual state of this project; the official license texts of each component take precedence.
 
