@@ -9,7 +9,7 @@
 - 访问控制：用户、管理员、超级管理员三级角色；可选游客模式；配额与限速。
 - 下载任务：HTTP/HTTPS 直链、磁力、种子、m3u8，由服务器下载并入库。默认仅允许公网目标，访客默认不可用；aria2c（磁力/种子所用进程）异常退出时会自动重启。
 - 其它：二维码登录、本机一次性登录令牌、HTTPS 自签证书自动生成、连接与并发上限可调、登录限流与账号锁定。
-- 多语言：界面提供中文与英文。语言在“我的”页选择，选择同时保存到登录账号（服务端）；浏览器带语言 cookie 时以 cookie 为准。英文版为直写页面文件（`*.en.html`），服务端据此返回，无英文文件时回退中文。英文内容为 AI 翻译（可能存在差异），统一译法见 `TRANSLATION_GLOSSARY.md`。
+- 多语言：界面提供中文与英文。语言在“我的”页选择，选择同时保存到登录账号（服务端）；浏览器带语言 cookie 时以 cookie 为准。英文版为直写页面文件（`*.en.html`），服务端据此返回，无英文文件时回退中文。英文内容为 AI 翻译（可能存在差异），统一译法见 `docs/TRANSLATION_GLOSSARY.md`。
 - 界面外观：支持更换主题主色（蓝/绿/紫/橙/红），亮色与暗色各有一套背景配色；主题色在“我的”页设置并按账号保存。
 - 安卓版：同一套服务端与网页也可跑在安卓手机上（App 启动后，同一 WiFi 或热点下的设备用浏览器访问手机地址）。构建方式与目录结构见 `android/README.md`。
 
@@ -64,7 +64,7 @@
 
 ## 7. 开发说明
 
-- **架构与机制说明见 `ARCHITECTURE.md`**（英文版 `ARCHITECTURE.en.md`）：分层与依赖方向、请求数据流、认证/权限/文件/分享/配置/下载器各域的关键机制，以及“为什么这么设计”。
+- **架构与机制说明见 `docs/ARCHITECTURE.md`**（英文版 `docs/ARCHITECTURE.en.md`）：分层与依赖方向、请求数据流、认证/权限/文件/分享/配置/下载器各域的关键机制，以及“为什么这么设计”。
 - 主入口 `leaffs/leaffs.py`（兼容垫片，指向 `leaffs/app.py` 的启动装配）；服务端代码按域分目录：`auth`（账号与会话）、`files`（文件）、`share`（分享）、`config`（配置）、`dl`（下载器）、`web`（页面渲染）、`server`（HTTP/WebSocket/推送/TLS/主机工具）、`utils`（通用工具）。
 - 数据目录规则：源码运行等于项目根，打包运行等于主程序目录。
 - 主要配置键：`http_port`、`ws_port`、`tls_trust_port`、`tls_enabled`、`tls_cert`、`tls_key`、`trust_bind_host`、`guest_mode`、`guest_public_write`、`downloader_guest_allowed`、`max_total_conns`（默认 256）、`max_conn_per_ip`（默认 20）、`ws_max_conn_per_ip`（默认 8）、`io_idle_timeout_secs`（默认 120）、`keepalive_timeout`（默认 15）、`zip_max_files`、`zip_streaming`（默认 true）、`pbkdf2_iterations`、`salt_length`、`access_log`。
@@ -72,13 +72,13 @@
 - 内置外部程序：`openssl.exe`、`aria2c.exe`、`ffmpeg.exe`，用途与许可见第 8 节及第三方声明文件。
 - 携带失效会话 Cookie 的 API 请求在路由前统一返回 401；`/api/qrlogin` 等匿名路径在豁免名单内。
 - 页面文字均可选中复制；二维码颜色随亮暗主题变化。
-- 多语言实现：页面同一目录放置中文版与英文版文件，英文文件以 `.en.html` 结尾。语言判定顺序：请求 cookie `leaf_lang` 优先；无 cookie 时使用该登录账号保存在服务端（users.json）的语言偏好，供软件自带窗口等无痕会话重启后恢复。语言选择器在“我的”页，切换会写 cookie、保存账号偏好并刷新。英文由 AI 翻译，术语一致性由 `TRANSLATION_GLOSSARY.md` 保证。
+- 多语言实现：页面同一目录放置中文版与英文版文件，英文文件以 `.en.html` 结尾。语言判定顺序：请求 cookie `leaf_lang` 优先；无 cookie 时使用该登录账号保存在服务端（users.json）的语言偏好，供软件自带窗口等无痕会话重启后恢复。语言选择器在“我的”页，切换会写 cookie、保存账号偏好并刷新。英文由 AI 翻译，术语一致性由 `docs/TRANSLATION_GLOSSARY.md` 保证。
 - 注释规范：代码注释统一为**中英双语**（一行中文说明 + 相邻一行英文，或同句双语），仅保留有信息量的注释，删除重复代码/过时/无意义注释；英文部分可标注 AI 翻译。全库正在按此规范分批清理。
-- AI 编程辅助：本项目为高度 AI 辅助开发的项目，主要使用的模型为 DeepSeek V4 Flash；说明见 `THIRD_PARTY_NOTICES.md`。
+- AI 编程辅助：本项目为高度 AI 辅助开发的项目，主要使用的模型为 DeepSeek V4 Flash；说明见 `for-distribution/THIRD_PARTY_NOTICES.md`。
 
 ## 8. 第三方组件与许可
 
-本项目随附或依赖的第三方组件、用途、许可证、上游源码及再分发做法见独立文件 `THIRD_PARTY_NOTICES.md`，发布产物时请一并分发。所列组件均原样使用、未修改。若发现该声明遗漏的第三方组件或存在任何许可疑问，请联系作者（ewq2526@163.com）反馈。
+本项目随附或依赖的第三方组件、用途、许可证、上游源码及再分发做法见独立文件 `for-distribution/THIRD_PARTY_NOTICES.md`，发布产物时请一并分发。所列组件均原样使用、未修改。若发现该声明遗漏的第三方组件或存在任何许可疑问，请联系作者（ewq2526@163.com）反馈。
 
 ## 9. 免责说明
 

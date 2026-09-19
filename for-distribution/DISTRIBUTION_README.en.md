@@ -4,7 +4,7 @@
 
 LeafFS is a file sharing/download server that runs on one computer within a LAN. Phones and computers on the same network can open the server address in a browser to browse, preview (Gallery), upload and download files, without installing a client.
 
-This guide is for end users of the distribution package (executable file or packaged directory). Development and licensing details are in `README.md` and `THIRD_PARTY_NOTICES.md` in the project.
+This guide is for end users of the distribution package (executable file or packaged directory). Development and licensing details are in `../README.md` at the repository root; the third-party notices and the license texts of every component are in this folder (`THIRD_PARTY_NOTICES.md` and `licenses/`) — **ship this whole folder along with the distribution**.
 
 ## 1. Quick Start
 

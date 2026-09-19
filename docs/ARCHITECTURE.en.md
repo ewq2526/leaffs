@@ -4,8 +4,8 @@ Author: ewq2526.
 
 This document is for **people taking over or extending the LeafFS code base**: it explains what each
 layer does, why the key mechanisms are designed the way they are, and where to touch things when you
-change them. For usage and deployment see `README.md`, for version history see `CHANGELOG.md`, and for
-Android build details see `android/README.md`.
+change them. For usage and deployment see `../README.md`, for version history see `../CHANGELOG.md`, and for
+Android build details see `../android/README.md`.
 
 > Convention: this document describes the behaviour of the **current code**. Wherever a design reason
 > cannot be read off the code, it is written down in the corresponding section — most of those reasons
@@ -1268,12 +1268,17 @@ invisible in the code itself.
 
 | File | Audience | Contents |
 |---|---|---|
-| `README.md` | Users / extenders | Features, running, configuration, limitations |
-| `CHANGELOG.md` | Users | User-visible changes per release |
+| `../README.md` | Users / extenders | Features, running, configuration, limitations |
+| `../CHANGELOG.md` | Users | User-visible changes per release |
 | **This file** | **People taking over the code** | Architecture, mechanisms, why it is designed this way |
-| `DISTRIBUTION_README.md` | End users | Distribution build usage notes |
-| `THIRD_PARTY_NOTICES.md` | Compliance | Third-party components and licences |
-| `android/README.md` | People building the Android package | Android structure and build |
+| `../for-distribution/DISTRIBUTION_README.md` | End users | Distribution build usage notes |
+| `../for-distribution/THIRD_PARTY_NOTICES.md` | Compliance | Third-party components and licences |
+| `../android/README.md` | People building the Android package | Android structure and build |
+
+> Layout convention: documents aimed at users and developers stay in the **repository root**
+> (hosting platforms look for the root `README`); everything that must be **handed out with a
+> distribution** (distribution notes, third-party notices, license texts) lives under
+> `for-distribution/`; this file and the translation glossary live under `docs/`.
 
 Convention: **user-facing documents are not mixed into this file** — users do not need implementation
 details. Conversely, this file does not explain "how to use it"; that is the README's job.
