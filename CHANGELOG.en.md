@@ -37,6 +37,7 @@ Author: ewq2526. Version format: major.minor.patch. There were no earlier versio
 - Entering an invalid value or an unknown key in Deep Config used to report success without taking effect; it is now rejected with an explanation.
 - Non-admins used to see a downloader settings section that did nothing, and could read global policy through it; it is no longer shown or sent to them.
 - Temporary upload files left behind by a crash or force-stop used to occupy disk space indefinitely; they are now cleaned up when the service starts.
+- The certificate notice page (8082) no longer redirects you to the main site on its own: it used to do so merely because "this browser has signed in before", even when the session had long expired, which dropped you into the browse page and bounced you back to sign-in — as if the button had done nothing. The page now only explains the situation, and the button takes you to the main site.
 
 ### Architecture
 
