@@ -3,6 +3,7 @@
 import datetime
 import email.utils
 import os
+import re
 
 from leaffs.config import core as _cfg
 from leaffs.utils.core import parse_cookies
@@ -218,6 +219,62 @@ def _en_variant_path(BASE_DIR, filename, cookie, username=''):
     return None
 
 
+def _csp_host(handler):
+    """从 `Host` 头取出可用于 CSP 的 host（**必须净化**）。
+
+    CSP 头是拼字符串发出去的，中间混进换行就是**头注入**。所以这里只放行两种形状：
+    普通域名 / IPv4（字母数字、点、连字符）与方括号形式的 IPv6；其余一律返回空串，
+    调用方退化成只写 `'self'`（宁可靠同源兜，也不拼进去一段来路不明的东西）。
+    端口一并丢掉 —— WS 端口我们自己知道（`_cfg.WS_PORT`），不用客户端告诉我们。
+    """
+    raw = (handler.headers.get('Host') or '').strip()
+    if not raw:
+        return ''
+    if raw.startswith('['):                     # IPv6：[::1]:8080
+        end = raw.find(']')
+        if end < 0:
+            return ''
+        host = raw[:end + 1]
+        return host if re.fullmatch(r'\[[0-9A-Fa-f:.]+\]', host) else ''
+    host = raw.split(':', 1)[0]
+    return host if re.fullmatch(r'[A-Za-z0-9.-]+', host) else ''
+
+
+def page_csp(handler):
+    """页面 CSP（2026-09-18）：把**子资源**锁在同源与自己的 WebSocket 上。
+
+    为什么要有它：`serve_file` 渲染的页面以前**完全没有 CSP**，于是页面里一旦出现
+    `<img src="外部">`、外链脚本/样式、或 `fetch('http://外部')`，浏览器就会真的去请求 ——
+    那是「软件内不访问外部链接」的最后一块缺口。**导航**由客户端的白名单管
+    （安卓 `onLoadRequest`、桌面 WebView2 的导航层），**子资源**归这里，两者互补。
+    好处是它由浏览器执行：**安卓 / 桌面 / 任何浏览器一起生效**，不依赖客户端实现。
+
+    写法依据（都查过页面实际用法，不是照抄模板）：
+      · 所有 fetch/XHR 都是相对路径（含 `var API = '/api/url-download'`），没有一处打外部；
+      · `__SERVER_BASE__` 只用来拼**下载链接**（导航，不受 CSP 管），没有 fetch 用它；
+      · 页面里没有 <video>/<audio>/<iframe>/<object> ⇒ 不需要 media-src / frame-src；
+      · 内联 `style="…"` 属性与内联 <script> 用得很多 ⇒ 必须留 'unsafe-inline'；
+      · 缩略图走 /api/thumb（同源），二维码可能内联 ⇒ img-src 补 data: 与 blob:；
+      · WebSocket 连的是 `ws(s)://<当前 hostname>:<WS_PORT>/ws`，而端口可配置
+        ⇒ connect-src 必须动态带上它，只写 'self' 会把下载器的实时进度打断。
+    """
+    connect = "'self'"
+    host = _csp_host(handler)
+    if host:
+        ws_port = _cfg.WS_PORT
+        # ws 与 wss 都放行：这里连的是自己的端口，多给一个 scheme 不会扩大可达面，
+        # 但能避免"明文/加密模式判断错了导致 WS 连不上"这种难以定位的故障。
+        connect += f' ws://{host}:{ws_port} wss://{host}:{ws_port}'
+    return (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        f"connect-src {connect}; "
+        "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    )
+
+
 def serve_file(handler, filename, content_type, BASE_DIR,
                get_session, get_session_username):
     """渲染常规 HTML 页面（注入用户名和角色）；语言 cookie 为 en 时优先渲染英文版页面。"""
@@ -260,7 +317,9 @@ def serve_file(handler, filename, content_type, BASE_DIR,
     handler.send_header('Content-Type', content_type)
     handler.send_header('Content-Length', str(len(data)))
     # B-14：serve_file 渲染的均为按会话注入的 HTML（含 /admin/* 管理页），禁止缓存。
-    # 公共头由 end_headers 统一补，别在这里手写（会重复）
+    # 2026-09-18：页面 CSP **不在这里手写** —— 由 handler.end_headers 按 Content-Type
+    # 统一补（见 HTTPHandler._page_csp_for_response）。手工点会漏：今天一共数出 6 处
+    # 发 HTML 的地方（本函数 / 两个管理页 / 登录页 / 公开分享页 / 扫码页）。
     handler.send_header('Cache-Control', 'no-store')
     handler.end_headers()
     handler.wfile.write(data)

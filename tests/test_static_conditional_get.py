@@ -79,11 +79,17 @@ def test_wrong_etag_gets_full_response(client):
 
 
 def test_if_modified_since(client):
-    """`If-Modified-Since` 用响应里的 Last-Modified 命中；比资源旧的时间必须回全量"""
+    """`If-Modified-Since` 用响应里的 Last-Modified 命中；比资源旧的时间必须回全量
+
+    ⚠️ "比资源旧"要用**绝对**时间（epoch），不能用"一天前"这种相对值 —— 文件 mtime 是固定的，
+    而"一天前"会随时间流逝推到它后面，断言就自己反转了。2026-09-19 实测踩到：
+    `app.js` 的 mtime 是 09-18 06:59，而"一天前"已经是 09-18 20:33 ⇒ 304 ≠ 200 挂掉。
+    """
     lm = client.get(STATIC).headers['Last-Modified']
     assert client.get(STATIC, headers={'If-Modified-Since': lm}).status_code == 304
-    old = formatdate(time.time() - 86400, usegmt=True)
-    assert client.get(STATIC, headers={'If-Modified-Since': old}).status_code == 200
+    epoch = formatdate(0, usegmt=True)      # 1970-01-01，一定早于任何文件的 mtime
+    r = client.get(STATIC, headers={'If-Modified-Since': epoch})
+    assert r.status_code == 200, '1970 年就不该命中 304: %s' % r.status_code
 
 
 def test_if_none_match_wins_over_if_modified_since(client):

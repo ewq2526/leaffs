@@ -694,6 +694,9 @@ class HTTPHandler(BaseHTTPRequestHandler):
         self._content_length_sent = False
         self._transfer_encoding_sent = False
         self._body_delim_checked = False
+        # 页面 CSP 的判断依据同样每请求清（见 _page_csp_for_response）
+        self._content_type = ''
+        self._csp_sent = False
         super().send_response(code, message)
 
     def send_header(self, keyword, value):
@@ -708,6 +711,11 @@ class HTTPHandler(BaseHTTPRequestHandler):
             self._content_length_sent = True
         elif kw == 'transfer-encoding':
             self._transfer_encoding_sent = True
+        elif kw == 'content-type':
+            # 只为判断"这是不是 HTML 响应"（决定 end_headers 要不要补页面 CSP）
+            self._content_type = value
+        elif kw == 'content-security-policy':
+            self._csp_sent = True
         super().send_header(keyword, value)
 
     def end_headers(self):
@@ -726,7 +734,12 @@ class HTTPHandler(BaseHTTPRequestHandler):
         """
         if not getattr(self, '_cache_control_sent', False):
             self.send_header('Cache-Control', 'no-store')
-        self._common_security_headers()
+        # 2026-09-18：HTML 响应**统一**补页面 CSP（把子资源锁在同源 + 自己的 WS 上）。
+        # ⚠️ 放在统一出口而不是各页面手工点：发 HTML 的地方一共 6 处（serve_file / 两个
+        # 管理页 / 登录页 / 公开分享页 / 扫码页），手工点必漏一处 —— 而漏掉的那处正是
+        # "软件内能访问外部"的缺口。已有的显式 CSP（/static/*、JSON、文件流）不受影响：
+        # _common_security_headers 幂等，先发的那个说了算。
+        self._common_security_headers(csp=self._page_csp_for_response())
         self._warn_missing_body_delimiter()
         # HTTP/1.1（2026-09-18）：1.1 默认是**持久**连接，所以要关的时候必须明说 ——
         # 否则客户端以为连接还在，会一直等下一个响应。
@@ -734,6 +747,19 @@ class HTTPHandler(BaseHTTPRequestHandler):
                 getattr(self, 'protocol_version', 'HTTP/1.0') == 'HTTP/1.1':
             self.send_header('Connection', 'close')
         super().end_headers()
+
+    def _page_csp_for_response(self):
+        """本次响应要不要带页面 CSP：**是 HTML** 且**还没人发过 CSP** 时给一份。
+
+        已经有 CSP 的响应（`/static/*` 按 mime 发的、JSON 的 `default-src 'none'`、
+        文件流的 sandbox）保持原样 —— 那些是各场景**更贴切**的策略，不该被这里覆盖。
+        """
+        if getattr(self, '_csp_sent', False):
+            return None
+        ctype = (getattr(self, '_content_type', '') or '').lower()
+        if 'text/html' not in ctype:
+            return None
+        return _wm.page_csp(self)
 
     def _warn_missing_body_delimiter(self):
         """HTTP/1.1 预备（2026-09-18）：正文必须有定界 —— `Content-Length` 或 chunked。
