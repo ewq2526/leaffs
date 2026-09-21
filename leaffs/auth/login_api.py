@@ -82,35 +82,33 @@ def _normalize_username(username):
     return _ut_log.sanitize_log_text(username)[:64]
 
 
-def _is_login_locked(ip, username):
-    username = _normalize_username(username)
-    with _login_fail_lock:
-        now = time.time()
-        # B-09 账户级锁定：任意来源该用户名 ≥12 次失败/15min → 全局锁定。
-        # 未知用户名同样按同名入 _acct_fail/_login_fail（同一套计数/过期节奏），
-        # 锁表本身不构成存在性泄露；可观察差异只剩“锁定态 429/快速响应 vs 未锁定
-        # 错误口令 403/经 PBKDF2 计费”（枚举 oracle，见 _LOCK_RESPONSE_UNIFORM 注释）。
-        acc = _acct_fail.get(username)
-        if acc and now - acc['t'] <= _ACCOUNT_LOCK_MIN * 60 and acc['n'] >= _ACCOUNT_LOCK_AFTER:
-            return True
-        # 既有 (IP,用户名) 语义：6 次 / 10 分钟（429 行为保留）
-        rec = _login_fail.get((ip, username))
-        if not rec:
-            return False
-        if now - rec['t'] > _LOGIN_LOCK_MIN * 60:
-            _login_fail.pop((ip, username), None)
-            return False
-        return rec['n'] >= _LOGIN_MAX_FAIL
+def _begin_login_attempt(ip, username):
+    """原子地「判锁定 + 记一次尝试」—— 必须在 PBKDF2 **之前**调用。
 
+    原来这里是两步：`_is_login_locked()` 持锁**读**，然后 PBKDF2 校验，失败后再由
+    `_record_login_fail()` 持锁**写**。中间隔着一次 PBKDF2（期间释放 GIL），于是并发的
+    N 个请求会**同时**看到"失败次数还没到 6"而全部放行 —— 单次突发可试次数从 6 涨到
+    `max_conn_per_ip`(20)。
 
-def _record_login_fail(ip, username):
-    """记录 (IP,用户名) 失败与账户级失败计数。
+    黑盒报告 C-1（2026-09-21）实测：
 
-    返回 `(account_locked, spray)`：前者=本次触发账户级锁定；后者=本次让"窗口内不同
-    用户名数"达到喷洒阈值。两者可能同时为真（不同指纹），调用方各发各的告警。
+        串行对照         : WRONG×6, LOCK×2         → 正常第 7 次锁
+        8 并发(不存在用户): WRONG=8, LOCK=0    ×2 次 → 8 次全部通过（上限是 6）
+        8 并发(真实账号)  : WRONG=6, LOCK=2
+
+    现在判定与占位在同一把锁内完成，并发放行数不会超过阈值。**成功登录仍走
+    `_reset_login_fail()` 清零**，所以净效果依旧是"只有失败才计数"。
+
+    返回 `(allowed, account_locked, spray)`：
+      * `allowed=False` → 调用方回 429，且**不**累加计数（自愈，与旧语义一致）；
+      * `account_locked` → 本次让账户级计数达到阈值。**只在最终失败时才发告警** ——
+        成功登录虽然也占过位，但那笔计数马上会被清零，不该告警；
+      * `spray` → 本次让"窗口内不同用户名数"达到喷洒阈值。
     """
     global _login_last_clean
     username = _normalize_username(username)
+
+    # 懒清理（原来随计数一起住在 _record_login_fail 里，计数搬过来它就跟着搬）
     try:
         now = time.time()
         if now - _login_last_clean > 300:
@@ -127,29 +125,39 @@ def _record_login_fail(ip, username):
                     _login_last_clean = now
     except Exception:
         pass
-    triggered = False
-    spray = False
+
     with _login_fail_lock:
         now = time.time()
+        # B-09 账户级锁定：任意来源该用户名 ≥12 次失败/15min → 全局锁定。
+        # 未知用户名同样按同名入 _acct_fail/_login_fail（同一套计数/过期节奏），
+        # 锁表本身不构成存在性泄露；可观察差异只剩“锁定态 429/快速响应 vs 未锁定
+        # 错误口令 403/经 PBKDF2 计费”（枚举 oracle，见 _LOCK_RESPONSE_UNIFORM 注释）。
+        acc = _acct_fail.get(username)
+        if acc and now - acc['t'] <= _ACCOUNT_LOCK_MIN * 60 and acc['n'] >= _ACCOUNT_LOCK_AFTER:
+            return False, False, False
+        # 既有 (IP,用户名) 语义：6 次 / 10 分钟（429 行为保留）
         key = (ip, username)
         rec = _login_fail.get(key)
+        if rec and now - rec['t'] <= _LOGIN_LOCK_MIN * 60 and rec['n'] >= _LOGIN_MAX_FAIL:
+            return False, False, False
+
+        # 放行 → **立刻占位**：这次尝试现在就算数了，后来者马上看得见。
+        # 判定与自增同处一把锁内，是这条修复的全部要害。
         if not rec or now - rec['t'] > _LOGIN_LOCK_MIN * 60:
             rec = {'n': 0, 't': now}
         rec['n'] += 1
         rec['t'] = now
         _login_fail[key] = rec
-        # 账户级计数（分布式来源也收敛到同一用户名）
-        acc = _acct_fail.get(username)
+
         if not acc or now - acc['t'] > _ACCOUNT_LOCK_MIN * 60:
             acc = {'n': 0, 't': now}
         acc['n'] += 1
         acc['t'] = now
         _acct_fail[username] = acc
-        if acc['n'] == _ACCOUNT_LOCK_AFTER:
-            triggered = True
+
         # 喷洒看的是"窗口内不同用户名数"，复用刚更新的 _acct_fail（同一把锁内，一致）
-        spray = _spray_user_count(now) >= _SPRAY_USERS
-    return triggered, spray
+        return (True, acc['n'] == _ACCOUNT_LOCK_AFTER,
+                _spray_user_count(now) >= _SPRAY_USERS)
 
 
 def _reset_login_fail(ip, username):
@@ -422,11 +430,14 @@ def auth_login(handler, add_log, logger, UPLOAD_DIR, verify_login,
         raw_user = data.get('username', '')
         raw_pass = data.get('password', '')
         safe_user = _normalize_username(raw_user)   # B-09：用户名入日志/入表前脱敏（容忍非字符串→''）
-        # 锁定检查先于类型校验：锁定态（(IP,用户名)6次/10min 或账户级12次/15min）统一按
-        # “当前形态”拒绝且不再累加计数/不延长窗口（自愈）——与正常尝试完全一致。
+        # 判定与占位**一步完成**（_begin_login_attempt），且必须在 PBKDF2 之前：
+        # 锁定态（(IP,用户名)6次/10min 或账户级12次/15min）统一按“当前形态”拒绝且
+        # 不再累加计数/不延长窗口（自愈）—— 与正常尝试完全一致。原来"检查在 PBKDF2 前、
+        # 计数在 PBKDF2 后"分成两次加锁，并发请求会同时看到旧计数而全部放行（C-1）。
         # 残余风险（429 vs 403 可枚举活跃账号）说明与可选统一形态开关见模块常量
         # _LOCK_RESPONSE_UNIFORM；此处仅按开关选择响应形态，语义保持 429（默认）。
-        if _is_login_locked(client_ip, raw_user):
+        allowed, acct_locked, spray = _begin_login_attempt(client_ip, safe_user)
+        if not allowed:
             if _LOCK_RESPONSE_UNIFORM:
                 # 开关开：与「用户名或密码错误」完全同形态（403+同文案），消除状态码差异面
                 handler.send_json({'success': False, 'error': '用户名或密码错误'}, 403,
@@ -436,12 +447,12 @@ def auth_login(handler, add_log, logger, UPLOAD_DIR, verify_login,
             return
         # 1) 输入类型校验：username/password 非字符串（null/int/dict/list/数组…）→ 400，
         #    不进入 PBKDF2 计费；但按“一次失败尝试”计入 (IP,用户名) 与账户级窗口
-        #    （_record_login_fail，与正常错误口令同节奏；触发账户锁同样告警）。其上
-        #    _login_ip_allowed 已对放行请求先行记账 → 畸形包无法绕过任何一级限流做
-        #    无限试探/日志洪水。
+        #    （_begin_login_attempt 已在上方占位，与正常错误口令同节奏；触发账户锁同样
+        #    告警）。其上 _login_ip_allowed 已对放行请求先行记账 → 畸形包无法绕过任何
+        #    一级限流做无限试探/日志洪水。
         if not isinstance(raw_user, str) or not isinstance(raw_pass, str):
-            locked, spray = _record_login_fail(client_ip, safe_user)
-            if locked:
+            # 这次尝试的计数已在 _begin_login_attempt 里占位完成，这里只按结果告警
+            if acct_locked:
                 _warn_account_lock(safe_user, client_ip, add_log)
             if spray:
                 _warn_login_spray(safe_user, add_log)
@@ -454,7 +465,10 @@ def auth_login(handler, add_log, logger, UPLOAD_DIR, verify_login,
             # 登录成功：回补该 IP 的每 IP 限流窗口（成功请求不永久占用 30/min 窗口），
             # 使合法用户短时多次登录不会被自身成功记录累计撞 429；失败计费不受影响
             _login_ip_refund(client_ip)
-            _reset_login_fail(client_ip, username)
+            # 清零的键必须与占位时用的键**完全同一个**（都取自 safe_user）——
+            # 原来占位用 `_normalize_username(raw_user)`、清零用 `raw_user.strip()`，
+            # 用户名带首尾空格时两者不相等，于是失败计数永远清不掉。
+            _reset_login_fail(client_ip, safe_user)
             add_log(f'登录: {safe_user} ({client_ip})', 'ok')
             logger.info(f'登录: {safe_user} ({client_ip})')
             if username:
@@ -478,11 +492,11 @@ def auth_login(handler, add_log, logger, UPLOAD_DIR, verify_login,
             handler.end_headers()
             handler.wfile.write(_ok)
         else:
-            locked, spray = _record_login_fail(client_ip, username)
             # 时间侧信道等化已收敛到 ac_core.verify_login：
             # “用户不存在”分支做一次与真实校验等代价的 PBKDF2，失败路径不再重复计费
+            # （计数已在 _begin_login_attempt 里占位完成，这里只按结果告警）
             logger.warning(f'登录失败: {safe_user} ({client_ip})')
-            if locked:
+            if acct_locked:
                 _warn_account_lock(safe_user, client_ip, add_log)
             if spray:
                 _warn_login_spray(safe_user, add_log)

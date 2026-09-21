@@ -105,7 +105,7 @@ def test_spray_counts_distinct_usernames(L):
     """
     now = time.time()
     for _ in range(L._SPRAY_USERS * 2):
-        L._record_login_fail('10.0.0.1', 'same_user')
+        L._begin_login_attempt('10.0.0.1', 'same_user')
     assert L._spray_user_count(now) == 1, \
         '同一个用户名被算成了多个（去重没生效）'
 
@@ -113,7 +113,7 @@ def test_spray_counts_distinct_usernames(L):
         L._acct_fail.clear()
 
     for i in range(L._SPRAY_USERS):
-        L._record_login_fail('10.0.0.%d' % (i + 1), 'user%d' % i)
+        L._begin_login_attempt('10.0.0.%d' % (i + 1), 'user%d' % i)
     assert L._spray_user_count(now) == L._SPRAY_USERS, \
         '不同用户名没有累加（喷洒检测失效）'
 
@@ -121,7 +121,7 @@ def test_spray_counts_distinct_usernames(L):
 def test_spray_window_expires(L):
     """窗口外的用户名不再计入"""
     for i in range(L._SPRAY_USERS):
-        L._record_login_fail('10.0.0.%d' % (i + 1), 'user%d' % i)
+        L._begin_login_attempt('10.0.0.%d' % (i + 1), 'user%d' % i)
     assert L._spray_user_count(time.time()) == L._SPRAY_USERS
     assert L._spray_user_count(time.time() + L._SPRAY_WINDOW + 1) == 0, \
         '窗口外的记录仍被计入'
