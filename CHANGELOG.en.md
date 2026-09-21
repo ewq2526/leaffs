@@ -15,7 +15,7 @@ Author: ewq2526. Version format: major.minor.patch. There were no earlier versio
 
 ### Configuration
 
-- New configuration key `guest_login_max_per_min`: the guest sign-in rate limit (per IP, per minute; default 10). Settable in `config/server_config.json`.
+- New configuration key `guest_login_max_per_min`: the guest sign-in rate limit (per IP, per minute; default 10). Adjustable under "Deep Config" on the admin page, or directly in `config/server_config.json`.
 
 ### Documentation
 

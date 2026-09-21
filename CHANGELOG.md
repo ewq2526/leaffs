@@ -13,7 +13,7 @@
 
 ### 配置
 
-- 新增配置项 `guest_login_max_per_min`：游客登录的限速上限（单 IP 每分钟次数，默认 10）。可在 `config/server_config.json` 中设置。
+- 新增配置项 `guest_login_max_per_min`：游客登录的限速上限（单 IP 每分钟次数，默认 10）。可在管理页的「深度配置」中调整，也可直接写 `config/server_config.json`。
 
 ### 文档
 
