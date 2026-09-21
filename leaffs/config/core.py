@@ -484,6 +484,7 @@ _DEEP_KNOWN_KEYS = frozenset((
     'upload_max_size', 'copy_buffer_size', 'cache_max_items', 'cache_ttl', 'folder_size_ttl',
     'debounce_delay', 'max_api_body_size', 'preview_max_size', 'upload_chunk', 'zip_max_files',
     'zip_streaming', 'max_total_conns', 'io_idle_timeout_secs', 'keepalive_timeout',
+    'guest_login_max_per_min',
     'session_expiry_days',
     'guest_public_write', 'downloader_guest_allowed', 'auto_trust_ca', 'ca_trust_decision',
     'access_log', 'trust_bind_host', 'ca_validity_days', 'max_conn_per_ip',
@@ -546,7 +547,7 @@ def apply_deep_config(data):
         global _ws_max_conn_per_ip
         global _ca_trust_decision
         global _harden_config_acls_enabled
-        global _max_total_conns, _max_concurrent, _io_idle_timeout_secs, _keepalive_timeout_secs
+        global _max_total_conns, _max_concurrent, _io_idle_timeout_secs, _keepalive_timeout_secs, _guest_login_max_per_min
         if not isinstance(data, dict):
             return False, '请求体必须是 JSON 对象', False
         unknown = sorted(k for k in data if k not in _DEEP_KNOWN_KEYS)
@@ -655,6 +656,13 @@ def apply_deep_config(data):
             val, err = _deep_num(data, 'keepalive_timeout', float, 1.0, 300.0)
             if err: return False, err, False
             _keepalive_timeout_secs = val
+            changed = True
+        # 游客登录限速（次/分钟）：单 IP 在这个窗口内允许的 guest_login 次数。
+        # 调大通常是为了压测或自动化测试；生产环境调大会让"游客入口"更容易被刷。
+        if 'guest_login_max_per_min' in data:
+            val, err = _deep_num(data, 'guest_login_max_per_min', int, 1, 100000)
+            if err: return False, err, False
+            _guest_login_max_per_min = val
             changed = True
         if 'session_expiry_days' in data:
             val, err = _deep_num(data, 'session_expiry_days', int, 1, 3650)
