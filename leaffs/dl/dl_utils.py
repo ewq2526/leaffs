@@ -267,14 +267,68 @@ def _kill_aria2c_proc(proc):
                 except: pass
     except: pass
 
+def kill_own_aria2c_by_rpc_port(port=None):
+    """只杀**本实例**的 aria2c：按命令行里的 `--rpc-listen-port=<port>` 匹配。
+
+    原来这里的兜底是 `taskkill /f /im aria2c.exe` —— 按镜像名**全杀**，会连别的
+    LeafFS 实例（另一份安装、或源码运行的）下载器一起干掉；对方发现掉了会重新
+    拉起，两边就互相抢杀，同时挂着的服务和正在跑的测试都不正常。
+
+    RPC 端口是各实例唯一的（同一个端口的第二个实例根本起不来），拿它当标识
+    精确且稳定。用 CIM 取命令行是因为 `taskkill` 给不了这个信息；`wmic` 在新
+    Windows 上已弃用，纯 ctypes 枚举 PEB 又太重 —— 而清理不是热路径（只在启动、
+    退出、异常时走），这一趟 PowerShell 的开销可以接受。
+
+    返回被杀的进程数（0 也包括"没找到"与"查询失败"，两种情况都无需区分）。
+    """
+    if port is None:
+        try:
+            from leaffs.dl import dl_rpc as _rpc
+            port = _rpc.RPC_PORT
+        except Exception:
+            return 0
+    try:
+        port = int(port)
+    except Exception:
+        return 0
+    if not port:
+        return 0
+    try:
+        script = (
+            "Get-CimInstance Win32_Process -Filter \"Name='aria2c.exe'\" | "
+            "Where-Object { $_.CommandLine -like '*--rpc-listen-port=%d*' } | "
+            "Select-Object -ExpandProperty ProcessId" % port
+        )
+        out = subprocess.run(
+            ['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
+            capture_output=True, text=True, timeout=15,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        killed = 0
+        for tok in (out.stdout or '').split():
+            if tok.isdigit():
+                try:
+                    subprocess.run(
+                        ['taskkill', '/f', '/t', '/pid', tok],
+                        capture_output=True, timeout=5,
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
+                    killed += 1
+                except Exception:
+                    pass
+        return killed
+    except Exception:
+        return 0
+
+
 def _cleanup_all_aria2c():
     with _ARIA2C_LOCK:
         procs = list(_ARIA2C_PROCESSES)
         _ARIA2C_PROCESSES.clear()
     for proc in procs: _kill_aria2c_proc(proc)
-    try: subprocess.run(['taskkill', '/f', '/im', 'aria2c.exe'], capture_output=True, timeout=5,
-                         creationflags=subprocess.CREATE_NO_WINDOW)
-    except: pass
+    # 兜底只清**本实例**的（按 RPC 端口匹配）—— 不再 taskkill /im 全杀，
+    # 免得把别的 LeafFS 实例的下载器一起干掉（见上函数说明）
+    kill_own_aria2c_by_rpc_port()
 
 def _assign_to_job(proc):
     """保持兼容性 - 实际清理由 SetConsoleCtrlHandler + taskkill 完成"""

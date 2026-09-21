@@ -301,14 +301,13 @@ def _kill_aria2c_force():
         except Exception:
             pass
 
-    # 方法2：通过进程名终止（兜底）
+    # 方法2：按本实例的 RPC 端口匹配（兜底）
+    # ⚠️ 原来这里是 `taskkill /f /im aria2c.exe` —— 按镜像名全杀，会连别的 LeafFS
+    #    实例的下载器一起干掉，对方重新拉起后两边互相抢杀。改成只清本实例的。
     try:
-        subprocess.run(
-            ['taskkill', '/f', '/im', 'aria2c.exe'],
-            capture_output=True, timeout=5,
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
-        _log('taskkill /im aria2c.exe')
+        from leaffs.dl import dl_utils as _du
+        _n = _du.kill_own_aria2c_by_rpc_port(RPC_PORT)
+        _log(f'按 RPC 端口 {RPC_PORT} 清理 aria2c：{_n} 个')
     except Exception:
         pass
 
