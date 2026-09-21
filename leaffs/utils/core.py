@@ -93,6 +93,35 @@ def abs_path(rel_path):
         return None
     return full
 
+
+# Win32 保留设备名：这些名字（含 `NUL.txt` 这种带扩展名的形态）在 Windows 上由系统
+# 按设备解析，**不是**普通文件。
+_WIN_DEVICE_NAMES = frozenset(
+    ['CON', 'PRN', 'AUX', 'NUL']
+    + ['COM%d' % i for i in range(1, 10)]
+    + ['LPT%d' % i for i in range(1, 10)]
+)
+
+
+def has_windows_device_name(rel_path):
+    """路径里是否含 Win32 保留设备名（任意一段命中即算，大小写不敏感）。
+
+    为什么必须挡：`os.path.exists(r'...\\NUL')` 在 Windows 上返回 **True** —— Win32 把
+    `NUL` 当设备，于是这个路径能通过"文件是否存在"的检查，一路进到缩略图流水线才抛异常。
+    表现是**管理员拿到 500、非管理员因为先被权限检查拦下而拿到 404**（黑盒报告 N-3 说的
+    "错误码不一致"就是它；`/api/raw?path=NUL` 则是返回 0 字节）。
+
+    判定取**点号之前**那一段：Windows 把 `NUL.txt` 同样解析成设备，只比整段是不够的；
+    尾随空格与点在 Win32 里也会被吃掉，一并 rstrip 掉。
+
+    正常文件系统里这些名字本来就创建不出来，挡掉不会误伤真实文件
+    （`NULL.txt`、`COM10`、`console` 都照常放行）。
+    """
+    for seg in rel_path.replace('\\', '/').split('/'):
+        if seg.split('.', 1)[0].rstrip(' .').upper() in _WIN_DEVICE_NAMES:
+            return True
+    return False
+
 def get_mime(path):
     mime, _ = mimetypes.guess_type(path)
     return mime or 'application/octet-stream'

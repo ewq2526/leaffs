@@ -22,6 +22,7 @@ from leaffs.utils.core import (
     invalidate_folder_cache, invalidate_folder_cache_smart,
     has_ffmpeg, thumbnail_backend, _delete_thumb, cleanup_orphan_thumbs, get_thumbnail,
     cleanup_upload_tmp, delete_fail_reason,
+    has_windows_device_name,
     UploadQuotaExceeded,
 )
 
@@ -158,6 +159,10 @@ def _normalize_rel_path(rel_path):
         return None
     # 标准化后再次检查
     if norm in ('..', '../') or norm.startswith('../'):
+        return None
+    # 禁止 Win32 保留设备名（NUL/CON/COM1…）：os.path.exists 对它们返回 True，
+    # 于是能混过"文件是否存在"的检查、到下游才炸（N-3）
+    if has_windows_device_name(norm):
         return None
     return norm
 

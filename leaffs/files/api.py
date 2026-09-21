@@ -15,7 +15,7 @@ from leaffs.runtime_log import log_exception as _log_exc
 # 列表/搜索/下载/缩略图/大小统计统一调它，免得各处各写一份条件而漏掉某一处。
 from leaffs.paths import is_upload_tmp_entry, is_upload_tmp_relpath
 # LF-23：删除失败原因的精确翻译（"被占用"与"权限不足"必须分开说，处置方式不同）
-from leaffs.utils.core import delete_fail_reason
+from leaffs.utils.core import delete_fail_reason, has_windows_device_name
 # §二 第 4 条：上传读流期间"实时校验发现超额"的异常。定义在 `leaffs.utils.core` 的配额节
 # —— 因为 `files/api.py` 与 `files/core.py` 是"注入解耦"关系（前者不 import 后者），
 # 两边要用**同一个类型**，只能放在都能依赖的地方。
@@ -967,6 +967,10 @@ def _normalize_rel_path(rel_path):
         return None
     # 标准化后再次检查，防止 normpath 改变相对结构
     if norm in ('..', '../') or norm.startswith('../'):
+        return None
+    # 禁止 Win32 保留设备名（NUL/CON/COM1…）：os.path.exists 对它们返回 True，
+    # 于是能混过"文件是否存在"的检查、到下游才炸（N-3）
+    if has_windows_device_name(norm):
         return None
     return norm
 
