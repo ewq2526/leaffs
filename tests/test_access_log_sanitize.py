@@ -161,3 +161,24 @@ def test_access_log_line_marks_anonymous(log_root):
     lines = [ln for ln in text.splitlines() if marker in ln]
     assert lines, '没找到匿名请求的访问日志行：%r' % text[-600:]
     assert any('user=- role=-' in ln for ln in lines), '匿名行没有占位字段：%r' % lines
+
+
+def test_delete_is_audited_with_the_paths(log_root):
+    """删除要记下**删了什么**。
+
+    只看访问日志那行 `POST /api/delete 200`，能知道"谁调了删除接口"，
+    但不知道**删掉了哪些文件** —— 出事时这是最要紧的一格。
+    """
+    marker = 'delprobe%d' % int(time.time() * 1000)
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as c:
+        r = c.post('/api/auth/login', json={'username': 'admin', 'password': 'admin'})
+        assert r.status_code == 200, r.text
+        up = c.post('/api/upload?path=public', files={'file': (marker + '.txt', b'x')})
+        assert up.status_code == 200, up.text
+        r = c.post('/api/delete', json={'files': ['public/%s.txt' % marker]})
+        assert r.status_code == 200 and r.json().get('deleted') == 1, r.text
+
+    lines = [ln for ln in _log_text(log_root, needle=marker).splitlines() if '删除:' in ln]
+    assert lines, '删除没有审计日志（只有访问日志那行是不行的）'
+    assert any(marker in ln for ln in lines), '审计日志里看不出删了什么：%r' % lines
+    assert any('admin(super_admin)' in ln for ln in lines), '审计日志里看不出是谁：%r' % lines

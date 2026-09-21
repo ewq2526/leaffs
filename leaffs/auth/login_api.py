@@ -609,7 +609,13 @@ def auth_toggle(handler, add_log, set_guest_mode, get_guest_mode, revoke_guest_s
         if not on and revoke_guest_sessions:
             try: revoke_guest_sessions()
             except Exception: pass
-        add_log('游客模式已' + ('开启' if on else '关闭'), 'warn' if on else 'ok')
+        # 审计：谁开的/关的（原来只有一句"游客模式已开启"，看不出操作者）
+        try:
+            _r, _u = handler._session_identity()
+            _who = ' [%s(%s) ip=%s]' % (_u or '-', _r or '-', handler.client_address[0])
+        except Exception:
+            _who = ''
+        add_log('游客模式已' + ('开启' if on else '关闭') + _who, 'warn' if on else 'ok')
         handler.send_json({'success': True, 'guest_mode': get_guest_mode()})
     except json.JSONDecodeError:
         # B-15：畸形请求体不回显内部解析错误

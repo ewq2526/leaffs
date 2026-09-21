@@ -628,6 +628,16 @@ class HTTPHandler(BaseHTTPRequestHandler):
         except Exception:
             return None, ''
 
+    def _actor(self):
+        """`用户名(角色)` —— 审计日志里"谁做的"**统一写法**（一次解析会话）。
+
+        统一到一处是为了让各条日志的操作者字段长得一样：各写各的，事后按用户名
+        grep 会漏掉一半（`(ip)`、`[user(role)]`、`user=… role=…` 三种写法混着）。
+        匿名/取不到会话时记 `-(-)`，保持字段形状稳定。
+        """
+        role, uname = self._session_identity()
+        return '%s(%s)' % (uname or '-', role or '-')
+
     def _has_invalid_session_cookie(self):
         """Cookie 携带 wifi_session 但服务端解析不到有效会话（无效/过期/非本机 IP）→ True。
 
@@ -1336,7 +1346,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
         if code and not (6 <= len(code) <= 32):
             self.send_json({'error': '分享码长度需 6~32 个字符'}, 400)
             return
-        ok, err = _sacc.set_code(username, code)
+        ok, err = _sacc.set_code(username, code, '%s(%s)' % (username or '-', role or '-'))
         if not ok:
             self.send_json({'error': err or '设置失败'}, 400)
             return
@@ -1354,7 +1364,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
                 self.send_json({'error': '无权重置他人分享'}, 403)
                 return
             target = str(data['username']).strip()
-        _sacc.clear_attempts(target)
+        _sacc.clear_attempts(target, self._actor())
         self.send_json({'success': True})
 
     def share_auth(self):

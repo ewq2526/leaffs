@@ -224,7 +224,7 @@ def _code_matches(code, stored):
     return secrets.compare_digest(_legacy_code_hash(code), stored), True
 
 
-def set_code(username, code):
+def set_code(username, code, who=''):
     """设置/更换分享码；code 为空串清除。返回 (ok, err)。"""
     if not username:
         return False, '缺少用户名'
@@ -238,7 +238,8 @@ def set_code(username, code):
         else:
             u['code_hash'] = ''
         _save_locked()
-    add_log('分享码已%s' % ('设置' if code else '清除'), 'info')
+    add_log('分享码已%s%s' % ('设置' if code else '清除',
+                              ' [%s]' % who if who else ''), 'info')
     return True, None
 
 
@@ -485,7 +486,7 @@ def record_failure(username, ip):
     return ev
 
 
-def clear_attempts(username):
+def clear_attempts(username, who=''):
     """本人重置：清当日计数/IP 锁/全局锁/事件（分享码本身保留，可另行 set_code 更换）"""
     if not username:
         return False
@@ -502,7 +503,7 @@ def clear_attempts(username):
         u['global_lock_until'] = 0
         u['last_events'] = []
         _save_locked()
-    add_log('分享防爆破计数已重置', 'info')
+    add_log('分享防爆破计数已重置%s' % (' [%s]' % who if who else ''), 'info')
     return True
 
 

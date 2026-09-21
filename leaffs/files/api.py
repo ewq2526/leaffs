@@ -743,6 +743,27 @@ def handle_upload(handler, handle_upload_fn, invalidate_folder_cache_smart, UPLO
         except DISCONNECTED_EXCEPTIONS: pass
 
 
+def log_delete_audit(who, ip, deleted, targets, failed):
+    """删除操作的审计日志：**谁**、删了几个、大概是哪些、失败几个。
+
+    HTTP 与 WS 两条删除路径共用（口径必须一致，否则"从哪条路删的"就查不出差别）。
+
+    ⚠️ 路径**限量**（前 3 个 + 总数）：一次删几千个文件时逐条写会把日志刷爆，
+    而审计要的是"能定位到是谁干的、大概删了什么"，不是完整清单。
+    完整清单在 `.deleted` 归档里也找得回来（如果那是删用户的话）。
+    """
+    try:
+        from leaffs.runtime_log import add_log
+        items = [str(t) for t in list(targets or ())]
+        shown = ', '.join(items[:3])
+        more = '' if len(items) <= 3 else ' 等共 %d 个' % len(items)
+        tail = '' if not failed else '，失败 %d 个' % len(failed)
+        add_log('删除: %d 个（%s%s）[%s ip=%s]%s'
+                % (deleted, shown, more, who or '-', ip or '-', tail), 'warn')
+    except Exception:
+        pass          # 审计失败不该影响删除本身（与 runtime_log 同一处理）
+
+
 def handle_delete(handler, UPLOAD_DIR, is_path_safe, _delete_thumb,
                   invalidate_file_cache, invalidate_folder_cache, DISCONNECTED_EXCEPTIONS):
     """删除文件/目录
@@ -828,6 +849,11 @@ def handle_delete(handler, UPLOAD_DIR, is_path_safe, _delete_thumb,
             resp['failed'] = [{'path': a, 'error': b} for a, b in failed]
         if skipped_permission:
             resp['skipped_permission'] = skipped_permission
+        # 审计：只进访问日志的话，看得出"谁调了 /api/delete"，看不出**删了哪些**。
+        if deleted:
+            _r, _u = handler._session_identity()
+            log_delete_audit('%s(%s)' % (_u or '-', _r or '-'),
+                             handler.client_address[0], deleted, paths, failed)
         handler.send_json(resp)
     except DISCONNECTED_EXCEPTIONS:
         # 客户端中途断连：置 close、不补 500 响应、访问日志不记 500

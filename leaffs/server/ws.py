@@ -656,6 +656,11 @@ async def ws_handler(websocket):
                     resp = {'type': 'delete', 'success': not failed, 'deleted': n_deleted}
                     if failed:
                         resp['failed'] = [{'path': str(a), 'error': str(b)} for a, b in failed]
+                    # 审计：与 HTTP 那条同一口径、同一个助手（否则"从哪条路删的"查不出差别）
+                    if n_deleted:
+                        _fs_api.log_delete_audit(
+                            '%s(%s)' % (ws_user or '-', ws_role or '-'), ip or '-',
+                            n_deleted, paths, failed)
                     await websocket.send(json.dumps(resp))
                     for _p, _why in failed:
                         try:

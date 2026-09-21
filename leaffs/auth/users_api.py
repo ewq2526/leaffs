@@ -432,7 +432,9 @@ def users_rename(handler, update_user_name, add_log, UPLOAD_DIR):
             # IC-USER：中途失败整体报 500 且用户表不变（目录已搬则回滚搬回）
             handler.send_json({'success': False, 'error': err or '改名失败'}, 500); return
         try:
-            add_log(f'用户改名: {old_name} -> {new_name} ({handler.client_address[0]})', 'warn')
+            _r, _u = handler._session_identity()
+            add_log(f'用户改名: {old_name} -> {new_name}'
+                    f' [{_u or "-"}({_r or "-"}) ip={handler.client_address[0]}]', 'warn')
         except Exception:
             pass
         handler.send_json({'success': True})
