@@ -111,6 +111,19 @@ def users_archive_delete(handler):
                 from leaffs.runtime_log import log_exception
                 log_exception('删除用户归档 %s' % name, e)
                 failed.append((str(name), delete_fail_reason(e)))
+        # 审计：这是**不可恢复**的操作，必须留下"谁在什么时候删掉了哪些归档"。
+        # 原来只靠访问日志那行 `POST /api/users/archive/delete 200` —— 那里看不出
+        # 删的是什么、也看不出是谁（访问日志 2026-09-21 才补上账户，此条同时受益）。
+        if deleted:
+            try:
+                from leaffs.runtime_log import add_log
+                _role, _uname = handler._session_identity()
+                add_log('清理用户归档: 删除 %d 个（不可恢复）[%s(%s) ip=%s]%s'
+                        % (deleted, _uname or '-', _role or '-',
+                           handler.client_address[0],
+                           '，其中 %d 个失败' % len(failed) if failed else ''), 'warn')
+            except Exception:
+                pass
         resp = {'success': not failed, 'deleted': deleted}
         if failed:
             resp['failed'] = [{'name': a, 'error': b} for a, b in failed]

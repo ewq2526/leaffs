@@ -607,6 +607,27 @@ class HTTPHandler(BaseHTTPRequestHandler):
         _, sid = _ac.get_session(cookie, self.client_address[0])
         return _ac.get_session_username(sid) if sid else ''
 
+    def _session_identity(self):
+        """一次解析拿到 `(role, username)` —— 供访问日志这类"每请求都要"的地方用。
+
+        为什么不直接调上面两个：它们**各自**解析一次会话，同一个请求要解析两遍纯属浪费。
+        访问日志默认开着、每个请求一行，这点开销必须省（而且没带 Cookie 时
+        `get_session('')` 会快速返回，匿名请求几乎没有额外成本）。
+
+        ⚠️ 用户反馈（2026-09-21）：「日志看不到操作账户」—— 访问日志原来只有 IP。
+        审计要能回答"**谁**在什么时候做了什么"，光有 IP 在多用户/多设备场景下答不了。
+        """
+        try:
+            cookie = self.headers.get('Cookie', '')
+            role, sid = _ac.get_session(cookie, self.client_address[0])
+            if role == 'guest' and not _cfg.get_guest_mode():
+                return None, ''
+            if not role:
+                return None, ''
+            return role, (_ac.get_session_username(sid) if sid else '')
+        except Exception:
+            return None, ''
+
     def _has_invalid_session_cookie(self):
         """Cookie 携带 wifi_session 但服务端解析不到有效会话（无效/过期/非本机 IP）→ True。
 
@@ -902,7 +923,12 @@ class HTTPHandler(BaseHTTPRequestHandler):
             p = _ut_log.sanitize_log_text(_sanitize_path_for_log(p), max_len=200)
             t0 = getattr(self, '_req_t0', None)
             ms = int((time.monotonic() - t0) * 1000) if t0 else 0
-            add_log(f'{ip} {method} {p} {status} {ms}ms', 'info')
+            # 用户反馈（2026-09-21）：日志看不到操作账户。原来这一行只有 IP ——
+            # 审计要能回答"**谁**做了什么"，多用户/多设备下光有 IP 答不了。
+            # 匿名与取不到会话时都记 '-'，保持**每行字段数固定**（便于 grep/awk）。
+            _role, _uname = self._session_identity()
+            add_log(f'{ip} {method} {p} {status} {ms}ms'
+                    f' user={_uname or "-"} role={_role or "-"}', 'info')
         except Exception:
             pass
 

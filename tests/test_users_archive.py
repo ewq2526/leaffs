@@ -174,6 +174,22 @@ def test_admin_can_browse_into_an_archive(client):
         '浏览页进不去归档目录（%s）：%s' % (rel, page.status_code)
 
 
+def test_archive_cleanup_is_audited(client):
+    """不可恢复的操作必须留下「谁删了」—— 只靠访问日志那行看不出删的是什么"""
+    login(client)
+    entry = _make_archive(client, 'arch_audit_user')
+
+    r = client.post('/api/users/archive/delete', json={'names': [entry]})
+    assert r.status_code == 200 and r.json().get('deleted') == 1, r.text
+
+    logs = client.get('/api/logs')
+    assert logs.status_code == 200, logs.text
+    data = logs.json().get('logs')
+    text = data if isinstance(data, str) else '\n'.join(str(x) for x in (data or []))
+    assert '清理用户归档' in text, '归档清理没有审计日志：\n%s' % text[-800:]
+    assert 'admin(super_admin)' in text, '审计日志里看不出是谁：\n%s' % text[-800:]
+
+
 def test_admin_page_has_a_way_into_the_archive():
     """前端守卫：卡片上必须有**能进目录**的入口。
 

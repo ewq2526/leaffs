@@ -130,3 +130,34 @@ def test_overlong_request_line_is_truncated(log_root):
     lines = [ln for ln in text.splitlines() if 'zzzz' in ln]
     assert lines, '超长请求没进日志？'
     assert len(lines[-1]) < 600, '日志行没被截断，长度 %d' % len(lines[-1])
+
+
+# ---------- 可审计性：那一行要能看出"是谁"（用户 2026-09-21 反馈） ----------
+# 「日志看不到操作账户」—— 原来只有 `{ip} {method} {path} {status} {ms}ms`。
+# 审计要回答的是「**谁**在什么时候做了什么」，而同一台机器、同一个 WiFi 下 IP 往往是
+# 同一个，光有 IP 答不了这个问题。现在补 user= / role=，匿名记 '-'。
+
+def test_access_log_line_carries_the_account(log_root):
+    """登录用户的请求：那一行要能看出是谁、什么角色"""
+    marker = 'acctprobe%d' % int(time.time() * 1000)
+    with httpx.Client(base_url=BASE_URL, timeout=10.0) as c:
+        r = c.post('/api/auth/login', json={'username': 'admin', 'password': 'admin'})
+        assert r.status_code == 200, r.text
+        c.get('/api/files', params={'path': 'public/' + marker})
+
+    text = _log_text(log_root, needle=marker)
+    lines = [ln for ln in text.splitlines() if marker in ln]
+    assert lines, '没找到这次请求的访问日志行：%r' % text[-600:]
+    assert any('user=admin' in ln for ln in lines), '访问日志没有账户：%r' % lines
+    assert any('role=super_admin' in ln for ln in lines), '访问日志没有角色：%r' % lines
+
+
+def test_access_log_line_marks_anonymous(log_root):
+    """匿名请求也要有这两个字段（值记 '-'）—— 少字段会让按列取的地方错位"""
+    marker = 'anonprobe%d' % int(time.time() * 1000)
+    httpx.get(BASE_URL + '/api/ping?x=' + marker, timeout=5.0)
+
+    text = _log_text(log_root, needle=marker)
+    lines = [ln for ln in text.splitlines() if marker in ln]
+    assert lines, '没找到匿名请求的访问日志行：%r' % text[-600:]
+    assert any('user=- role=-' in ln for ln in lines), '匿名行没有占位字段：%r' % lines
