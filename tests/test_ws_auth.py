@@ -36,11 +36,15 @@ def test_ws_cookie_auth_can_subscribe_admin(client):
 
 
 def test_ws_auth_message_has_no_reply(client):
-    """`{type:'auth'}` 已整体删除：**已认证连接**上它不再有任何应答
+    """`{type:'auth'}` 已整体删除：**已认证连接**上它不再有专属应答
 
-    发完 auth 紧接着发 ping，只该等到 pong —— 若有人把那条分支加回来，
-    这里会先收到 `{'type':'auth',…}` 而红（这就是这条测试的牙）。
-    已认证连接不在 `_WS_ANON_ALLOWED` 的拦截范围内，所以它会被静默忽略。
+    这条测试的牙是**「不能出现 type 为 auth 的应答」** —— 若有人把那条分支加回来，
+    这里会收到 `{'type':'auth',…}` 而红。
+
+    2026-09-21 调整：链尾补了「未知消息类型」兜底分支之后，auth 不再被**静默**忽略，
+    而是回一条 `{'type':'error'}`。所以判据从"第一条就是 pong"放宽为
+    "不出现 auth 应答，且连接仍然可用（最终等到 pong）" —— 原来那种写法
+    实际上是把"静默丢弃"当成了期望行为。
     """
     login(client)
     cookie = client.cookies.get(wifi)
@@ -48,9 +52,17 @@ def test_ws_auth_message_has_no_reply(client):
     with _connect(cookie) as ws:
         ws.send(json.dumps({'type': 'auth', 'sid': cookie}))
         ws.send(json.dumps({'type': 'ping'}))
-        msg = json.loads(ws.recv(timeout=5))
-        assert msg.get('type') == 'pong', \
-            'WS auth 分支应当已删除，却先收到了 %r' % msg
+        seen = []
+        got_pong = False
+        for _ in range(6):
+            msg = json.loads(ws.recv(timeout=5))
+            seen.append(msg.get('type'))
+            assert msg.get('type') != 'auth', \
+                'WS auth 分支应当已删除，却收到了 %r' % msg
+            if msg.get('type') == 'pong':
+                got_pong = True
+                break
+        assert got_pong, 'auth 之后连接不可用（没等到 pong），收到 %r' % seen
 
 
 def test_ws_auth_message_from_anonymous_is_rejected(client):

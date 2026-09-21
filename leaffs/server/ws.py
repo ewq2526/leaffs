@@ -151,7 +151,8 @@ async def _ws_proto_error(websocket, why):
 
 # WS 敏感消息类型：会话被撤销/过期后这些操作必须逐条实时复查（见 ws_handler），
 # 仅凭 cookie 会话的连接已在每条消息的“获取会话”段实时复查，无需重复。
-_WS_REVALIDATE_TYPES = ('admin-sub', 'gallery-sub', 'list', 'delete', 'mkdir', 'sub-download', 'upload')
+# 2026-09-21：去掉 'upload' —— 与 'auth' 同样没有发送方（前端全部 WS 消息类型已逐一核对）。
+_WS_REVALIDATE_TYPES = ('admin-sub', 'gallery-sub', 'list', 'delete', 'mkdir', 'sub-download')
 
 # A-17：未认证（ws_role 为空）连接仅放行的最小消息集
 # 2026-09-16：去掉 'auth' —— 那条消息分支是**死代码**（全仓无发送方），已整体删除；
@@ -697,6 +698,15 @@ async def ws_handler(websocket):
                     sub = False
                 elif t == 'ping':
                     await websocket.send(json.dumps({'type': 'pong'}))
+                else:
+                    # 认不出的 type 也必须回话，理由同 _ws_proto_error：客户端分不清
+                    # 「服务端不支持这条消息」与「服务端卡住/没理我」（外部测试反馈）。
+                    # 不回显 t —— 它是客户端输入，原样送回等于把不受控内容送进对方页面。
+                    try:
+                        add_log(f'WS 未知消息类型: {str(t)[:32]!r} role={ws_role or "空"}', 'warn')
+                    except Exception:
+                        pass
+                    await websocket.send(json.dumps({'type': 'error', 'msg': '未知消息类型'}))
         except websockets.exceptions.ConnectionClosed:
             pass
     finally:
