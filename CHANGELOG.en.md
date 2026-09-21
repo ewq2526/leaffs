@@ -4,6 +4,23 @@
 
 Author: ewq2526. Version format: major.minor.patch. There were no earlier versions or change records; this file records changes starting from 1.0.3.
 
+## Unreleased
+
+> Fixes and configuration added after 1.0.6; not yet released.
+
+### Fixes
+
+- **An unrecognized WebSocket message type is no longer silently dropped**: on authenticated connections (guest, admin) such messages used to get **no reply at all**, leaving the client waiting indefinitely — anonymous connections did get an answer, because they are rejected by the auth check before reaching message dispatch. A clear error is now returned and the connection stays usable. Reported by an external tester.
+- **aria2c cleanup no longer kills by image name**: it used to run `taskkill /f /im aria2c.exe`, taking down **every** aria2c on the machine — including another LeafFS instance's downloader (a second installation, or one running from source). That instance would immediately start a new one, leaving the two fighting each other. Cleanup now matches this instance's RPC port and clears only its own process.
+
+### Configuration
+
+- New configuration key `guest_login_max_per_min`: the guest sign-in rate limit (per IP, per minute; default 10). Settable in `config/server_config.json`.
+
+### Documentation
+
+- The Android APK now ships the third-party notices and license texts (`assets/THIRD_PARTY_NOTICES.md` and `assets/licenses/` inside the APK, 23 files in total); previously the APK contained **no** third-party notice at all.
+
 ## 1.0.6 - 2026-09-19
 
 > This release adds an Android version; the rest is security hardening and stability fixes.
