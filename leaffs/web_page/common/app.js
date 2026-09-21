@@ -270,7 +270,11 @@ window.wsAdminAuthAndSubscribe = function (sock) {
         if (m.type === 'admin_data') {
             sock.removeEventListener('message', onMsg);
             if (typeof window._onWSAdminSubscribed === 'function') window._onWSAdminSubscribed(true);
-        } else if (m.type === 'error') {
+        } else if (m.type === 'error' && m.msg === '无权限') {
+            // ⚠️ 只认 admin-sub 被拒这一条（服务端对 admin-sub 拒绝时只回「无权限」）。
+            //    原来是「收到任意 error 就当成订阅失败」—— 服务端 WS 链尾补上
+            //    「未知消息类型」兜底之后，任何提前到达的 error 都会被误读成
+            //    admin-sub 被拒、平白退回 HTTP 兜底。文案是服务端固定串，不随界面语言变。
             sock.removeEventListener('message', onMsg);
             console.warn('[WS] admin-sub 被拒，走 HTTP 兜底', m);
             if (typeof window._onWSAdminSubscribed === 'function') window._onWSAdminSubscribed(false);
