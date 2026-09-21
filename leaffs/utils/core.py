@@ -226,8 +226,35 @@ def _load_folder_agg(value):
             return None
     return None
 
+def _agg_key(path):
+    """目录聚合缓存的**唯一键**：`normcase(abspath(path))`。
+
+    为什么必须归一化：这套缓存是「按路径存取」的，而调用方给出的路径形态各不相同 ——
+    `abs_path()` 用 `os.path.join(UPLOAD_DIR, rel)` 拼出来的是**混合分隔符**
+    （`...\\users/zzw`：rel 里的 `/` 不会被 join 换掉），而
+    `invalidate_folder_cache()` 内部一律 `os.path.abspath()` 做了归一化。
+    于是**写入用的键和删除用的键永远不相等**，任何失效调用都删不掉东西：
+
+        写入 key = 'E:\\test\\shared_files\\users/zzw'
+        删除 key = 'E:\\test\\shared_files\\users\\zzw'      ← 永不匹配
+
+    后果（外部黑盒报告 N-9，2026-09-21）：目录聚合值一经写入就**永久冻结** ——
+    上传不更新（`saved>0` 后确实调了失效，但删不到）；管理员删号重建后，新主人
+    看到的是上一任的文件数与字节数（`recursive` 失效用的前缀是
+    `...\\users\\`，也匹配不上 `...\\users/zzv2`）。`folder_size_ttl` 看着像兜底，
+    实则形同虚设：磁盘命中那条路根本不看时间。
+
+    归一化放在**存取两端**，是让「检查的对象」和「取用的对象」重新变成同一个 ——
+    修的是根因，不是给失效失败加保险丝。
+
+    normcase 顺带抹平 Windows 的大小写与盘符大小写差异（同目录只该有一个槽位）。
+    """
+    return os.path.normcase(os.path.abspath(path))
+
+
 def _get_folder_agg(path):
     """读取目录聚合 {size, files, folders}：内存 → 分片磁盘 → 递归扫描（按路径加和）"""
+    path = _agg_key(path)
     now = time.time()
     with _folder_size_lock:
         if path in _folder_size_memory:
@@ -259,6 +286,32 @@ def _get_folder_agg(path):
         db[path] = agg
         _save_shard(sh, db)
     return agg
+
+
+def _migrate_folder_db_keys():
+    """一次性清掉分片里**未归一化的旧键**（幂等）。
+
+    旧版本的键用的是调用方给出的原始路径形态（`...\\users/zzw` —— `abs_path()` 用
+    `os.path.join` 拼出的混合分隔符），与 `_agg_key()` 归一化后的键不相等：既命不中、
+    也删不掉，只会永久躺在磁盘上。
+
+    直接**丢弃**而不是合并：下一次读取会重新扫描得到正确值。合并反而会把"从未失效过
+    的陈旧数字"继续带下去 —— 那正是 N-9 本身。
+    """
+    with _folder_db_lock:
+        for name in _shard_names_on_disk():
+            db = _load_shard(name)
+            stale = [k for k in db if k != _agg_key(k)]
+            if not stale:
+                continue
+            for k in stale:
+                del db[k]
+            _save_shard(name, db)
+
+
+# 必须在任何一次聚合读取之前跑完 —— 否则旧键会先被读进内存并当成有效值
+_migrate_folder_db_keys()
+
 
 def _scan_folder_agg(path):
     """扫描单个目录并递归加和子目录缓存条目（不持有 db 锁）
@@ -302,8 +355,11 @@ def _ancestors_under_upload(ap):
     目录聚合缓存是“递归加和”（根 = 整树；任一子路径变更都会改变所有祖先的
     聚合值），因此失效时须联动失效祖先，否则根/父级统计会长期停留在旧值
     （曾导致“我的页”全站用量显示 0）。
+
+    入参必须是 `_agg_key()` 归一化后的路径，比较基准同源 —— 否则会出现
+    "前缀看着对、字符串不相等"的静默失效（N-9 的成因面之一）。
     """
-    root = os.path.abspath(UPLOAD_DIR)
+    root = _agg_key(UPLOAD_DIR)
     if ap == root:
         return []
     if not ap.startswith(root + os.sep):
@@ -345,7 +401,7 @@ def invalidate_folder_cache(path, recursive=False):
     分片写入只重写受影响的分片文件。
     """
     _notify_gallery_changed()
-    ap = os.path.abspath(path)
+    ap = _agg_key(path)
     ancestors = _ancestors_under_upload(ap)
     with _folder_size_lock:
         mem_keys = set()
@@ -362,8 +418,8 @@ def invalidate_folder_cache(path, recursive=False):
             _folder_size_memory.pop(k, None)
     with _folder_db_lock:
         # 顶层根(共享根/缓存根)整体失效 → 清理所有分片；否则按受影响分片清理
-        root_ap = os.path.abspath(UPLOAD_DIR)
-        cache_ap = os.path.abspath(CACHE_DIR)
+        root_ap = _agg_key(UPLOAD_DIR)
+        cache_ap = _agg_key(CACHE_DIR)
         if recursive and (ap == root_ap or ap == cache_ap):
             for name in _shard_names_on_disk():
                 _save_shard(name, {})
