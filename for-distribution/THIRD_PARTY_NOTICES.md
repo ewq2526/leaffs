@@ -19,11 +19,12 @@
 | ffmpeg（`leaffs/ffmpeg.exe`） | 生成视频/图片缩略图 | **GPL-3.0**（该构建启用了 `--enable-gpl --enable-version3` 并链接 libx264/libx265 等 GPL 组件，**不是** LGPL；实测其 `-version` 输出可证） | ffmpeg.org ／ 构建来源 gyan.dev |
 | pythonnet 3.1.0 / pywebview 6.2.1 | 本机桌面窗口（可选）：代码在启动桌面窗的入口处动态 `import webview`，其底层依赖 pythonnet | MIT / BSD-3-Clause | 各自官方仓库 |
 | pywebview 的运行时依赖：clr-loader / proxy_tools / bottle / typing_extensions | 随 pywebview 一并安装（桌面窗口用到时才装载） | MIT / MIT / MIT / PSF | 各自官方仓库 |
-| 安卓构建链：Chaquopy / GeckoView / Android Gradle Plugin / Gradle / Kotlin | **仅用于构建安卓安装包**（APK 内包含 Chaquopy 的 Python 运行时与 GeckoView） | 各组件各自许可（以上游为准） | 各自官方仓库 |
+| 安卓版 APK 内的组件：Chaquopy / GeckoView / androidx / Kotlin / kotlinx.coroutines / Google Play services / Python 运行时及其依赖 | **随安卓安装包分发**（APK 内包含 Chaquopy 的 Python 运行时与 GeckoView） | 各组件各自许可，**已逐项列明版本与原文** | 见 `android/THIRD_PARTY_NOTICES.md` |
 
 ## 本项目目前的义务与做法
 
 - **许可原文**：各组件许可证原文、版本与官方源码地址清单已随本文件提供在 `licenses/` 目录（含 COMPONENTS.txt），分发时请连同该目录一并提供。
+- **安卓版另有一份**：APK 内包含的组件（Chaquopy、GeckoView、androidx、Kotlin、kotlinx.coroutines、Google Play services、Python 运行时及其依赖）与本文件的清单**几乎不重叠**，已单独列明在 `android/THIRD_PARTY_NOTICES.md`，许可原文在 `android/licenses/`；分发 APK 时给那一份，分发桌面产物时给这一份。
 - **源码形态分发**：上述第三方文件以原版形式随源码目录携带；不再单独制作/分发独立打包产物。
 - **关于 pythonnet / pywebview**：本项目代码有引用（桌面窗口入口动态导入，未静态链接），并存在于本机运行环境（site-packages）中。**是否随分发物提供它们，取决于发布内容**——若源码包/产物中带上了这些库或其安装文件，就一并附上其许可文本与版权声明；若分发物不含它们（仅含本项目自身文件，库由使用方自行安装），则本项无再分发义务。
 - **若日后发布含上述组件的可执行产物**：随产物放入各组件许可证原文与版权声明（建议 `licenses/` 目录），并注明组件版本与官方源码地址；其中 aria2c、ffmpeg、openssl 需在发布说明中给出官方源码获取地址。

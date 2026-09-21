@@ -91,6 +91,15 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
+    // 合规材料随 APK 一起分发：第三方组件声明与许可原文收在仓库根 for-distribution/android/，
+    // 挂成 assets 源后每次构建自动进 APK 的 assets/，不用手工复制、也不会漏。
+    // 组件清单与版本是对着 APK 实际内容核对过的，改依赖后记得同步更新那份声明。
+    sourceSets {
+        getByName("main") {
+            assets.srcDir(rootProject.file("../for-distribution/android"))
+        }
+    }
 }
 
 chaquopy {
