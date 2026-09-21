@@ -20,9 +20,15 @@ PROJ_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJ_ROOT not in sys.path:
     sys.path.insert(0, PROJ_ROOT)
 
+# TLS 开关：默认明文（避免自签证书流程）。LEAFFS_TEST_TLS=1 时改走 HTTPS ——
+# 有些路径只在 TLS 下才会暴露：2026-09-21 外部报告「回 HTTP/1.1 但每请求后关连接」，
+# 而明文下 13 个路径 × 2 种身份共 26 个组合全部正常复用，一个都没主动关。
+# 在此之前 TLS 分支没有任何测试覆盖（本文件原先写死 tls_enabled=False）。
+TEST_TLS = os.environ.get('LEAFFS_TEST_TLS') == '1'
+
 HTTP_PORT = 8090
 WS_PORT = 8091
-BASE_URL = 'http://127.0.0.1:%d' % HTTP_PORT
+BASE_URL = '%s://127.0.0.1:%d' % ('https' if TEST_TLS else 'http', HTTP_PORT)
 
 TEST_RUNS_DIR = os.path.join(PROJ_ROOT, '.cache', 'test_runs')
 STALE_ROOT_AGE = 24 * 3600      # 秒：超过这个岁数的残留一定是"死运行"留下的
@@ -81,7 +87,7 @@ def data_root():
     cfg = {
         'http_port': HTTP_PORT,
         'ws_port': WS_PORT,
-        'tls_enabled': False,          # 测试走明文，避免自签证书流程
+        'tls_enabled': TEST_TLS,       # 由 LEAFFS_TEST_TLS 决定；默认明文
         'guest_mode': True,
         # 显式打开"游客可写 public"：这是测试要覆盖的行为（test_guest_upload_public 等），
         # 不跟着产品默认值走 —— 产品的默认值已改成关
@@ -151,7 +157,7 @@ def server(data_root):
             if proc.poll() is not None:
                 raise RuntimeError('server exited early; log:\n' + _tail(log_path))
             try:
-                r = httpx.get(BASE_URL + '/api/ping', timeout=1.0)
+                r = httpx.get(BASE_URL + '/api/ping', timeout=1.0, verify=False)
                 if r.status_code == 200:
                     break
             except Exception:
@@ -177,8 +183,8 @@ def server(data_root):
 
 @pytest.fixture()
 def client(server):
-    """每次测试一个干净会话（独立 cookie）"""
-    with httpx.Client(base_url=server, timeout=20.0) as c:
+    """每次测试一个干净会话（独立 cookie）。verify=False 供 TLS 模式用自签证书。"""
+    with httpx.Client(base_url=server, timeout=20.0, verify=False) as c:
         yield c
 
 
