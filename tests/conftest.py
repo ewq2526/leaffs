@@ -98,6 +98,10 @@ def data_root():
         'max_total_conns': 256,
         'max_conn_per_ip': 64,
         'ws_max_conn_per_ip': 20,
+        # 放宽游客登录限速：测试套自身就要用掉 11 次（> 产品默认的 10 次/分钟），
+        # 跑得快时全挤进同一个 60 秒窗口，会报出与改动无关的假失败
+        # （「游客登录过于频繁」，现象上很像服务端坏了）。频控本身另有专门用例覆盖。
+        'guest_login_max_per_min': 100000,
     }
     with open(os.path.join(root, 'config', 'server_config.json'),
               'w', encoding='utf-8') as f:

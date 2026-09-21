@@ -25,7 +25,23 @@ _acct_fail = {}               # username -> {'n': 次数, 't': 最近失败时�
 
 # B-07 游客登录限速：单 IP 每分钟 ≤ _GUEST_LOGIN_MAX 次 guest_login
 _GUEST_LOGIN_WINDOW = 60      # 滑动窗口（秒）
-_GUEST_LOGIN_MAX = 10         # 窗口内最大允许次数
+_GUEST_LOGIN_MAX = 10         # 窗口内最大允许次数（**默认值**；运行时由配置键覆盖）
+
+
+def _guest_login_max():
+    """当前生效的游客登录上限：优先取配置键 `guest_login_max_per_min`，
+    配置层不可用时退回模块常量 `_GUEST_LOGIN_MAX`。
+
+    做成可配是为了让测试放宽 —— 测试套的 guest 登录次数本来就贴着 10 这条线，
+    跑得快时会挤进同一个 60 秒窗口，报出与本轮改动毫无关系的假失败。
+    产品默认值仍是 10，行为不变。
+    """
+    try:
+        from leaffs.config import core as _cc
+        v = int(_cc.get_guest_login_max_per_min())
+        return v if v > 0 else _GUEST_LOGIN_MAX
+    except Exception:
+        return _GUEST_LOGIN_MAX
 _guest_login_rate = {}        # ip -> [最近时间戳]
 _guest_login_lock = threading.Lock()
 _guest_login_last_clean = 0.0
@@ -180,7 +196,7 @@ def _guest_login_allowed(ip):
         ts_list = _guest_login_rate.setdefault(ip, [])
         cutoff = now - _GUEST_LOGIN_WINDOW
         ts_list[:] = [t for t in ts_list if t > cutoff]
-        if len(ts_list) >= _GUEST_LOGIN_MAX:
+        if len(ts_list) >= _guest_login_max():
             return False
         ts_list.append(now)
         return True

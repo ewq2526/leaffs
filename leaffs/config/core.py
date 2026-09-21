@@ -40,6 +40,10 @@ _max_concurrent = 10   # 启动后由 load_config 镜像为 _max_total_conns
 _max_total_conns = 256
 _io_idle_timeout_secs = 120.0
 _keepalive_timeout_secs = 15.0
+# 游客登录限速上限（单 IP 每分钟次数，配置键 guest_login_max_per_min，默认 10）。
+# 做成可配是为了让测试能放宽：测试套自己的 guest 登录次数本来就贴着 10 这条线，
+# 跑得快时会挤进同一个 60 秒窗口、误报「游客登录过于频繁」。产品默认值不变。
+_guest_login_max_per_min = 10
 _speed_limit = 0
 _guest_mode = False
 _user_quota = 5368709120
@@ -100,7 +104,7 @@ _harden_config_acls_enabled = False   # 分发安全：默认不做运行时 con
 
 
 def load_config():
-    global _max_concurrent, _max_total_conns, _io_idle_timeout_secs, _keepalive_timeout_secs, _speed_limit, _guest_mode, _user_quota, _public_quota, _total_quota, PORT, WS_PORT
+    global _max_concurrent, _max_total_conns, _io_idle_timeout_secs, _keepalive_timeout_secs, _guest_login_max_per_min, _speed_limit, _guest_mode, _user_quota, _public_quota, _total_quota, PORT, WS_PORT
     global _pbkdf2_iterations, _salt_length
     global _thumb_sample_ratio, _thumb_miss_threshold, _thumb_scan_batch, _thumb_scan_interval
     global _upload_max_size, _copy_buffer_size, _cache_max_items, _cache_ttl, _folder_size_ttl
@@ -129,6 +133,8 @@ def load_config():
                                                1.0, 3600.0, float)
             _keepalive_timeout_secs = _clamp_num(cfg.get('keepalive_timeout', 15.0),
                                                  1.0, 300.0, float)
+            _guest_login_max_per_min = _clamp_num(cfg.get('guest_login_max_per_min', 10),
+                                                  1, 100000, int)
             _speed_limit = cfg.get('download_speed_limit', 0)
             if 'auth_enabled' in cfg:
                 _guest_mode = not _to_bool(cfg['auth_enabled'])
@@ -431,6 +437,7 @@ def get_deep_config_dict():
         'io_idle_timeout_secs': _io_idle_timeout_secs,
         # HTTP/1.1（2026-09-18）：keep-alive 等待下一个请求的空闲超时（秒）
         'keepalive_timeout': _keepalive_timeout_secs,
+        'guest_login_max_per_min': _guest_login_max_per_min,
         # IC-CFG（R3）：新增安全配置键（load/save/get/apply_deep 同步；save_config 经本函数落盘）
         'guest_public_write': _guest_public_write,
         'downloader_guest_allowed': _downloader_guest_allowed,
@@ -840,6 +847,9 @@ def get_max_concurrent(): return _max_concurrent      # 遗留回显（/api/conf
 def get_max_total_conns(): return _max_total_conns    # R4：整机总连接/线程准入上限
 def get_io_idle_timeout_secs(): return _io_idle_timeout_secs   # R4：写侧无进展超时（秒）
 def get_keepalive_timeout_secs(): return _keepalive_timeout_secs  # HTTP/1.1：空闲超时（秒）
+
+
+def get_guest_login_max_per_min(): return _guest_login_max_per_min  # 游客登录限速上限（次/分钟）
 
 def try_acquire_thread():
     """无等待申请一个总并发准入位（O(1)）；已达 _max_total_conns 上限返回 False。
