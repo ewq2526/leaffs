@@ -98,6 +98,19 @@
         </div>
         <div id="userList" class="user-grid"><div style="color:var(--text);font-size:13px;padding:40px 0;text-align:center;grid-column:1/-1">加载中...</div></div>
     </div>
+
+    <div class="admin-card user-list-card">
+        <h3>已删除用户的归档</h3>
+        <div class="user-list-header">
+            <span>共 <span class="count" id="archiveTotal">0</span> 项 · 占用 <span class="count" id="archiveSize">0 B</span></span>
+            <span>
+                <button class="btn-admin outline" onclick="loadArchives()" style="padding:3px 10px;font-size:11px">刷新</button>
+                <button class="btn-admin outline" onclick="purgeAllArchives()" style="padding:3px 10px;font-size:11px">全部清空</button>
+            </span>
+        </div>
+        <div class="archive-hint">删除用户时，他的文件只是被改名归档到这里，并没有被删掉。清理是<b>不可恢复</b>的：确认里面的东西不再需要，再删。</div>
+        <div id="archiveList" class="archive-list"><div class="archive-empty">加载中...</div></div>
+    </div>
 </div>
 
 <script src="/static/app.js"></script>
@@ -201,6 +214,12 @@ function genQR(name) {
 var _qrWindows = {};
 var _lastUsersJson = '';
 function _usersEditing() { var a = document.activeElement; return !!(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')); }
+// 已删除用户的归档：删号只是改名归档，不会自动清理（N-7）。这里给管理员一个看得见、
+// 点得动的入口 —— 在此之前只能自己摸到浏览页输入 users/.deleted 去删。
+function loadArchives(){return fetch('/api/users/archive').then(function(r){return r.json();}).then(function(d){renderArchives(d);}).catch(function(){batchToast('读取归档失败','error');});}
+function renderArchives(d){var items=(d&&d.archives)||[];document.getElementById('archiveTotal').textContent=items.length;document.getElementById('archiveSize').textContent=formatSize((d&&d.total_size)||0);var box=document.getElementById('archiveList');if(!items.length){box.innerHTML='<div class="archive-empty">没有归档</div>';return;}box.innerHTML=items.map(function(a){var sn=a.name.replace(/'/g,"\\'");return '<div class="archive-row"><div class="archive-meta"><b>'+esc(a.name)+'</b><span>'+a.files+' 个文件 · '+formatSize(a.size)+' · '+formatTime(a.mtime)+'</span></div><button class="btn-admin outline" onclick="purgeArchive(\''+sn+'\')" style="padding:3px 10px;font-size:11px">删除</button></div>';}).join('');}
+function purgeArchive(name){if(!confirm('永久删除归档 "'+name+'" ？'))return;if(!confirm('里面的文件会被真正删掉，无法恢复。确定继续？'))return;fetch('/api/users/archive/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names:[name]})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已删除归档 '+name,'success');loadArchives();}else batchToast((d.failed&&d.failed[0]&&d.failed[0].error)||d.error||'删除失败','error');});}
+function purgeAllArchives(){var n=parseInt(document.getElementById('archiveTotal').textContent)||0;if(!n){batchToast('没有归档可清理','info');return;}if(!confirm('永久删除全部 '+n+' 个归档？'))return;if(!confirm('里面的文件会被真正删掉，无法恢复。确定继续？'))return;fetch('/api/users/archive/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({all:true})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已清空 '+d.deleted+' 个归档','success');loadArchives();}else batchToast(d.error||'清空失败','error');});}
 function _applyUsers(users) {
     if (arguments.length === 0) { refreshUsers(); return; }  // 首次加载：走 fetch
     var key = JSON.stringify(users || {});
@@ -213,9 +232,17 @@ function onWSConnected(){ if (window.wsAdminAuthAndSubscribe) { window.wsAdminAu
 function handleWSMessage(msg){ if (!msg) return; if (msg.type === 'qr_consumed' && msg.sid && _qrWindows[msg.sid]){ var cb = _qrWindows[msg.sid]; delete _qrWindows[msg.sid]; cb(); return; } if (msg.type === 'admin_data' && msg.users) _applyUsers(msg.users); }
 connectWS();
 setTimeout(_applyUsers, 500);
+loadArchives();
 </script>
 <style>
 /* 按钮样式已统一在全局 style.css 通用按钮 */
+.archive-hint{font-size:12px;color:var(--text);opacity:.8;margin:2px 0 10px;line-height:1.6}
+.archive-list{display:flex;flex-direction:column;gap:8px}
+.archive-empty{font-size:13px;color:var(--text);padding:24px 0;text-align:center}
+.archive-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)}
+.archive-meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.archive-meta b{font-size:13px;word-break:break-all}
+.archive-meta span{font-size:11px;color:var(--text);opacity:.75}
 </style>
 </body>
 </html>

@@ -8,6 +8,10 @@ Author: ewq2526. Version format: major.minor.patch. There were no earlier versio
 
 > Fixes and configuration added after 1.0.6; not yet released.
 
+### Features
+
+- The admin page's user management section now has "Archives of deleted users". Deleting a user only **renames** their files into an archive under `users/.deleted/`; the files are not removed — that is deliberate (deleting an account is one action, but deleting the directory would permanently destroy all of that user's files), yet there was no way to clean them up. You can now see each archive's file count and used space on the admin page, and delete them one by one or clear them all. Clearing is **not reversible**, and the UI asks for confirmation twice.
+
 ### Fixes
 
 - **Names like `NUL` and `CON` are no longer treated as files**: Windows resolves these reserved names to devices, so `os.path.exists` returns true for them and they slipped past the "does this file exist" check, only failing further down in the thumbnail pipeline — the same input gave an administrator a 500 and a normal user a 404 (no disclosure and no privilege bypass, but the status code should not fork like that). Such names are now rejected at the path entry point; normal names such as `NULL.txt`, `COM10` and `console` are unaffected.

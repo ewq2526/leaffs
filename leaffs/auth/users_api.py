@@ -2,7 +2,125 @@
 
 import json
 import os
+import shutil
 import time
+
+
+ARCHIVE_DIRNAME = '.deleted'
+
+
+def _archive_root():
+    """被删用户家目录的归档根：`users/.deleted/`"""
+    from leaffs.utils.core import UPLOAD_DIR
+    return os.path.join(UPLOAD_DIR, 'users', ARCHIVE_DIRNAME)
+
+
+def _archive_entry(name):
+    """把归档名解析成归档根下的绝对路径；名字不合法返回 None。
+
+    只接受**单层目录名**（删用户时生成的目录名就是 `用户名-时间戳[-序号]`，没有层级）。
+    basename 比对是最省事也最严的判据：`../x`、`a/b`、`a\\b` 全在这里被挡掉，
+    不可能借清理入口删到归档目录外面。
+    """
+    if not isinstance(name, str) or not name or name in ('.', '..'):
+        return None
+    if os.path.basename(name) != name:
+        return None
+    return os.path.join(_archive_root(), name)
+
+
+def users_archive_list(handler):
+    """列出已删除用户的归档目录（名字 / 大小 / 文件数 / 时间）。
+
+    N-7（2026-09-21 黑盒报告）：删用户只归档不清理，数据留在 `users/.deleted/` 里
+    只增不减。归档本身是**有意**的设计（删账号是管理员一个操作，删目录却会永久毁掉
+    那个用户的全部文件），缺的是一个能看见、能清理的入口 —— 在这之前管理员只能自己
+    摸到浏览页里输入 `users/.deleted` 去删。
+    """
+    if handler._get_effective_role() not in ('admin', 'super_admin'):
+        handler.send_json({'error': 'Forbidden'}, 403); return
+    from leaffs.utils.core import get_folder_stats
+    root = _archive_root()
+    items = []
+    total = 0
+    try:
+        if os.path.isdir(root):
+            for name in os.listdir(root):
+                p = os.path.join(root, name)
+                if not os.path.isdir(p):
+                    continue
+                st = get_folder_stats(p) or {}
+                size = int(st.get('size', 0) or 0)
+                items.append({'name': name, 'size': size,
+                              'files': int(st.get('files', 0) or 0),
+                              'mtime': os.path.getmtime(p)})
+                total += size
+    except Exception as e:
+        from leaffs.runtime_log import log_exception
+        log_exception('列出已删除用户的归档', e)
+        handler.send_json({'error': '读取归档目录失败'}, 500); return
+    items.sort(key=lambda x: x['mtime'], reverse=True)
+    handler.send_json({'archives': items, 'total_size': total})
+
+
+def users_archive_delete(handler):
+    """删除归档目录 —— **真删，不可恢复**。
+
+    body：`{"names": ["<归档名>", ...]}` 或 `{"all": true}`。
+    "不可恢复"在界面层用两次 confirm 交代，服务端只管如实执行并逐项回报结果
+    （与 HTTP 删除同一口径：有失败项就列出来，部分成功仍算成功）。
+    """
+    if handler._get_effective_role() not in ('admin', 'super_admin'):
+        handler.send_json({'error': 'Forbidden'}, 403); return
+    try:
+        from leaffs.utils.core import invalidate_folder_cache, delete_fail_reason
+    except Exception:
+        handler.send_json({'error': '服务器内部错误'}, 500); return
+    try:
+        length = int(handler.headers.get('Content-Length', 0))
+        data = json.loads(handler.rfile.read(length).decode())
+        if not isinstance(data, dict):
+            data = {}
+        root = _archive_root()
+        if data.get('all'):
+            names = []
+            if os.path.isdir(root):
+                names = [n for n in os.listdir(root)
+                         if os.path.isdir(os.path.join(root, n))]
+        else:
+            names = data.get('names')
+            if not isinstance(names, list) or not names:
+                handler.send_json({'success': False, 'error': '缺少参数 names'}, 400); return
+        deleted = 0
+        failed = []          # [(name, reason)]
+        for name in names:
+            p = _archive_entry(name)
+            if p is None:
+                failed.append((str(name), '名字不合法'))
+                continue
+            if not os.path.isdir(p):
+                failed.append((str(name), '归档不存在'))
+                continue
+            try:
+                shutil.rmtree(p)
+                # 归档目录已消失：连同它的祖先聚合一起失效（挂在这里天然覆盖全部
+                # 调用路径，逐个删除点打点必然会漏，见 invalidate_folder_cache 注释）
+                invalidate_folder_cache(p, recursive=True)
+                deleted += 1
+            except Exception as e:
+                from leaffs.runtime_log import log_exception
+                log_exception('删除用户归档 %s' % name, e)
+                failed.append((str(name), delete_fail_reason(e)))
+        resp = {'success': not failed, 'deleted': deleted}
+        if failed:
+            resp['failed'] = [{'name': a, 'error': b} for a, b in failed]
+        # 与 HTTP 删除同一口径：删到了就是 200（失败项在 failed 里说明），
+        # 一个都没删且确有失败才是 400
+        handler.send_json(resp, 200 if (deleted or not failed) else 400)
+    except json.JSONDecodeError:
+        handler.send_json({'error': '请求体必须是合法 JSON'}, 400)
+    except Exception:
+        handler.send_json({'error': '服务器内部错误'}, 500)
 
 
 def _int_param(data, key):

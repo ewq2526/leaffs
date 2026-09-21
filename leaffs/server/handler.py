@@ -109,11 +109,12 @@ PREVIEW_MAX_SIZE = 10 * 1024 * 1024   # 在线预览大小上限（可由 cfg_co
 _ADMIN_ONLY_POST = frozenset((
     '/api/users/add', '/api/users/delete', '/api/users/password', '/api/users/role',
     '/api/users/speed', '/api/users/quota', '/api/users/rename',
+    '/api/users/archive/delete',
     '/api/config', '/api/config/advanced', '/api/config/deep',
     '/api/certs/reset', '/api/logs/clear',
 ))
 _ADMIN_ONLY_GET = frozenset((
-    '/api/users', '/api/config', '/api/config/advanced', '/api/config/deep',
+    '/api/users', '/api/users/archive', '/api/config', '/api/config/advanced', '/api/config/deep',
     '/api/logs', '/api/connections',
 ))
 
@@ -1105,6 +1106,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             '/api/users/speed': lambda: _ac_user.users_speed(self, _ac.set_user_speed_limit),
             '/api/users/quota': lambda: _ac_user.users_quota(self, _ac.set_user_quota),
             '/api/users/rename': lambda: _ac_user.users_rename(self, _ac.update_user_name, add_log, _fs.UPLOAD_DIR),
+            '/api/users/archive/delete': lambda: _ac_user.users_archive_delete(self),
             '/api/qrcode/refresh': lambda: self.qrcode_refresh(),
             '/api/certs/reset': lambda: self.reset_certs(),
             '/api/logs/clear': lambda: _ut_log.clear_logs(self, clear_runtime_logs),
@@ -2168,6 +2170,11 @@ def _g_users(h, path, role):
     _ac_user.users_list(h)
 
 
+def _g_users_archive(h, path, role):
+    """N-7：被删用户归档的清单（管理页的清理入口用）"""
+    _ac_user.users_archive_list(h)
+
+
 def _g_logs(h, path, role):
     _ut_log.serve_logs(h, get_logs)
 
@@ -2234,6 +2241,7 @@ GET_ROUTES = (
     (('=', '/api/ping'), _g_ping),
     (('=', '/api/share'), _g_share_list),
     (('=', '/api/share/status'), _g_share_status),
+    (('=', '/api/users/archive'), _g_users_archive),
     (('=', '/api/users'), _g_users),
     (('=', '/api/logs'), _g_logs),
     (('=', '/api/zip'), _g_zip),
