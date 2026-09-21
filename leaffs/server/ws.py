@@ -607,6 +607,20 @@ async def ws_handler(websocket):
                     await websocket.send(json.dumps(result_data))
                 elif t == 'delete':
                     paths = _ws_str_list(data, 'paths')
+                    if not paths:
+                        # 空路径列表 = 这个请求什么都没做，必须如实回"没成功"。
+                        # 原来原样回 {'success': True, 'deleted': 0} —— 外部黑盒报告
+                        # （WS-D，2026-09-21）据此把这个分支判成"死分支、报假成功"：
+                        # 他们按 HTTP 那边的习惯发了 {"files": [...]}，而这里读的是
+                        # paths，于是列表为空、循环不执行、回了一个漂亮的 success，
+                        # 文件纹丝不动。分支本身是好的（下面权限校验、真删除都在），
+                        # 错的只是"什么都没做却说成功"。
+                        # 响应形态保持 'delete' 不变：字段级问题走业务分支，不叠格式错
+                        # （与 _ws_str_list 的既有口径一致，见 test_ws_message_shape）。
+                        await websocket.send(json.dumps(
+                            {'type': 'delete', 'success': False, 'deleted': 0,
+                             'msg': 'paths 为空：没有要删除的路径'}))
+                        continue
                     n_deleted = 0
                     failed = []      # [(path, reason)] —— C-07：句柄占用等不再静默成功
                     for p in paths:
