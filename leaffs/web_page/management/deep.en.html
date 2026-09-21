@@ -197,6 +197,19 @@
             </div>
         </div>
 
+        <!-- Guest sign-in rate limit -->
+        <div class="admin-card">
+            <h3>Guest Sign-in Rate Limit</h3>
+            <div class="config-group">
+                <label>How many "Continue as Guest" sign-ins a single IP may make per minute (default 10). Raising it is usually for load testing or automation; in production a higher value makes the guest entry easier to abuse</label>
+                <div class="config-row">
+                    <input type="number" id="deepGuestRateInput" min="1" max="100000" step="1" value="10" style="width:90px">
+                    <span style="font-size:11px;color:var(--text-light)">per minute (1–100000, integer)</span>
+                    <button class="btn-admin primary" onclick="applyGuestRate()" style="font-size:11px">Apply</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Certificate info page bind address -->
         <div class="admin-card">
             <h3>Certificate Info Page Bind Address</h3>
@@ -288,6 +301,7 @@ function loadDeepConfig() {
             // Whole-machine / per-IP connection limits moved to the admin home; only the idle timeout is backfilled here (default used when an old server omits it)
             setNum('deepIdleTimeoutInput', (typeof d.io_idle_timeout_secs === 'number') ? d.io_idle_timeout_secs : 120);
             setNum('deepKeepaliveInput', (typeof d.keepalive_timeout === 'number') ? d.keepalive_timeout : 15);
+            setNum('deepGuestRateInput', (typeof d.guest_login_max_per_min === 'number') ? d.guest_login_max_per_min : 10);
             var th = document.getElementById('trustBindHostInput');
             if (th) th.value = d.trust_bind_host || '0.0.0.0';
             // Read-only archive values
@@ -302,7 +316,7 @@ function loadDeepConfig() {
             var _expected = ['pbkdf2_iterations', 'pbkdf2_iterations_min', 'salt_length', 'salt_length_min',
                 'thumb_sample_ratio', 'thumb_miss_threshold', 'thumb_scan_batch', 'thumb_scan_interval',
                 'session_expiry_days', 'guest_public_write', 'downloader_guest_allowed', 'access_log',
-                'max_conn_per_ip', 'keepalive_timeout', 'trust_bind_host', 'auto_trust_ca', 'ca_trust_decision',
+                'max_conn_per_ip', 'keepalive_timeout', 'guest_login_max_per_min', 'trust_bind_host', 'auto_trust_ca', 'ca_trust_decision',
                 'ca_validity_days', 'harden_config_acls', 'username_max_length', 'password_max_length'];
             var _missing = _expected.filter(function (k) { return !(k in d); });
             if (_missing.length) {
@@ -408,6 +422,15 @@ function applyKeepalive() {
     var val = parseFloat(el.value);
     if (isNaN(val) || val < 1) { batchToast('keep-alive idle timeout must be at least 1 s', 'error'); return; }
     deepPost({ keepalive_timeout: val }, 'keep-alive idle timeout saved as ' + val + ' s');
+}
+
+// Guest sign-in rate limit (guest_login_max_per_min, per minute, integer 1–100000) — uses the existing deep save flow
+function applyGuestRate() {
+    var el = document.getElementById('deepGuestRateInput');
+    if (!el) return;
+    var val = parseInt(el.value, 10);
+    if (isNaN(val) || val < 1 || val > 100000) { batchToast('Guest sign-in rate limit must be between 1 and 100000', 'error'); return; }
+    deepPost({ guest_login_max_per_min: val }, 'Guest sign-in rate limit saved as ' + val + ' per minute');
 }
 
 function applyTrustBindHost() {
