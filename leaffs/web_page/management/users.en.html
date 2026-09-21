@@ -219,8 +219,12 @@ function _usersEditing() { var a = document.activeElement; return !!(a && (a.tag
 // Archives of deleted users: deleting a user only renames their files into an archive,
 // nothing is cleaned up automatically (N-7). This gives administrators a visible, clickable
 // entry point — before this they had to find their way to users/.deleted in the browse page.
+// ⚠️ "Open" is not optional: delete-only means deleting blind (user feedback 2026-09-21:
+//    "the web page cannot enter the archive directory" — the backend and browse page were
+//    fine all along; this card simply offered no way in).
+function openArchive(name){window.location.href='/browse/'+encodeURIComponent('users/.deleted/'+name);}
 function loadArchives(){return fetch('/api/users/archive').then(function(r){return r.json();}).then(function(d){renderArchives(d);}).catch(function(){batchToast('Could not read archives','error');});}
-function renderArchives(d){var items=(d&&d.archives)||[];document.getElementById('archiveTotal').textContent=items.length;document.getElementById('archiveSize').textContent=formatSize((d&&d.total_size)||0);var box=document.getElementById('archiveList');if(!items.length){box.innerHTML='<div class="archive-empty">No archives</div>';return;}box.innerHTML=items.map(function(a){var sn=a.name.replace(/'/g,"\\'");return '<div class="archive-row"><div class="archive-meta"><b>'+esc(a.name)+'</b><span>'+a.files+' file(s) · '+formatSize(a.size)+' · '+formatTime(a.mtime)+'</span></div><button class="btn-admin outline" onclick="purgeArchive(\''+sn+'\')" style="padding:3px 10px;font-size:11px">Delete</button></div>';}).join('');}
+function renderArchives(d){var items=(d&&d.archives)||[];document.getElementById('archiveTotal').textContent=items.length;document.getElementById('archiveSize').textContent=formatSize((d&&d.total_size)||0);var box=document.getElementById('archiveList');if(!items.length){box.innerHTML='<div class="archive-empty">No archives</div>';return;}box.innerHTML=items.map(function(a){var sn=a.name.replace(/'/g,"\\'");return '<div class="archive-row"><div class="archive-meta"><b>'+esc(a.name)+'</b><span>'+a.files+' file(s) · '+formatSize(a.size)+' · '+formatTime(a.mtime)+'</span></div><span class="archive-btns"><button class="btn-admin outline" onclick="openArchive(\''+sn+'\')" style="padding:3px 10px;font-size:11px">Open</button><button class="btn-admin outline" onclick="purgeArchive(\''+sn+'\')" style="padding:3px 10px;font-size:11px">Delete</button></span></div>';}).join('');}
 function purgeArchive(name){if(!confirm('Permanently delete archive "'+name+'"?'))return;if(!confirm('The files inside will really be deleted and cannot be recovered. Continue?'))return;fetch('/api/users/archive/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names:[name]})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Archive deleted: '+name,'success');loadArchives();}else batchToast((d.failed&&d.failed[0]&&d.failed[0].error)||d.error||'Delete failed','error');});}
 function purgeAllArchives(){var n=parseInt(document.getElementById('archiveTotal').textContent)||0;if(!n){batchToast('No archives to clear','info');return;}if(!confirm('Permanently delete all '+n+' archive(s)?'))return;if(!confirm('The files inside will really be deleted and cannot be recovered. Continue?'))return;fetch('/api/users/archive/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({all:true})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Cleared '+d.deleted+' archive(s)','success');loadArchives();}else batchToast(d.error||'Clear failed','error');});}
 function _applyUsers(users) {
@@ -243,6 +247,7 @@ loadArchives();
 .archive-list{display:flex;flex-direction:column;gap:8px}
 .archive-empty{font-size:13px;color:var(--text);padding:24px 0;text-align:center}
 .archive-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)}
+.archive-btns{flex:0 0 auto;display:flex;gap:6px}
 .archive-meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .archive-meta b{font-size:13px;word-break:break-all}
 .archive-meta span{font-size:11px;color:var(--text);opacity:.75}

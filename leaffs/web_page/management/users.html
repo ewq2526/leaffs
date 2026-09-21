@@ -216,8 +216,11 @@ var _lastUsersJson = '';
 function _usersEditing() { var a = document.activeElement; return !!(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT')); }
 // 已删除用户的归档：删号只是改名归档，不会自动清理（N-7）。这里给管理员一个看得见、
 // 点得动的入口 —— 在此之前只能自己摸到浏览页输入 users/.deleted 去删。
+// ⚠️ 「打开」不能省：只有「删除」等于让人盲删（用户 2026-09-21 实测反馈
+//    「网页不能进入归档目录」—— 后端和浏览页一直是通的，是这里没给入口）。
+function openArchive(name){window.location.href='/browse/'+encodeURIComponent('users/.deleted/'+name);}
 function loadArchives(){return fetch('/api/users/archive').then(function(r){return r.json();}).then(function(d){renderArchives(d);}).catch(function(){batchToast('读取归档失败','error');});}
-function renderArchives(d){var items=(d&&d.archives)||[];document.getElementById('archiveTotal').textContent=items.length;document.getElementById('archiveSize').textContent=formatSize((d&&d.total_size)||0);var box=document.getElementById('archiveList');if(!items.length){box.innerHTML='<div class="archive-empty">没有归档</div>';return;}box.innerHTML=items.map(function(a){var sn=a.name.replace(/'/g,"\\'");return '<div class="archive-row"><div class="archive-meta"><b>'+esc(a.name)+'</b><span>'+a.files+' 个文件 · '+formatSize(a.size)+' · '+formatTime(a.mtime)+'</span></div><button class="btn-admin outline" onclick="purgeArchive(\''+sn+'\')" style="padding:3px 10px;font-size:11px">删除</button></div>';}).join('');}
+function renderArchives(d){var items=(d&&d.archives)||[];document.getElementById('archiveTotal').textContent=items.length;document.getElementById('archiveSize').textContent=formatSize((d&&d.total_size)||0);var box=document.getElementById('archiveList');if(!items.length){box.innerHTML='<div class="archive-empty">没有归档</div>';return;}box.innerHTML=items.map(function(a){var sn=a.name.replace(/'/g,"\\'");return '<div class="archive-row"><div class="archive-meta"><b>'+esc(a.name)+'</b><span>'+a.files+' 个文件 · '+formatSize(a.size)+' · '+formatTime(a.mtime)+'</span></div><span class="archive-btns"><button class="btn-admin outline" onclick="openArchive(\''+sn+'\')" style="padding:3px 10px;font-size:11px">打开</button><button class="btn-admin outline" onclick="purgeArchive(\''+sn+'\')" style="padding:3px 10px;font-size:11px">删除</button></span></div>';}).join('');}
 function purgeArchive(name){if(!confirm('永久删除归档 "'+name+'" ？'))return;if(!confirm('里面的文件会被真正删掉，无法恢复。确定继续？'))return;fetch('/api/users/archive/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names:[name]})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已删除归档 '+name,'success');loadArchives();}else batchToast((d.failed&&d.failed[0]&&d.failed[0].error)||d.error||'删除失败','error');});}
 function purgeAllArchives(){var n=parseInt(document.getElementById('archiveTotal').textContent)||0;if(!n){batchToast('没有归档可清理','info');return;}if(!confirm('永久删除全部 '+n+' 个归档？'))return;if(!confirm('里面的文件会被真正删掉，无法恢复。确定继续？'))return;fetch('/api/users/archive/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({all:true})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已清空 '+d.deleted+' 个归档','success');loadArchives();}else batchToast(d.error||'清空失败','error');});}
 function _applyUsers(users) {
@@ -240,6 +243,7 @@ loadArchives();
 .archive-list{display:flex;flex-direction:column;gap:8px}
 .archive-empty{font-size:13px;color:var(--text);padding:24px 0;text-align:center}
 .archive-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)}
+.archive-btns{flex:0 0 auto;display:flex;gap:6px}
 .archive-meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .archive-meta b{font-size:13px;word-break:break-all}
 .archive-meta span{font-size:11px;color:var(--text);opacity:.75}

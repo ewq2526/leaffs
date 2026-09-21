@@ -13,6 +13,7 @@
   * 删除是真删，且**只能删归档根下的单层目录**（清理入口不能变成任意目录删除器）
   * 删掉之后 `users` 的聚合统计跟着更新（缓存失效挂在删除点上）
 """
+import io
 import os
 
 import httpx
@@ -149,6 +150,45 @@ def test_deleting_an_archive_refreshes_the_parent_totals(client):
     after = users_total()
     assert after < before, \
         '删了归档但 users 的聚合值没降（缓存没失效）：before=%s after=%s' % (before, after)
+
+
+def test_admin_can_browse_into_an_archive(client):
+    """归档目录本身必须能进去看 —— 清理之前总得先看清里面是什么。
+
+    用户 2026-09-21 反馈「网页不能进入归档目录」：卡片上当时只有「删除」，
+    等于让人盲删。先钉住后端可达（列表 + 页面两条路都通），界面入口另说。
+    """
+    import urllib.parse
+
+    login(client)
+    entry = _make_archive(client, 'arch_browse_user', b'browse me')
+    rel = 'users/.deleted/' + entry
+
+    got = client.get('/api/files', params={'path': rel})
+    assert got.status_code == 200, got.text
+    names = [f['name'] for f in got.json()['files']]
+    assert 'keep.txt' in names, '归档目录列不出来：%s' % names
+
+    page = client.get('/browse/' + urllib.parse.quote(rel, safe=''))
+    assert page.status_code == 200, \
+        '浏览页进不去归档目录（%s）：%s' % (rel, page.status_code)
+
+
+def test_admin_page_has_a_way_into_the_archive():
+    """前端守卫：卡片上必须有**能进目录**的入口。
+
+    用户 2026-09-21 实测反馈「网页不能进入归档目录」—— 后端与浏览页一直是通的
+    （见上面那条），问题在于卡片当时只给了「删除」，等于让人对着看不见的东西盲删。
+    前端在测试环境里跑不起来，所以按项目既有做法用**静态守卫**把这个入口钉住。
+    """
+    base = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        'leaffs', 'web_page', 'management')
+    for fn in ('users.html', 'users.en.html'):
+        src = io.open(os.path.join(base, fn), encoding='utf-8').read()
+        assert 'function openArchive(' in src, '%s 没有进归档目录的入口' % fn
+        assert "'/browse/'+encodeURIComponent('users/.deleted/'" in src, \
+            '%s 的入口没有指到浏览页的归档目录' % fn
+        assert src.count('openArchive(') >= 2, '%s 里入口没接到按钮上' % fn
 
 
 def test_archive_endpoints_require_admin(client):

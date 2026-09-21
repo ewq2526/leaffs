@@ -10,7 +10,7 @@ Author: ewq2526. Version format: major.minor.patch. There were no earlier versio
 
 ### Features
 
-- The admin page's user management section now has "Archives of deleted users". Deleting a user only **renames** their files into an archive under `users/.deleted/`; the files are not removed — that is deliberate (deleting an account is one action, but deleting the directory would permanently destroy all of that user's files), yet there was no way to clean them up. You can now see each archive's file count and used space on the admin page, and delete them one by one or clear them all. Clearing is **not reversible**, and the UI asks for confirmation twice.
+- The admin page's user management section now has "Archives of deleted users". Deleting a user only **renames** their files into an archive under `users/.deleted/`; the files are not removed — that is deliberate (deleting an account is one action, but deleting the directory would permanently destroy all of that user's files), yet there was no way to clean them up. You can now see each archive's file count and used space on the admin page, click "Open" to look inside, and delete them one by one or clear them all. Clearing is **not reversible**, and the UI asks for confirmation twice.
 
 ### Fixes
 
