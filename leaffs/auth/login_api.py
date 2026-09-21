@@ -611,8 +611,7 @@ def auth_toggle(handler, add_log, set_guest_mode, get_guest_mode, revoke_guest_s
             except Exception: pass
         # 审计：谁开的/关的（原来只有一句"游客模式已开启"，看不出操作者）
         try:
-            _r, _u = handler._session_identity()
-            _who = ' [%s(%s) ip=%s]' % (_u or '-', _r or '-', handler.client_address[0])
+            _who = ' [%s ip=%s]' % (handler._actor(), handler.client_address[0])
         except Exception:
             _who = ''
         add_log('游客模式已' + ('开启' if on else '关闭') + _who, 'warn' if on else 'ok')

@@ -117,9 +117,8 @@ def users_archive_delete(handler):
         if deleted:
             try:
                 from leaffs.runtime_log import add_log
-                _role, _uname = handler._session_identity()
-                add_log('清理用户归档: 删除 %d 个（不可恢复）[%s(%s) ip=%s]%s'
-                        % (deleted, _uname or '-', _role or '-',
+                add_log('清理用户归档: 删除 %d 个（不可恢复）[%s ip=%s]%s'
+                        % (deleted, handler._actor(),
                            handler.client_address[0],
                            '，其中 %d 个失败' % len(failed) if failed else ''), 'warn')
             except Exception:
@@ -432,9 +431,8 @@ def users_rename(handler, update_user_name, add_log, UPLOAD_DIR):
             # IC-USER：中途失败整体报 500 且用户表不变（目录已搬则回滚搬回）
             handler.send_json({'success': False, 'error': err or '改名失败'}, 500); return
         try:
-            _r, _u = handler._session_identity()
             add_log(f'用户改名: {old_name} -> {new_name}'
-                    f' [{_u or "-"}({_r or "-"}) ip={handler.client_address[0]}]', 'warn')
+                    f' [{handler._actor()} ip={handler.client_address[0]}]', 'warn')
         except Exception:
             pass
         handler.send_json({'success': True})

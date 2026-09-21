@@ -936,6 +936,9 @@ class HTTPHandler(BaseHTTPRequestHandler):
             # 用户反馈（2026-09-21）：日志看不到操作账户。原来这一行只有 IP ——
             # 审计要能回答"**谁**做了什么"，多用户/多设备下光有 IP 答不了。
             # 匿名与取不到会话时都记 '-'，保持**每行字段数固定**（便于 grep/awk）。
+            # ⚠️ 这里**有意不用** `_actor()`：访问日志要的是 `user=` / `role=` 两个
+            # **定宽字段**（便于进 grep/awk 按列取），而 `_actor()` 的产物是给人读的
+            # `用户名(角色)`。两种形状各有用途，别为了"统一"把可机读的那份改掉。
             _role, _uname = self._session_identity()
             add_log(f'{ip} {method} {p} {status} {ms}ms'
                     f' user={_uname or "-"} role={_role or "-"}', 'info')
@@ -1346,7 +1349,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
         if code and not (6 <= len(code) <= 32):
             self.send_json({'error': '分享码长度需 6~32 个字符'}, 400)
             return
-        ok, err = _sacc.set_code(username, code, '%s(%s)' % (username or '-', role or '-'))
+        ok, err = _sacc.set_code(username, code, self._actor())
         if not ok:
             self.send_json({'error': err or '设置失败'}, 400)
             return

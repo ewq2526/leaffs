@@ -851,9 +851,7 @@ def handle_delete(handler, UPLOAD_DIR, is_path_safe, _delete_thumb,
             resp['skipped_permission'] = skipped_permission
         # 审计：只进访问日志的话，看得出"谁调了 /api/delete"，看不出**删了哪些**。
         if deleted:
-            _r, _u = handler._session_identity()
-            log_delete_audit('%s(%s)' % (_u or '-', _r or '-'),
-                             handler.client_address[0], deleted, paths, failed)
+            log_delete_audit(handler._actor(), handler.client_address[0], deleted, paths, failed)
         handler.send_json(resp)
     except DISCONNECTED_EXCEPTIONS:
         # 客户端中途断连：置 close、不补 500 响应、访问日志不记 500
