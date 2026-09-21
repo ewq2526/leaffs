@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import mimetypes
 import errno
+import hashlib
 import html as html_mod
 from collections import OrderedDict
 
@@ -536,9 +537,32 @@ def thumbnail_backend():
     return ''
 
 
+def _thumb_name(file_path):
+    """缩略图落盘文件名：`sha256(归一化绝对路径)[:40] + '.jpg'`。
+
+    **不能再用"相对路径把分隔符换成下划线"**（原实现）：那是有损变换 ——
+    `users/zzv/p_s.png` 与 `users/zzv_p/s.png` 会压成同一个名字，于是两个账号的私有
+    图片共用一个缓存文件。实测（2026-09-21 黑盒报告 N-1）：攻击者请求**自己的**
+    `users/zzv_q/r.png` 拿到的是受害者的图，而直读受害者原图仍是 404 ——
+    权限判定本身没问题，出问题的是"检查的对象"与"取用的对象"不是同一份。
+    落盘名的唯一性必须来自**无损**变换，所以用路径哈希。
+
+    归一化用 `normcase(abspath)`：Windows 路径不区分大小写，且调用点可能给出混合
+    分隔符（`...\\users/zzw`）或不同盘符大小写 —— 不归一化就会为同一个文件算出两个
+    不同的缓存（白占空间，且 `_delete_thumb` 删不干净）。
+    """
+    key = os.path.normcase(os.path.abspath(file_path))
+    return hashlib.sha256(key.encode('utf-8')).hexdigest()[:40] + '.jpg'
+
+
+def _is_thumb_name(name):
+    """是否为本模块生成的落盘名（40 位十六进制 + `.jpg`）—— 供旧格式迁移判定"""
+    return (isinstance(name, str) and len(name) == 44 and name.endswith('.jpg')
+            and all(c in '0123456789abcdef' for c in name[:40]))
+
+
 def _thumb_path(file_path):
-    rel = os.path.relpath(file_path, UPLOAD_DIR).replace('\\', '_').replace('/', '_').replace(':', '_')
-    return os.path.join(THUMB_DIR, rel + '.jpg')
+    return os.path.join(THUMB_DIR, _thumb_name(file_path))
 
 def _thumb_index():
     return os.path.join(THUMB_DIR, 'index.json')
@@ -567,8 +591,8 @@ def _thumb_index_add(file_path):
             if os.path.exists(idx):
                 with open(idx, 'r') as f:
                     index = json.load(f)
-            rel = os.path.relpath(file_path, UPLOAD_DIR).replace('\\', '_').replace('/', '_').replace(':', '_')
-            index[file_path] = rel + '.jpg'
+            # 索引值必须与 _thumb_path() 落盘名同源，否则清理时找不到文件
+            index[file_path] = _thumb_name(file_path)
             with open(idx, 'w') as f:
                 json.dump(index, f)
         except Exception:
@@ -794,6 +818,37 @@ def cleanup_orphan_thumbs():
                 except Exception:
                     pass
                 return
+
+            # 落盘名迁移（N-1，2026-09-21）：旧名是"相对路径 + 分隔符换下划线"的**有损**
+            # 变换，可能两两撞名（见 _thumb_name 文档）。改名后旧文件已无人引用，但
+            # cleanup 的判据是"源文件是否还在" —— 源文件都在，所以它们**不会被下面的
+            # 逻辑清掉**，只会永久占着磁盘。这里按落盘名格式识别旧条目、连文件一起删，
+            # 让它们按新规则重新生成（缩略图本来就是可重建的缓存）。
+            # 幂等：跑过一次之后索引里全是新格式，stale 恒为空。
+            stale = [(k, v) for k, v in index.items() if not _is_thumb_name(v)]
+            if stale:
+                for _src, _name in stale:
+                    # 只删 THUMB_DIR 直接子项：索引是可写的本地文件，损坏/被改过时
+                    # 不能让一个带分隔符的值把删除动作引到目录外
+                    if isinstance(_name, str) and os.path.basename(_name) == _name:
+                        try:
+                            _old = os.path.join(THUMB_DIR, _name)
+                            if os.path.exists(_old):
+                                os.remove(_old)
+                        except Exception:
+                            pass
+                    index.pop(_src, None)
+                try:
+                    with open(map_file, 'w') as f:
+                        json.dump(index, f)
+                except Exception:
+                    pass
+                if not index:
+                    try:
+                        os.remove(map_file)
+                    except Exception:
+                        pass
+                    return
 
             # 采样检测
             items = list(index.items())
