@@ -5,6 +5,27 @@ import os
 import time
 
 
+def _int_param(data, key):
+    """取一个**必须存在**的整数参数；缺失或转不成整数时抛 `ValueError`（调用方回 400）。
+
+    原来这两个接口写的是 `int(data.get('quota_mb', 0))` / `int(data.get('speed_kb', 0))`：
+    字段名打错或者漏传时**静默变成 0**，而 0 在这两个接口里是**合法值**
+    （= 不限额 / 不限速）—— 于是"参数根本没被用上"被当成"设置成功"回了 `success: true`。
+
+    外部黑盒报告 N-10（2026-09-21）正是这么中招的：他们发的是 `{"quota": 100}`，
+    接口读的是 `quota_mb`，于是配额被改成了**不限**，而响应是成功 ——
+    报告里的结论一度是"这个端点改不动配额"，实际是它每次都把配额清成了 0。
+
+    缺失与非法一律明确拒绝：宁可让调用方看到"参数不对"，也不能让它以为设置生效了。
+    """
+    if key not in data:
+        raise ValueError('缺少参数 %s' % key)
+    try:
+        return int(data[key])
+    except (TypeError, ValueError):
+        raise ValueError('%s 必须是整数' % key)
+
+
 def _archive_user_dir(username):
     """把被删用户的家目录**改名归档**到 `users/.deleted/<name>-<时间戳>[-序号]/`。
 
@@ -212,9 +233,12 @@ def users_quota(handler, set_user_quota):
         if not isinstance(data, dict):
             data = {}
         username = data.get('username', '').strip()
-        quota_mb = int(data.get('quota_mb', 0))
         if not username:
             handler.send_json({'success': False, 'error': '参数错误'}, 400); return
+        try:
+            quota_mb = _int_param(data, 'quota_mb')
+        except ValueError as e:
+            handler.send_json({'success': False, 'error': str(e)}, 400); return
         caller = handler._get_current_caller_role()
         ok, err = set_user_quota(username, quota_mb * 1048576, caller)
         if ok:
@@ -297,9 +321,12 @@ def users_speed(handler, set_user_speed_limit):
         if not isinstance(data, dict):
             data = {}
         username = data.get('username', '').strip()
-        speed_kb = int(data.get('speed_kb', 0))
         if not username:
             handler.send_json({'success': False, 'error': '参数错误'}, 400); return
+        try:
+            speed_kb = _int_param(data, 'speed_kb')
+        except ValueError as e:
+            handler.send_json({'success': False, 'error': str(e)}, 400); return
         caller = handler._get_current_caller_role()
         ok, err = set_user_speed_limit(username, speed_kb * 1024, caller)
         if ok:
