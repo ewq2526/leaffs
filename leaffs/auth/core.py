@@ -190,13 +190,22 @@ def load_sessions():
         _sessions = loaded
 
 
-def create_session(username, role, client_ip=''):
+def create_session(username, role, client_ip='', local_token=False):
+    """建立会话。
+
+    `local_token=True` 表示这个会话由**本机一次性令牌**（`/login?leaf=`）建立 ——
+    也就是"操作者当时就坐在服务端这台机器前"。标记跟着会话一起落盘，
+    供"只允许在服务端本机做"的操作判定用（见 `is_local_token_session`）。
+    旧会话记录没有这个字段，读出来就是假 —— 与原来"没有这个能力"一致。
+    """
     sid = _gen_id()
     with _sessions_lock:
         entry = {'expiry': time.time() + SESSION_EXPIRY_DAYS * 86400,
                  'username': username, 'role': role}
         if client_ip:
             entry['ip'] = client_ip
+        if local_token:
+            entry['local_token'] = True
         _sessions[sid] = entry
         _clean_sessions()
         _enforce_session_caps(username, client_ip, keep_sid=sid)   # B-06/B-07
@@ -232,6 +241,21 @@ def get_session(cookie_header, client_ip=''):
             # 而已绑 IP 的会话本来也认 IP：泄漏的 sid 换台机器本来就用不了。
             return None, ''
         return info['role'], sid
+
+
+def is_local_token_session(sid):
+    """该会话是否由**本机一次性令牌**建立（= 操作者就在服务端这台机器上）。
+
+    用途：只允许在服务端本机做的操作（把本机路径挂进分享区）以此为准。
+    令牌本身一次性、用过即删，所以判定只能落在"令牌的产物"上 —— 也就是这条会话：
+    它的来源 IP 是环回（`_local_token_login` 先卡 127.0.0.1 / ::1），
+    而 `get_session` 每次都会校验来源 IP 与建会话时一致，换台机器拿着也用不了。
+    """
+    if not sid:
+        return False
+    with _sessions_lock:
+        info = _sessions.get(sid)
+        return bool(info) and info.get('local_token') is True
 
 def _clean_sessions():
     now = time.time()

@@ -85,6 +85,25 @@ def safe_path(base, target):
         nt, nb = real_target, real_base
     return nt == nb or nt.startswith(nb + os.sep)
 
+def _mapped_prefix(rel_path):
+    """问分享映射表：这条相对路径是否落在一条**本机路径**映射下（lazy import）。
+
+    为什么把 import 放进函数里：`share.mappings` 依赖 `files.core`，而两者都依赖本模块 ——
+    顶层 import 会成环。运行时再导入则一定已经加载完，依赖方向也保持干净
+    （utils 不认识 share）。取不到（未加载 / 出错）就当作没有映射，
+    退回共享根本身的解析 —— 与"这条功能还没启用"行为一致。
+    """
+    if not rel_path or not isinstance(rel_path, str):
+        return None
+    if not rel_path.replace('\\', '/').lstrip('/').startswith('public/shares/'):
+        return None
+    try:
+        from leaffs.share import mappings as _mappings
+        return _mappings.lookup_fs_prefix(rel_path)
+    except Exception:
+        return None
+
+
 def resolve_rel(rel_path, base=None):
     """相对路径 → `(绝对路径, 所属根, 只读)`；非法 / 越界一律 `None`。
 
@@ -97,8 +116,17 @@ def resolve_rel(rel_path, base=None):
     要显式传进来，别在这里偷偷用全局值：测试会 patch 注入值，
     两者混用会让"以为在临时目录里跑"的用例落到真实数据根上。
 
-    只读位现在恒为 False（共享根本身可写）；映射进来的根接在这里时才会是 True。
+    命中分享区里的**本机路径映射**时，改用那条登记的真实根拼余部，
+    并且第三位返回 `True` —— 那种来源只读，写路径必须据此拒绝。
     """
+    mapped = _mapped_prefix(rel_path)
+    if mapped:
+        prefix, real_root = mapped
+        rest = rel_path[len(prefix):].strip('/\\')
+        full = os.path.join(real_root, rest) if rest else real_root
+        if not safe_path(real_root, full):
+            return None
+        return full, real_root, True
     root = UPLOAD_DIR if base is None else base
     full = os.path.join(root, rel_path) if rel_path else root
     if not safe_path(root, full):

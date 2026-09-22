@@ -832,6 +832,9 @@ def handle_delete(handler, UPLOAD_DIR, is_path_safe, _delete_thumb,
             if not resolved:
                 skipped_permission += 1  # 路径逃逸/非法落点：按权限类拒绝计数
                 continue
+            if resolved[2]:
+                skipped_permission += 1  # 本机路径映射是只读来源：写操作一律不做
+                continue
             full = resolved[0]
             # 目标不存在：可删但找不到 → 幂等（不计数、不报权限错误）
             if not os.path.exists(full): continue
@@ -901,6 +904,8 @@ def handle_mkdir(handler, UPLOAD_DIR, is_path_safe, invalidate_folder_cache, DIS
             handler.send_json({'error': '无权限在此目录创建文件夹'}, 403); return
         base_resolved = resolve_rel(path, UPLOAD_DIR)
         if not base_resolved: handler.send_json({'error': '权限错误'}, 403); return
+        if base_resolved[2]:
+            handler.send_json({'error': '此目录为只读映射，不能创建文件夹'}, 403); return
         full = os.path.join(base_resolved[0], name)
         if not is_path_safe(base_resolved[1], full): handler.send_json({'error': '权限错误'}, 403); return
         os.makedirs(full, exist_ok=True)

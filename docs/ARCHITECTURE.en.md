@@ -629,6 +629,39 @@ account and sessions**. The reasoning is that the purge is irreversible but low-
 new code), whereas "account deleted, code still there" makes **a recreated account with the same name
 inherit the old code** — the share page still demands a code, and nobody knows it.
 
+### 8.5 Local path mounts (read-only references)
+
+Besides files inside the shared root, the mapping table supports a second source: an
+**absolute path on the server machine** — a local folder (or a single file) appears in the share
+area with **nothing copied**.
+
+How it relates to the rest of this chapter:
+
+- **Source**: each record carries one of the two — a shared-root-relative path (original) or a
+  local absolute path (new). Old records simply read back as "inside the shared root", so
+  existing shares keep working;
+- **Resolution**: files *inside* a mounted folder are not registered one by one; they are
+  resolved by joining the **virtual prefix with the remainder**, longest prefix winning
+  (nested mounts prefer the more specific one). The result is still checked against the
+  **registered root** — never by concatenating the request string into an absolute path.
+  That resolution has a single implementation (the choke point in 4.3), used by both the read
+  and the write paths;
+- **Read-only**: a mounted source carries a read-only flag in the resolution result, and
+  **every write entry point refuses** accordingly — delete (one implementation on the HTTP
+  side, another on the WebSocket side), mkdir, upload. The reason is plain: what is mounted is
+  the operator's own system folder, and one wrong delete really deletes system files;
+- **Authorization**: the mount endpoint only accepts a session created by the **one-time local
+  token** — "the operator is sitting at the server machine". A remotely logged-in administrator
+  is refused as well: mounting a local path means reading any file on that machine, so the
+  capability follows *presence at the machine*, not the account. The token itself is single-use
+  and deleted once consumed, so the check lands on its product (that session), which is bound
+  to a loopback origin;
+- **Not followed**: folder-size accounting, search and recursive scans **never enter mount
+  areas** (a mounted folder can be terabytes; one recursion would stall the listing), so a
+  mounted folder reports size 0;
+- **Expiry**: if the source is deleted or moved, the entry stays but shows "source is gone" —
+  the same behaviour as ordinary shares, because what is registered is a reference, not a copy.
+
 ---
 
 ## 9. Configuration

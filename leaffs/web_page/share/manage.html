@@ -57,6 +57,15 @@
                         <div style="font-size:11px;color:var(--text-light,#a3aed0);margin-top:5px">开启后访客需输码才能看/下载（浏览器记住 1 小时）；输错会触发防爆破，见下方提醒。</div>
                     </div>
                     <div id="attackTip" style="display:none;margin-top:10px;padding:9px 12px;border-radius:10px;background:rgba(208,86,107,.10);border:1px solid rgba(208,86,107,.35);font-size:12px;color:#b03a50;line-height:1.7"></div>
+                    <div id="mountBox" style="display:none;margin:12px 0">
+                        <div style="font-size:13px;font-weight:650;color:var(--text);margin-bottom:6px">挂载本机路径 <span style="font-weight:500;font-size:11.5px;color:var(--text-light,#8a97bd)">只读</span></div>
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                            <input id="mountPath" type="text" autocomplete="off" placeholder="本机绝对路径，例如 E:\电影 或 D:\资料\a.pdf"
+                                   style="flex:1;min-width:220px;font-size:12px;padding:7px 10px;border:1px solid var(--border,#dbe4f5);border-radius:8px;background:var(--bg,#f4f7fd);color:var(--text)">
+                            <button class="btn-admin primary" onclick="doMount()" style="font-size:11px">挂载</button>
+                        </div>
+                        <div style="font-size:11px;color:var(--text-light,#a3aed0);margin-top:5px">目录或单个文件都行，<b>不复制文件</b>；挂上来的内容只读（不能在分享区里删改）。只有服务端本机的窗口能做这件事。</div>
+                    </div>
                     <div id="shareList"></div>
                     <div id="emptyTip" style="display:none;font-size:12px;color:var(--text-light);padding:18px 0;text-align:center">暂无分享 —— 去「浏览」勾选文件后点工具栏「分享」</div>
                 </div>
@@ -193,6 +202,23 @@ function removeMap(path, btn) {
     }).catch(function () { batchToast('移除失败', 'error'); });
 }
 
+function doMount() {
+    var el = document.getElementById('mountPath');
+    var p = (el.value || '').trim();
+    if (!p) { batchToast('请填本机绝对路径', 'error'); return; }
+    fetch('/api/share/mount', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: p})
+    }).then(function (r) {
+        return r.json().then(function (d) { return {ok: r.ok, d: d}; });
+    }).then(function (res) {
+        if (!res.ok) { batchToast((res.d && res.d.error) || '挂载失败', 'error'); return; }
+        el.value = '';
+        batchToast('已挂到分享区', 'ok');
+        loadList();
+    }).catch(function () { batchToast('挂载失败', 'error'); });
+}
+
 function rowMeta(it) {
     var parts = [];
     if (it.created) parts.push(fmtTs(it.created));
@@ -208,6 +234,9 @@ function loadList() {
         return r.json();
     }).then(function (d) {
         var items = (d && d.mappings) || [];
+        var mountBox = document.getElementById('mountBox');
+        // 入口只在"服务端本机令牌会话"里出现；服务端同样会判定，不靠这里藏按钮
+        if (mountBox) mountBox.style.display = (d && d.can_mount) ? 'block' : 'none';
         box.innerHTML = '';
         emptyTip.style.display = items.length ? 'none' : 'block';
         items.forEach(function (it) {
@@ -229,10 +258,22 @@ function loadList() {
                 gone.textContent = '源文件已不存在';
                 row.appendChild(gone);
             }
+            if (it.local && it.exists) {
+                var loc = document.createElement('span');
+                loc.style.cssText = 'font-size:11px;color:#2f6b4f;background:rgba(60,150,110,.12);border-radius:999px;padding:1px 8px';
+                loc.textContent = '本机路径';
+                row.appendChild(loc);
+            }
             var cp = document.createElement('button');
             cp.className = 'btn-admin'; cp.style.cssText = 'font-size:11px';
-            cp.textContent = '复制链接';
-            cp.onclick = function () { copyText(full); };
+            if (it.type === 'folder') {
+                // 目录映射没有"下载"这回事，给的是浏览入口
+                cp.textContent = '打开';
+                cp.onclick = function () { window.open(it.url, '_blank'); };
+            } else {
+                cp.textContent = '复制链接';
+                cp.onclick = function () { copyText(full); };
+            }
             var rm = document.createElement('button');
             rm.className = 'btn-admin danger'; rm.style.cssText = 'font-size:11px';
             rm.textContent = '移除';

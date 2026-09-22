@@ -45,10 +45,22 @@ def _load_locked():
                 if not isinstance(vp, str) or not isinstance(item, dict):
                     continue
                 src = item.get('src')
+                fs = item.get('fs')
                 by = item.get('by')
-                if isinstance(src, str) and src and isinstance(by, str):
-                    _cache[vp] = {'src': src, 'by': by,
-                                  'created': float(item.get('created') or 0)}
+                if not isinstance(by, str):
+                    continue
+                entry = {'by': by, 'created': float(item.get('created') or 0)}
+                # 两种来源互斥：`src` = 共享根内相对路径（原有），
+                # `fs` = 服务器本机绝对路径（2026-09-22 起，只读映射）。
+                # 旧记录只有 src，照旧读进来；这里**不能**只挑 src，
+                # 否则新登记的 fs 条目会在下次加载时被静默丢掉。
+                if isinstance(src, str) and src:
+                    entry['src'] = src
+                elif isinstance(fs, str) and fs:
+                    entry['fs'] = fs
+                else:
+                    continue
+                _cache[vp] = entry
     except FileNotFoundError:
         pass
     except Exception as e:
@@ -146,6 +158,82 @@ def publish(src_rel, username):
     return vp, None
 
 
+def publish_fs(fs_path, name, username):
+    """登记一条**服务器本机路径**映射（目录或单个文件）—— 只登记引用，不复制文件。
+
+    与 `publish` 的区别只在来源：`publish` 的源是共享根内的相对路径，这里的源是
+    本机绝对路径。登记出来的条目同样出现在分享区 `public/shares/<用户名>/` 下，
+    读法与原来一致；**只读** —— 写操作对映射区一律拒绝（见 `resolve_rel` 的只读位）。
+
+    调用方必须先确认"操作者就在服务端本机"（本机令牌会话）；本函数只校验路径与登记本身。
+    """
+    from leaffs.files.core import sanitize_entry_name
+    if not username or not isinstance(fs_path, str) or not fs_path.strip():
+        return None, '参数缺失'
+    if sanitize_entry_name(username) is None:
+        return None, '用户名包含非法字符'
+    if not os.path.isabs(fs_path):
+        return None, '必须是指向本机的绝对路径'
+    target = os.path.abspath(fs_path)
+    # 共享根内的东西走 `publish`（相对路径）那条路，不必也不该从这里再挂一次
+    inside = os.path.normcase(os.path.abspath(UPLOAD_DIR)) + os.sep
+    if os.path.normcase(target + os.sep).startswith(inside):
+        return None, '共享根内的路径请用普通分享'
+    try:
+        if not os.path.exists(target):
+            return None, '路径不存在'
+        if not (os.path.isfile(target) or os.path.isdir(target)):
+            return None, '只能映射目录或普通文件'
+    except Exception:
+        return None, '路径不可读'
+    default_name = os.path.basename(target.rstrip('\\/')) or 'mapped'
+    vdir = _user_dir_rel(username)
+    with _lock:
+        _load_locked()
+        if len(_cache) >= _MAX_TOTAL:
+            return None, '分享映射数量已达上限'
+        mine = sum(1 for vp in _cache if _cache[vp].get('by') == username)
+        if mine >= _MAX_USER:
+            return None, '你的分享映射数量已达上限（%d）' % _MAX_USER
+        name = _unique_name(username, name or default_name)
+        if name is None:
+            return None, '名称非法'
+        vp = vdir + '/' + name
+        _cache[vp] = {'fs': target, 'by': username, 'created': time.time()}
+        _save_locked()
+    add_log('本机路径已映射到分享区: %s → %s' % (target, vp), 'info')
+    return vp, None
+
+
+def lookup_fs_prefix(rel):
+    """相对路径是否落在某条**本机路径映射**下；命中返回 `(虚拟前缀, 本机绝对路径)`。
+
+    映射目录**内部**的文件不在表里逐条登记，靠"前缀 + 余部"拼出来 —— 这是那种解析的
+    唯一实现：`utils.core.resolve_rel` 与本模块的 `resolve` 都调它。
+    嵌套映射（先把 `E:\\媒体` 挂成 A、再把 `E:\\媒体\\电影` 挂成 B）取**最长前缀**。
+
+    ⚠️ 余部拼出来后仍要用 `safe_path(登记的根, 结果)` 判定 —— 按登记值判，
+    绝不拿请求里的字符串去拼绝对路径。
+    """
+    if not isinstance(rel, str) or not rel:
+        return None
+    rel = rel.replace('\\', '/').strip('/')
+    # 映射条目一律登记在分享区虚拟根下：先用这一点把绝大多数请求挡在锁外
+    if not rel.startswith(_SHARE_ROOT_REL + '/'):
+        return None
+    best = None
+    with _lock:
+        _load_locked()
+        for vp, item in _cache.items():
+            fs = item.get('fs') if isinstance(item, dict) else None
+            if not fs:
+                continue
+            if rel == vp or rel.startswith(vp + '/'):
+                if best is None or len(vp) > len(best[0]):
+                    best = (vp, fs)
+    return best
+
+
 def remove(virtual_rel, username, is_admin=False):
     """移除映射。仅创建者本人或 admin。返回 (ok, errmsg)。"""
     if not isinstance(virtual_rel, str):
@@ -186,23 +274,34 @@ def remove_by_owner(username):
 
 
 def list_mappings(username, is_admin=False):
-    """列出映射：本人（is_admin=True 可看全量）。"""
+    """列出映射：本人（is_admin=True 可看全量）。
+
+    `local=True` 表示这条来源是**服务器本机路径**（`src` 里给的就是那个绝对路径，
+    只给本人与 admin 看）；目录映射带 `type='folder'`，它没有下载直链。
+
+    ⚠️ 锁内只拷贝数据，`_mapped_target` / `_virtual_stat` 一律放到锁外调 ——
+    它们自己会取同一把 `_lock`（不可重入），锁里再调就是死锁。
+    """
     with _lock:
         _load_locked()
-        out = []
-        for vp in sorted(_cache):
-            item = _cache[vp]
-            if not is_admin and item.get('by') != username:
-                continue
-            out.append({
-                'path': vp,                       # 虚拟路径（相对共享根）
-                'name': vp.rsplit('/', 1)[-1],
-                'src': item.get('src', ''),
-                'by': item.get('by', ''),
-                'created': item.get('created', 0),
-                'exists': _src_exists(item.get('src', '')),
-            })
-        return out
+        rows = [(vp, dict(_cache[vp])) for vp in sorted(_cache)]
+    out = []
+    for vp, item in rows:
+        if not is_admin and item.get('by') != username:
+            continue
+        fs = item.get('fs', '')
+        mapped = _mapped_target(vp)
+        out.append({
+            'path': vp,                       # 虚拟路径（相对共享根）
+            'name': vp.rsplit('/', 1)[-1],
+            'src': fs or item.get('src', ''),
+            'by': item.get('by', ''),
+            'created': item.get('created', 0),
+            'exists': os.path.exists(fs) if fs else _src_exists(item.get('src', '')),
+            'local': bool(fs),
+            'type': 'folder' if (mapped and os.path.isdir(mapped)) else 'file',
+        })
+    return out
 
 
 def _src_exists(src_rel):
@@ -245,16 +344,55 @@ def list_public(username):
     return out
 
 
-def resolve(virtual_rel):
-    """虚拟路径 → 源文件绝对路径；未命中或源已不存在返回 None。"""
-    if not isinstance(virtual_rel, str):
-        return None
-    vp = virtual_rel.replace('\\', '/').strip('/')
+def _mapped_target(vp):
+    """本机路径映射对应的真实路径（条目精确命中，或落在映射目录内部）；没有则 None。
+
+    只做"查表 + 拼余部"，**不判存在、不判文件还是目录** —— 调用方各自决定
+    （下载只认文件，列表要看目录）。余部拼完仍按**登记的根**判定越界。
+    """
     with _lock:
         _load_locked()
         item = _cache.get(vp)
-        if item is None:
-            return None
+    if isinstance(item, dict) and item.get('fs'):
+        return item['fs']
+    hit = lookup_fs_prefix(vp)
+    if not hit:
+        return None
+    prefix, root = hit
+    rest = vp[len(prefix):].strip('/')
+    full = os.path.join(root, rest) if rest else root
+    from leaffs.utils.core import safe_path
+    if not safe_path(root, full):
+        return None
+    return full
+
+
+def _fs_file(path):
+    """是普通文件才返回它 —— 目录由列表那条路处理，不从这里出去。"""
+    try:
+        if os.path.isfile(path):
+            return path
+    except Exception:
+        pass
+    return None
+
+
+def resolve(virtual_rel):
+    """虚拟路径 → 源**文件**绝对路径；未命中 / 源已不存在 / 命中目录 → None。
+
+    来源依次判：本机路径映射（条目或映射目录内部）→ 共享根内的相对路径（原有）。
+    """
+    if not isinstance(virtual_rel, str):
+        return None
+    vp = virtual_rel.replace('\\', '/').strip('/')
+    mapped = _mapped_target(vp)
+    if mapped is not None:
+        return _fs_file(mapped)
+    with _lock:
+        _load_locked()
+        item = _cache.get(vp)
+    if item is None:
+        return None
     src = item.get('src', '')
     if not src:
         return None
@@ -263,22 +401,22 @@ def resolve(virtual_rel):
     full = abs_path(src)
     if not full:
         return None
-    try:
-        if os.path.isfile(full):
-            return full
-    except Exception:
-        pass
-    return None
+    return _fs_file(full)
 
 
 def _virtual_stat(vp):
-    """虚拟文件的展示大小/时间（= 源文件）；源失效返回 None"""
-    full = resolve(vp)
+    """虚拟条目的展示大小/时间（= 源头）；源失效返回 None。
+
+    目录映射的大小按 0 报：**不递归统计** —— 挂进来的可能是几 T 的目录，
+    一次递归就能把列表拖死（统计与搜索都不跟随映射，同一个理由）。
+    """
+    full = _mapped_target(vp) or resolve(vp)
     if not full:
         return None
     try:
         st = os.stat(full)
-        return st.st_size, int(st.st_mtime)
+        size = 0 if os.path.isdir(full) else st.st_size
+        return size, int(st.st_mtime)
     except Exception:
         return None
 
@@ -399,6 +537,14 @@ def merge_into_list(rel_path, result, unlocked=None):
             continue
         st = _virtual_stat(vp)
         if st is None:
+            continue
+        mapped = _mapped_target(vp)
+        if mapped is not None and os.path.isdir(mapped):
+            # 目录映射：显示成文件夹，能点进去 —— 里面的内容由解析层直接列真实目录
+            # （不进 count_extra/size_extra：文件计数与大小只算文件，与磁盘目录条目一致）
+            files.append({'name': name, 'path': vp, 'type': 'folder',
+                          'size': st[0], 'mtime': st[1], 'virtual': True})
+            merged = True
             continue
         files.append({'name': name, 'path': vp, 'type': 'file',
                       'size': st[0], 'mtime': st[1], 'virtual': True,

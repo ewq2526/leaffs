@@ -58,6 +58,15 @@
                         <div style="font-size:11px;color:var(--text-light,#a3aed0);margin-top:5px">When enabled, visitors need the code to view/download (browser remembers 1 hour). Wrong attempts trigger brute-force protection — see alert below.</div>
                     </div>
                     <div id="attackTip" style="display:none;margin-top:10px;padding:9px 12px;border-radius:10px;background:rgba(208,86,107,.10);border:1px solid rgba(208,86,107,.35);font-size:12px;color:#b03a50;line-height:1.7"></div>
+                    <div id="mountBox" style="display:none;margin:12px 0">
+                        <div style="font-size:13px;font-weight:650;color:var(--text);margin-bottom:6px">Mount a local path <span style="font-weight:500;font-size:11.5px;color:var(--text-light,#8a97bd)">read-only</span></div>
+                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                            <input id="mountPath" type="text" autocomplete="off" placeholder="Absolute path on this machine, e.g. E:\Movies"
+                                   style="flex:1;min-width:220px;font-size:12px;padding:7px 10px;border:1px solid var(--border,#dbe4f5);border-radius:8px;background:var(--bg,#f4f7fd);color:var(--text)">
+                            <button class="btn-admin primary" onclick="doMount()" style="font-size:11px">Mount</button>
+                        </div>
+                        <div style="font-size:11px;color:var(--text-light,#a3aed0);margin-top:5px">A folder or a single file — <b>nothing is copied</b>. What you mount is read-only: it cannot be renamed or deleted from the share area. Only the window running on the server machine can do this.</div>
+                    </div>
                     <div id="shareList"></div>
                     <div id="emptyTip" style="display:none;font-size:12px;color:var(--text-light);padding:18px 0;text-align:center">No shares yet — select files in Browse and hit "Share"</div>
                 </div>
@@ -194,6 +203,23 @@ function removeMap(path, btn) {
     }).catch(function () { batchToast('Failed to remove', 'error'); });
 }
 
+function doMount() {
+    var el = document.getElementById('mountPath');
+    var p = (el.value || '').trim();
+    if (!p) { batchToast('Enter an absolute path', 'error'); return; }
+    fetch('/api/share/mount', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({path: p})
+    }).then(function (r) {
+        return r.json().then(function (d) { return {ok: r.ok, d: d}; });
+    }).then(function (res) {
+        if (!res.ok) { batchToast((res.d && res.d.error) || 'Mount failed', 'error'); return; }
+        el.value = '';
+        batchToast('Mounted to the share area', 'ok');
+        loadList();
+    }).catch(function () { batchToast('Mount failed', 'error'); });
+}
+
 function loadList() {
     var box = document.getElementById('shareList');
     var emptyTip = document.getElementById('emptyTip');
@@ -202,6 +228,10 @@ function loadList() {
         return r.json();
     }).then(function (d) {
         var items = (d && d.mappings) || [];
+        var mountBox = document.getElementById('mountBox');
+        // The entry point only appears in a "server-machine token session";
+        // the server checks it too — hiding the button is not the protection
+        if (mountBox) mountBox.style.display = (d && d.can_mount) ? 'block' : 'none';
         box.innerHTML = '';
         emptyTip.style.display = items.length ? 'none' : 'block';
         items.forEach(function (it) {
@@ -220,10 +250,22 @@ function loadList() {
             if (it.created) parts.push(fmtTs(it.created));
             if (it.by && it.by !== who) parts.push(it.by);
             st.textContent = (parts.length ? parts.join(' · ') + ' · ' : '') + it.src;
+            if (it.local && it.exists) {
+                var loc = document.createElement('span');
+                loc.style.cssText = 'font-size:11px;color:#2f6b4f;background:rgba(60,150,110,.12);border-radius:999px;padding:1px 8px';
+                loc.textContent = 'Local path';
+                row.appendChild(loc);
+            }
             var cp = document.createElement('button');
             cp.className = 'btn-admin'; cp.style.cssText = 'font-size:11px';
-            cp.textContent = 'Copy link';
-            cp.onclick = function () { copyText(full); };
+            if (it.type === 'folder') {
+                // A mapped folder has no "download" — this button opens the browse view
+                cp.textContent = 'Open';
+                cp.onclick = function () { window.open(it.url, '_blank'); };
+            } else {
+                cp.textContent = 'Copy link';
+                cp.onclick = function () { copyText(full); };
+            }
             var rm = document.createElement('button');
             rm.className = 'btn-admin danger'; rm.style.cssText = 'font-size:11px';
             rm.textContent = 'Remove';

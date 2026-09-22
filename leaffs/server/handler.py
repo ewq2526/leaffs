@@ -581,7 +581,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             su = _ac.get_super_admin_name() or 'admin'
         except Exception:
             su = 'admin'
-        sid = _ac.create_session(su, 'super_admin', client_ip=ip)
+        sid = _ac.create_session(su, 'super_admin', client_ip=ip, local_token=True)
         add_log(f'本机一次性令牌登录成功（super_admin: {su}）', 'ok')
         self.send_response(302)
         self.send_header('Location', '/browse/')
@@ -607,6 +607,16 @@ class HTTPHandler(BaseHTTPRequestHandler):
         cookie = self.headers.get('Cookie', '')
         _, sid = _ac.get_session(cookie, self.client_address[0])
         return _ac.get_session_username(sid) if sid else ''
+
+    def _is_local_token_session(self):
+        """当前请求的会话是否由本机一次性令牌建立（= 服务端窗口，操作者在服务器本机）。
+
+        会话本身已经过 `get_session`（存在 / 未过期 / 来源 IP 一致），
+        这里只再要一个"它是不是令牌建的"标记。
+        """
+        cookie = self.headers.get('Cookie', '')
+        _, sid = _ac.get_session(cookie, self.client_address[0])
+        return bool(sid) and _ac.is_local_token_session(sid)
 
     def _session_identity(self):
         """一次解析拿到 `(role, username)` —— 供访问日志这类"每请求都要"的地方用。
@@ -1152,6 +1162,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             '/api/logs/clear': lambda: _ut_log.clear_logs(self, clear_runtime_logs),
             '/api/share/publish': lambda: self.share_publish(),
             '/api/share/unpublish': lambda: self.share_unpublish(),
+            '/api/share/mount': lambda: self.share_mount(),
             '/api/share/code': lambda: self.share_code_set(),
             '/api/share/reset': lambda: self.share_reset(),
             '/api/share/auth': lambda: self.share_auth(),
@@ -1308,6 +1319,38 @@ class HTTPHandler(BaseHTTPRequestHandler):
             return
         self.send_json({'success': True})
 
+    def share_mount(self):
+        """POST /api/share/mount {path: 本机绝对路径, name?: 虚拟名} —— 把服务器本机路径挂进分享区
+
+        只登记引用，**不复制任何文件**；映射进来的东西一律**只读**
+        （删除 / 上传 / 建目录都不会作用到系统里的那个目录上）。
+
+        ⚠️ 鉴权只认**本机一次性令牌建立的会话**（桌面窗口启动时用 `/login?leaf=` 自动
+        登录的那条），也就是"操作者人就坐在服务端这台机器前"。远程登录的管理员同样拒绝：
+        能挂本机路径等于能读这台机器的任意文件，这个能力不跟账号走，只跟"人在机器前"走。
+        """
+        role = self._get_effective_role()
+        if not role:
+            self.send_json({'error': 'Unauthorized'}, 401)
+            return
+        if role == 'guest':
+            self.send_json({'error': '游客不可管理分享'}, 403)
+            return
+        if not self._is_local_token_session():
+            self.send_json({'error': '本机路径只能在服务端本机映射'}, 403)
+            return
+        data = self._read_json() or {}
+        p = str(data.get('path') or '')
+        if not p:
+            self.send_json({'error': '缺少 path'}, 400)
+            return
+        username = self._get_username_from_session() or ''
+        vp, err = _mapping.publish_fs(p, str(data.get('name') or ''), username)
+        if not vp:
+            self.send_json({'error': err or '映射失败'}, 400 if err else 500)
+            return
+        self.send_json({'success': True, 'path': vp, 'browse': '/browse/' + vp})
+
     def share_list(self):
         """GET /api/share[?all=1] —— 我的映射（admin 带 all=1 看全量）"""
         role = self._get_effective_role()
@@ -1320,9 +1363,13 @@ class HTTPHandler(BaseHTTPRequestHandler):
         is_admin = role in ('admin', 'super_admin')
         items = _mapping.list_mappings(username, is_admin=is_admin and want_all)
         for it in items:
-            it['url'] = '/download/' + it['path']
+            # 目录映射给出的是浏览链接：它本身没有"下载"这回事
+            it['url'] = ('/browse/' + it['path']) if it.get('type') == 'folder' \
+                else ('/download/' + it['path'])
             it['removable'] = is_admin or it.get('by') == username
-        self.send_json({'mappings': items})
+        # can_mount：只有"服务端本机令牌会话"才显示入口（服务端同时也会判定，不靠前端藏按钮）
+        self.send_json({'mappings': items,
+                        'can_mount': self._is_local_token_session()})
 
     # ---------- 分享码 + 防爆破（规则见 share/access.py）----------
 

@@ -231,8 +231,13 @@ def delete_paths(paths):
         if norm_path is None:
             continue
         rel_path = norm_path
-        full = abs_path(rel_path)
-        if full is None: continue
+        resolved = resolve_rel(rel_path)
+        if resolved is None: continue
+        if resolved[2]:
+            # 分享区里的**本机路径映射**是只读来源：一个写操作都不做，如实记一笔失败
+            failed.append((rel_path, '映射区只读，不能删除'))
+            continue
+        full = resolved[0]
         if not os.path.exists(full): continue
         try:
             parent = os.path.dirname(full)
@@ -267,6 +272,7 @@ def mkdir(rel_path, name):
         rel_path = norm_path.rstrip('/')
     resolved = resolve_rel(rel_path, UPLOAD_DIR)
     if not resolved: return False, 'Permission error'
+    if resolved[2]: return False, '映射区只读，不能在此创建目录'
     full = os.path.join(resolved[0], name)
     if not safe_path(resolved[1], full): return False, 'Permission error'
     try:
@@ -420,6 +426,8 @@ def handle_upload(rfile, content_type, content_length, sub_path, auto_unique=Fal
     resolved_target = resolve_rel(sub_path, UPLOAD_DIR)
     if not resolved_target:
         return 0, ['路径不合法']
+    if resolved_target[2]:
+        return 0, ['映射区只读，不能上传']
     target_root = resolved_target[0]
     try:
         os.makedirs(target_root, exist_ok=True)
