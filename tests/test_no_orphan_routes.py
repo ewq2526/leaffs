@@ -25,7 +25,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 HANDLER = ROOT / 'leaffs' / 'server' / 'handler.py'
 
 # 扫描引用时要跳过的目录（构建副本、缓存、依赖、归档）
-SKIP_PARTS = {'build', 'generated', 'sources', 'env', '.git', '.cache',
+# ⚠️ `.work` 必须跳：探针脚本住在那里，它们含各种 URL 字面量，会污染"孤儿路由"判定。
+SKIP_PARTS = {'build', 'generated', 'sources', 'env', '.git', '.cache', '.work',
               'node_modules', '__pycache__', '.venv', 'venv'}
 SCAN_SUFFIXES = {'.py', '.js', '.html', '.css', '.kt', '.java', '.json', '.md', '.txt'}
 

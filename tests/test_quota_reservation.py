@@ -14,7 +14,7 @@ finally: quota_settle(b, cl, 0)            # 请求结束时才释放
 于是**一条只发 header、正文不发完的连接**（`Content-Length` 声明成配额大小）就能把配额
 **虚拟占满**，期间别人的上传全部 413，直到这条连接结束或读超时（60s），而且可以循环维持。
 
-实测（探针 `.cache/probe_quota_reserve.py`，`public_quota` 设 1 MiB）：
+实测（探针 `.work/probe_quota_reserve.py`，`public_quota` 设 1 MiB）：
 受害者传 100 字节 → **413「公共文件夹空间不足」**；攻击者断开后同样的上传 → **200**。
 
 **修法**：预检保留（它不记账，虚报只会拒掉攻击者自己）；记账改成在**唯一的读取点**

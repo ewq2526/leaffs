@@ -1108,19 +1108,27 @@ build work at all.
 placing a file uses an "same-volume atomic replace", so it must be on the same volume as its target; and this
 way its effect on the quota accounting is unchanged from before.
 
-### 14.2 The cache directory's dual identity
+### 14.2 The runtime cache directory vs. the development workspace
 
-⚠️ `.cache/` is simultaneously the **runtime cache directory** (the service is using it) and the place where
-**development-time working files** are piled up. **Before cleaning it, tell the two apart**:
+`.cache/` is the **service's runtime cache**: thumbnails, folder-size cache, the downloader's session file
+and peer cache, the tracker list. It is runtime output (see the table in 14.1), created and used by the
+service itself.
 
-- Thumbnails and folder-size caches are **runtime data**; deleting them makes the service recompute, but is
-  not fatal;
-- The downloader's session file and peer cache are **runtime data**; deleting them loses resume state;
-- Working files (documents, probe scripts, screenshots) are **gone for good** once deleted.
+⚠️ Development-time working files are **not** here; they live in `.work/` at the project root — the handoff
+document, probe scripts and their output, screenshots, assets. That is the developer's workspace: it is in
+`.gitignore`, never committed, and the service touches not one line of it.
 
-So cleanup must **not use wildcard batch deletion**. The historical approach was: draw the red lines first
-(list what must never be touched), and run the full test suite immediately afterwards as acceptance — if
-runtime data was deleted by mistake, the tests go red.
+History: before 2026-09-22 the two shared the single directory `.cache/`, so "cleaning the cache" could at
+any moment delete a working file. When they were split, it was the **working files** that moved — not the
+service's directory. `.cache/` is runtime output, and renaming it would force every deployed instance to
+migrate while leaving the real problem (working files squatting on the service's directory) untouched.
+
+⚠️ `.cache/xxx` paths written in this document before 2026-09-22 (probe scripts, handoff document, …) now
+live under `.work/xxx`; those are historical records and were not rewritten one by one — apply that
+substitution.
+
+Cleanup of `.cache/` must **not use wildcard batch deletion** — it holds the downloader's session file, and
+deleting it loses resume state.
 
 ### 14.3 Logging
 

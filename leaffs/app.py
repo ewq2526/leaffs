@@ -222,7 +222,7 @@ def _install_webview_guard(cwv2, win):
     （从别的线程碰它会抛 `InvalidOperationException: CoreWebView2 can only be accessed
     from the UI thread`，实测）。
 
-    三层，全是 WebView2 官方接口，每一层的行为都用真窗口实测过（见 .cache/probe_pwv6_*.py）：
+    三层，全是 WebView2 官方接口，每一层的行为都用真窗口实测过（见 .work/probe_pwv6_*.py）：
 
       1. 导航层：外链导航 `args.Cancel = True` —— **导航根本不发生**。
          实测：页面内 `location.href = 外链`、页面内链接点击，都拦得住。

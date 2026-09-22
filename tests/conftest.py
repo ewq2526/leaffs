@@ -30,14 +30,14 @@ HTTP_PORT = 8090
 WS_PORT = 8091
 BASE_URL = '%s://127.0.0.1:%d' % ('https' if TEST_TLS else 'http', HTTP_PORT)
 
-TEST_RUNS_DIR = os.path.join(PROJ_ROOT, '.cache', 'test_runs')
+TEST_RUNS_DIR = os.path.join(PROJ_ROOT, '.work', 'test_runs')
 STALE_ROOT_AGE = 24 * 3600      # 秒：超过这个岁数的残留一定是"死运行"留下的
 
 
 def new_data_root(prefix='run_'):
-    """在 .cache/test_runs 下建一个独立数据根（config/ 一并建好）并返回路径。
+    """在 .work/test_runs 下建一个独立数据根（config/ 一并建好）并返回路径。
 
-    放工作区 .cache 下、用 os.makedirs 逐层创建，是为了避开沙箱对 mkdtemp 产物的限制
+    放工作区 .work 下、用 os.makedirs 逐层创建，是为了避开沙箱对 mkdtemp 产物的限制
     （系统临时目录在受限沙箱里可能写不进去），所以**不用** pytest 的 tmp_path_factory。
     """
     root = os.path.join(TEST_RUNS_DIR, prefix + uuid.uuid4().hex[:12])
@@ -46,7 +46,7 @@ def new_data_root(prefix='run_'):
 
 
 def sweep_stale_roots():
-    """清掉 .cache/test_runs 下**超过 24 小时**的残留。
+    """清掉 .work/test_runs 下**超过 24 小时**的残留。
 
     一次测试会话不可能跑 24 小时，所以 24h 前的条目一定是**被中断的运行**留下的
     （夹具 teardown 的 rmtree 没跑到）。按岁数筛，就不会碰到并发运行中的根。
@@ -179,7 +179,7 @@ def server(data_root):
         # 排障：保留最近一次服务端日志副本（data_root 会话结束即删除）
         try:
             import shutil
-            keep = os.path.join(PROJ_ROOT, '.cache', 'last_server.log')
+            keep = os.path.join(PROJ_ROOT, '.work', 'last_server.log')
             shutil.copyfile(log_path, keep)
         except Exception:
             pass

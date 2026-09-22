@@ -13,7 +13,7 @@
 **可达性**：`sanitize_entry_name` **允许文件名含 `"`**（只拒 `/` `\\` `:`、控制字符、
 `..`、Windows 保留名、超长）；下载 URL 更松 —— `http://` 会被主机解析校验挡掉，
 但 **magnet 不走主机解析**，`magnet:?xt=urn:btih:<40hex>&dn="onmouseover="alert(1)`
-实测**原样穿过**并进任务列表（探针 `.cache/probe_dl_xss.py`），而 `_dl_allowed()` 对
+实测**原样穿过**并进任务列表（探针 `.work/probe_dl_xss.py`），而 `_dl_allowed()` 对
 user/admin/super_admin 都放行、任务池是进程级单例 ⇒ 普通用户投毒、管理员中招。
 
 **修法**：两个**属性专用**转义 ——

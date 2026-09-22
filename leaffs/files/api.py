@@ -662,7 +662,7 @@ def handle_upload(handler, handle_upload_fn, invalidate_folder_cache_smart, UPLO
         # ② 记账按**实际读入**的字节（§二 第 4 条，2026-09-16）：
         #    原来这里是 `quota_reserve(b, cl)` —— 用客户端**声明的** Content-Length 预留，
         #    于是"声明一个大值、正文不发完"就能在请求存活期间把配额**虚拟占满**，
-        #    期间别人的上传全部 413（实测复现：探针 `.cache/probe_quota_reserve.py`，
+        #    期间别人的上传全部 413（实测复现：探针 `.work/probe_quota_reserve.py`，
         #    一条只发 header 的连接即可瘫痪上传，断开后才恢复）。
         #    现在预留只反映**真实收到**的字节：不把数据发上来，就一个字节也占不到。
         auto_unique = (role == 'guest')     # guest 已过 write_allowed → fs_core 自动改名

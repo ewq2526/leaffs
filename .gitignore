@@ -11,6 +11,9 @@ __pycache__/
 /shared_files/
 /.cache/
 
+# 开发工作区（交接文档、探针脚本与输出、截图、素材；不入库）
+/.work/
+
 # 日志
 *.log
 leaffs.log

@@ -15,7 +15,7 @@
 三层，全在 `_install_webview_guard()` 里，都走 WebView2 官方接口：
 导航层 `NavigationStarting` 取消外链、网络层 `WebResourceRequested` 给外部请求塞空响应、
 新窗口 `NewWindowRequested` 自己接管。
-⚠️ 每一层的行为都用**真窗口实测**过（`.cache/probe_pwv6_*.py`），不是照文档抄的 ——
+⚠️ 每一层的行为都用**真窗口实测**过（`.work/probe_pwv6_*.py`），不是照文档抄的 ——
 本文件只做静态断言，行为验证看那些探针。
 
 ⚠️ **子资源那一层**：安卓侧**没做**（GeckoView 没有公开的拦截 API，要 WebExtension 的
@@ -73,7 +73,7 @@ def test_android_browser_menu_item_removed():
 def test_desktop_guard_three_layers():
     """★ 桌面端三层守卫都在位：导航取消 + 网络阻断 + 接管新窗口
 
-    这里断言的每一条都有对应的实测（.cache/probe_pwv6_*.py）：
+    这里断言的每一条都有对应的实测（.work/probe_pwv6_*.py）：
       - 只挂 CoreWebView2 级 `NavigationStarting` **一级就够**（探针 F）；
       - `args.Cancel` 对**页面内**导航有效（探针 E 的 T1 页面内 JS、T2 链接点击），
         对 Python 侧 `win.load_url()` **无效**（T3）—— 但威胁来自页面内，且第 2 层会兜住内容；
