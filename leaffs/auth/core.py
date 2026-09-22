@@ -14,7 +14,8 @@ import time
 import hashlib
 import hmac
 import base64
-from leaffs.utils.core import CONFIG_DIR, parse_cookies
+from leaffs.paths import CONFIG_DIR
+from leaffs.utils.core import parse_cookies
 
 AUTH_COOKIE = 'wifi_session'
 SESSION_EXPIRY_DAYS = 30

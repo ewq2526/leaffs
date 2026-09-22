@@ -205,7 +205,7 @@ def validate_download_url(url, allow_private=None):
         return '下载地址校验失败'
 
 
-from leaffs.utils.core import BASE_DIR, CACHE_DIR, find_bundled_exe
+from leaffs.paths import BASE_DIR, CACHE_DIR, find_bundled_exe
 
 # aria2c 内置依赖：统一走资源根查找（与 ffmpeg 同一套逻辑，兼容源码/打包）
 ARIA2C_PATH = find_bundled_exe('aria2c.exe')

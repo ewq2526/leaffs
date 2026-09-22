@@ -134,11 +134,12 @@ def test_scan_folder_agg_skips_upload_tmp(data_root_factory):
     "刚重算过"的状态 —— 实测过一次，走 HTTP 的写法在**未修改的代码上也是绿的**，
     等于没测。直接调 `_scan_folder_agg` 没有缓存参与，把跳过改回去必红。
     """
+    from leaffs.paths import UPLOAD_TMP_DIRNAME
     from leaffs.utils import core as uc
 
     root = data_root_factory('tmpagg_')
     shared = os.path.join(root, 'shared_files')
-    tmpd = os.path.join(shared, uc.UPLOAD_TMP_DIRNAME)
+    tmpd = os.path.join(shared, UPLOAD_TMP_DIRNAME)
     os.makedirs(tmpd, exist_ok=True)
     with open(os.path.join(shared, 'real.txt'), 'wb') as f:
         f.write(b'y' * 100)                    # 真实文件：必须计入

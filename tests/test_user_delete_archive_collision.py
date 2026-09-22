@@ -25,11 +25,11 @@ import pytest
 def archive_env(data_root_factory, monkeypatch):
     """UPLOAD_DIR 指到临时数据根；`time.strftime` 钉死在某一秒上。
 
-    ⚠️ `_archive_user_dir` 里是函数内 `from leaffs.utils.core import UPLOAD_DIR`，
+    ⚠️ `_archive_user_dir` 里是函数内 `from leaffs.paths import UPLOAD_DIR`，
     取值发生在调用时，所以 patch 模块属性有效。
     """
     root = data_root_factory('arc_')
-    import leaffs.utils.core as uc
+    import leaffs.paths as uc
     monkeypatch.setattr(uc, 'UPLOAD_DIR', os.path.join(root, 'shared_files'))
     import leaffs.auth.users_api as ua
 

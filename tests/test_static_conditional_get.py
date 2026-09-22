@@ -21,7 +21,7 @@ import time
 from email.utils import formatdate
 
 from conftest import login
-from leaffs.utils.core import BASE_DIR
+from leaffs.paths import BASE_DIR
 
 STATIC = '/static/app.js'
 # ⚠️ `serve_static` 里是 `os.path.join(BASE_DIR, 'web_page')`，而 BASE_DIR 是 **leaffs/ 包目录**、

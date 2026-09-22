@@ -82,9 +82,9 @@ def test_only_one_normalizer_exists():
 @pytest.mark.skipif(os.name != 'nt', reason='Win32 设备语义只在 Windows 上存在')
 def test_the_probe_really_hits_win32_device_semantics():
     """对照：NUL 在 Win32 下确实"存在"，这条测试才算打在 N-3 上"""
-    import leaffs.utils.core as UC
+    from leaffs.paths import UPLOAD_DIR
 
-    assert os.path.exists(os.path.join(UC.UPLOAD_DIR, 'NUL')), \
+    assert os.path.exists(os.path.join(UPLOAD_DIR, 'NUL')), \
         '对照失效：Win32 上 os.path.exists(...\\NUL) 本应为 True（这正是 N-3 的入口）'
 
 

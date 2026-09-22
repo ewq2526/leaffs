@@ -10,8 +10,8 @@ import threading
 import time
 import math
 
+from leaffs.paths import CONFIG_DIR, UPLOAD_DIR, CACHE_DIR, THUMB_DIR
 from leaffs.utils.core import (
-    CONFIG_DIR, UPLOAD_DIR, CACHE_DIR, THUMB_DIR,
     DISCONNECTED_EXCEPTIONS,
     read_file_cached, invalidate_file_cache,
     get_folder_size, invalidate_folder_cache,

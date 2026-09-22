@@ -30,7 +30,7 @@ def _str_param(data, key):
 
 def _archive_root():
     """被删用户家目录的归档根：`users/.deleted/`"""
-    from leaffs.utils.core import UPLOAD_DIR
+    from leaffs.paths import UPLOAD_DIR
     return os.path.join(UPLOAD_DIR, 'users', ARCHIVE_DIRNAME)
 
 
@@ -188,7 +188,8 @@ def _archive_user_dir(username):
       * 不占额外空间（只是 rename）。
     """
     try:
-        from leaffs.utils.core import UPLOAD_DIR, invalidate_folder_cache
+        from leaffs.paths import UPLOAD_DIR
+        from leaffs.utils.core import invalidate_folder_cache
     except Exception as e:
         from leaffs.runtime_log import log_exception
         log_exception('归档被删用户的家目录（取路径工具）', e)

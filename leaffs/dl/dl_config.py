@@ -9,7 +9,7 @@ import os
 import json
 import threading
 
-from leaffs.utils.core import CONFIG_DIR
+from leaffs.paths import CONFIG_DIR
 
 # 配置文件目录（数据层 config/，跟随主程序所在位置，打包后可写）
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'downloader_config.json')

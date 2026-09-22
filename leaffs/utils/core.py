@@ -17,14 +17,13 @@ import html as html_mod
 from collections import OrderedDict
 
 # ===================================================
-# 运行时目录定位：已收敛到 leaffs.paths（单一数据源，见该模块文档）。
-# 此处仅做名字转口，保持 utils_core 历史导出兼容；下游模块将逐步改为直连 leaffs.paths。
+# 运行时目录定位：单一数据源是 leaffs.paths（见该模块文档）。
+# 这里只导入**本模块自己要用**的名字，不再替别的模块转口 —— 需要路径常量一律
+# `from leaffs.paths import ...`（2026-09-22 收口；原先经此处取路径的模块已全部直连）。
 # ===================================================
 from leaffs.paths import (  # noqa: E402
-    _CODE_DIR, _FROZEN, BASE_DIR, APP_DIR, PROJECT_DIR,
-    UPLOAD_DIR, UPLOAD_TMP_DIR, UPLOAD_TMP_DIRNAME, CACHE_DIR, THUMB_DIR, CONFIG_DIR,
-    is_upload_tmp_entry, is_upload_tmp_relpath,
-    find_bundled_exe,
+    UPLOAD_DIR, UPLOAD_TMP_DIR, CACHE_DIR, THUMB_DIR,
+    is_upload_tmp_entry, find_bundled_exe,
 )
 FOLDER_SIZE_DB = os.path.join(CACHE_DIR, 'folder_sizes.json')
 

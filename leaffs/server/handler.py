@@ -30,6 +30,7 @@ import leaffs.server.push as _push
 import leaffs.server.tls as _tls
 import leaffs.share.mappings as _mapping
 import leaffs.share.access as _sacc
+from leaffs.paths import BASE_DIR
 import leaffs.utils.core as _ut
 import leaffs.utils.log as _ut_log
 import leaffs.web.render as _wm
@@ -1098,7 +1099,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             start = _fs.get_user_start_path(username, role)
             if start: self.redirect('/browse/' + start); return
             _wm.serve_file(self, os.path.join('web_page', 'home', 'home.html'), 'text/html; charset=utf-8',
-                          _ut.BASE_DIR, _ac.get_session, _ac.get_session_username)
+                          BASE_DIR, _ac.get_session, _ac.get_session_username)
             return
         if path.startswith('/browse/'):
             dp = path[len('/browse/'):]
@@ -1120,7 +1121,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             dp = params.get('dir', [''])[0]
             if not self._check_path_permission(dp): self.send_error(403, '无权限'); return
         fn = os.path.join('web_page', 'home', 'home.html') if path.startswith('/browse/') else os.path.join('web_page', 'preview', 'preview.html')
-        _wm.serve_file(self, fn, 'text/html; charset=utf-8', _ut.BASE_DIR, _ac.get_session, _ac.get_session_username)
+        _wm.serve_file(self, fn, 'text/html; charset=utf-8', BASE_DIR, _ac.get_session, _ac.get_session_username)
 
     def _route_post(self, path):
         # A-01：管理类 POST 统一 admin/super_admin（注销/降权后即时 403，单一入口防漏网）
@@ -1802,7 +1803,7 @@ def _g_login(h, path, role):
     # D4：本机访问不再无条件自动登录；带有效一次性令牌（?leaf=）才建会话
     if h._local_token_login():
         return
-    _ac_auth.serve_login_page(h, _ut.BASE_DIR, _fs.read_file_cached, _cfg.get_guest_mode)
+    _ac_auth.serve_login_page(h, BASE_DIR, _fs.read_file_cached, _cfg.get_guest_mode)
 
 
 def _g_admin(h, path, role):
@@ -1814,7 +1815,7 @@ def _g_admin(h, path, role):
     if role not in ('admin', 'super_admin'):
         h.send_error(403)
         return
-    _wm.serve_admin_page(h, _ut.BASE_DIR, _fs.read_file_cached, _ac.is_default_admin_password)
+    _wm.serve_admin_page(h, BASE_DIR, _fs.read_file_cached, _ac.is_default_admin_password)
 
 
 def _g_admin_users(h, path, role):
@@ -1825,7 +1826,7 @@ def _g_admin_users(h, path, role):
         h.send_error(403)
         return
     _wm.serve_admin_users_page(h, _ac.get_session, _ac.get_session_username,
-                               _fs.read_file_cached, _ut.BASE_DIR)
+                               _fs.read_file_cached, BASE_DIR)
 
 
 def _g_admin_pages(h, path, role):
@@ -1837,7 +1838,7 @@ def _g_admin_pages(h, path, role):
         return
     pages = {'/admin/advanced': 'advanced.html', '/admin/deep': 'deep.html', '/log': 'log.html'}
     _wm.serve_file(h, os.path.join('web_page', 'management', pages[path]), 'text/html; charset=utf-8',
-                   _ut.BASE_DIR, _ac.get_session, _ac.get_session_username)
+                   BASE_DIR, _ac.get_session, _ac.get_session_username)
 
 
 def _g_me(h, path, role):
@@ -1846,7 +1847,7 @@ def _g_me(h, path, role):
         h.redirect('/login')
         return
     _wm.serve_file(h, os.path.join('web_page', 'account', 'account.html'), 'text/html; charset=utf-8',
-                   _ut.BASE_DIR, _ac.get_session, _ac.get_session_username)
+                   BASE_DIR, _ac.get_session, _ac.get_session_username)
 
 
 def _g_browse_page(h, path, role):
@@ -1854,7 +1855,7 @@ def _g_browse_page(h, path, role):
 
 
 def _g_static(h, path, role):
-    _wm.serve_static(h, path, _ut.BASE_DIR, _fs.safe_path, _fs.get_mime, _fs.read_file_cached)
+    _wm.serve_static(h, path, BASE_DIR, _fs.safe_path, _fs.get_mime, _fs.read_file_cached)
 
 
 def _g_dl_peers_page(h, path, role):
@@ -1866,7 +1867,7 @@ def _g_dl_peers_page(h, path, role):
         h.send_error(403)
         return
     _wm.serve_file(h, os.path.join('web_page', 'downloader', 'peers.html'), 'text/html; charset=utf-8',
-                   _ut.BASE_DIR, _ac.get_session, _ac.get_session_username)
+                   BASE_DIR, _ac.get_session, _ac.get_session_username)
 
 
 def _g_downloader_page(h, path, role):
@@ -1883,7 +1884,7 @@ def _g_downloader_page(h, path, role):
         h.send_error(403)
         return
     _wm.serve_file(h, os.path.join('web_page', 'downloader', 'downloader.html'), 'text/html; charset=utf-8',
-                   _ut.BASE_DIR, _ac.get_session, _ac.get_session_username)
+                   BASE_DIR, _ac.get_session, _ac.get_session_username)
 
 
 def _g_api_auto_login(h, path, role):
@@ -2073,7 +2074,7 @@ def _g_share_page(h, path, role):
         h.send_error(403)
         return
     _wm.serve_file(h, os.path.join('web_page', 'share', 'manage.html'),
-                   'text/html; charset=utf-8', _ut.BASE_DIR,
+                   'text/html; charset=utf-8', BASE_DIR,
                    _ac.get_session, _ac.get_session_username)
 
 
@@ -2102,7 +2103,7 @@ def _g_p_share(h, path, role):
         h.send_json({'by': uname, 'files': _mapping.list_public(uname)})
         return
     if len(parts) in (1, 2) and (len(parts) == 1 or parts[1] == ''):
-        page = os.path.join(_ut.BASE_DIR, 'web_page', 'share', 'public.html')
+        page = os.path.join(BASE_DIR, 'web_page', 'share', 'public.html')
         try:
             with open(page, 'rb') as f:
                 body = f.read()

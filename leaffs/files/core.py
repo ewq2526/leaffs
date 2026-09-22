@@ -13,9 +13,12 @@ import time
 import tempfile
 import zipfile as _zipfile
 
-from leaffs.utils.core import (
-    BASE_DIR, UPLOAD_DIR, CACHE_DIR, THUMB_DIR, COPY_BUFFER_SIZE,
+from leaffs.paths import (
+    BASE_DIR, UPLOAD_DIR, CACHE_DIR, THUMB_DIR,
     UPLOAD_TMP_DIR, is_upload_tmp_entry,
+)
+from leaffs.utils.core import (
+    COPY_BUFFER_SIZE,
     safe_path, abs_path, get_mime, esc_html,
     read_file_cached, invalidate_file_cache,
     get_folder_size, get_folder_stats,

@@ -17,7 +17,7 @@ import subprocess
 
 from .dl_utils import _log, ARIA2C_PATH, load_trackers, refresh_trackers_async, _assign_to_job
 from . import dl_config
-from leaffs.utils.core import UPLOAD_DIR, CACHE_DIR
+from leaffs.paths import UPLOAD_DIR, CACHE_DIR
 
 
 RPC_PORT = 6800

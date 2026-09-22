@@ -33,7 +33,7 @@ import leaffs.files.core as _fs
 import leaffs.files.api as _fs_api
 import leaffs.utils.log as _ut_log
 import leaffs.web.render as _wm
-import leaffs.utils.core as _ut
+from leaffs.paths import PROJECT_DIR
 from leaffs.dl.dl_core import set_broadcast_fn as _set_broadcast_fn
 from leaffs.dl import dl_api as _dl_api
 from leaffs.dl.dl_rpc import _kill_aria2c_force
@@ -67,7 +67,7 @@ def start_server():
         try:
             import faulthandler
             import signal as _sig
-            _dump_file = open(os.path.join(_ut.PROJECT_DIR, 'faulthandler_dump.txt'),
+            _dump_file = open(os.path.join(PROJECT_DIR, 'faulthandler_dump.txt'),
                               'w', encoding='utf-8', buffering=1)
             faulthandler.register(_sig.SIGBREAK, file=_dump_file, all_threads=True)
         except Exception:
