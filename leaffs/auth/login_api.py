@@ -429,14 +429,22 @@ def auth_login(handler, add_log, logger, UPLOAD_DIR, verify_login,
             data = {}
         raw_user = data.get('username', '')
         raw_pass = data.get('password', '')
-        safe_user = _normalize_username(raw_user)   # B-09：用户名入日志/入表前脱敏（容忍非字符串→''）
+        safe_user = _normalize_username(raw_user)   # B-09：用户名入日志前脱敏（容忍非字符串→''）
+        # 计数键必须与 **verify_login 实际拿到的那个名字**一致 —— 它是 `raw_user.strip()`。
+        # 原来占位与清零都用 `safe_user`（`_normalize_username` **不 strip**），于是
+        # `' admin'` 与 `'admin'` 算成两个账户：攻击者每加一个前导空格就多一份额度，
+        # 账户级锁定（12 次/15 分钟、跨来源收敛）被摊薄成 N 份 —— 等于绕过它。
+        # 用户实测反馈（2026-09-21）：「日志看不到操作账户」那条顺带核出来的。
+        # 日志仍用 `safe_user`（保留原样，便于看清异常输入到底是什么）。
+        attempt_key = _normalize_username(
+            raw_user.strip() if isinstance(raw_user, str) else raw_user)
         # 判定与占位**一步完成**（_begin_login_attempt），且必须在 PBKDF2 之前：
         # 锁定态（(IP,用户名)6次/10min 或账户级12次/15min）统一按“当前形态”拒绝且
         # 不再累加计数/不延长窗口（自愈）—— 与正常尝试完全一致。原来"检查在 PBKDF2 前、
         # 计数在 PBKDF2 后"分成两次加锁，并发请求会同时看到旧计数而全部放行（C-1）。
         # 残余风险（429 vs 403 可枚举活跃账号）说明与可选统一形态开关见模块常量
         # _LOCK_RESPONSE_UNIFORM；此处仅按开关选择响应形态，语义保持 429（默认）。
-        allowed, acct_locked, spray = _begin_login_attempt(client_ip, safe_user)
+        allowed, acct_locked, spray = _begin_login_attempt(client_ip, attempt_key)
         if not allowed:
             if _LOCK_RESPONSE_UNIFORM:
                 # 开关开：与「用户名或密码错误」完全同形态（403+同文案），消除状态码差异面
@@ -465,10 +473,10 @@ def auth_login(handler, add_log, logger, UPLOAD_DIR, verify_login,
             # 登录成功：回补该 IP 的每 IP 限流窗口（成功请求不永久占用 30/min 窗口），
             # 使合法用户短时多次登录不会被自身成功记录累计撞 429；失败计费不受影响
             _login_ip_refund(client_ip)
-            # 清零的键必须与占位时用的键**完全同一个**（都取自 safe_user）——
+            # 清零的键必须与占位时用的键**完全同一个**（都取自 attempt_key）——
             # 原来占位用 `_normalize_username(raw_user)`、清零用 `raw_user.strip()`，
             # 用户名带首尾空格时两者不相等，于是失败计数永远清不掉。
-            _reset_login_fail(client_ip, safe_user)
+            _reset_login_fail(client_ip, attempt_key)
             add_log(f'登录: {safe_user} ({client_ip})', 'ok')
             logger.info(f'登录: {safe_user} ({client_ip})')
             if username:
