@@ -156,6 +156,38 @@ if (myRole === 'admin' || myRole === 'super_admin') {
 var files = [], selected = new Set();
 var currentPath = '', searchQuery = '', sortMode = 'time_desc';
 var uploadQueue = [], uploadDone = 0, uploading = false;
+var currentUploadName = '';   // 正在传的那个文件名（用于"上次没传完"的如实交代）
+
+// —— 轻档（§九 ① 的"档 2"）：把在途批次记进 sessionStorage ——
+// ⚠️ 它**不能**真的接着传（那是分片上传才做得到），只解决"刷新后一片空白、
+// 让人以为传完了"。所以文案必须**如实**说明要重新选文件，不许写成"已恢复"。
+// sessionStorage 正好：同标签页刷新后还在、关掉标签就没了 —— 与"这一批"的生命周期一致。
+var PENDING_KEY = 'leaffs_upload_pending';
+
+function savePendingUpload() {
+    try {
+        var names = [];
+        if (currentUploadName) names.push(currentUploadName);
+        for (var i = 0; i < uploadQueue.length; i++) names.push(uploadQueue[i].file.name);
+        if (!names.length) { sessionStorage.removeItem(PENDING_KEY); return; }
+        sessionStorage.setItem(PENDING_KEY, JSON.stringify({
+            left: names.length, names: names.slice(0, 20)
+        }));
+    } catch (e) { /* 隐私模式下 sessionStorage 可能不可用：记账失败不该打断上传 */ }
+}
+
+function checkPendingUpload() {
+    try {
+        var raw = sessionStorage.getItem(PENDING_KEY);
+        if (!raw) return;
+        sessionStorage.removeItem(PENDING_KEY);   // 只提示一次，免得每次刷新都弹
+        var d = JSON.parse(raw);
+        if (!d || !d.left) return;
+        var shown = d.names || [];
+        var more = d.left > shown.length ? ' 等 ' + d.left + ' 个' : '';
+        batchToast('上次这批没传完：' + shown.join('、') + more + '（要重新选择文件上传）', 'error');
+    } catch (e) {}
+}
 var viewMode = localStorage.getItem('viewMode') || 'grid';
 
 function onWSConnected() { if (files.length === 0) loadFiles(); }
@@ -338,13 +370,16 @@ function uploadFiles(fileList) {
     }
     if (!queue.length) return;
     uploadQueue = uploadQueue.concat(queue);
+    savePendingUpload();        // 入队即记账：这批还没传完
     if (!uploading) processUploadQueue();
 }
 
 function processUploadQueue() {
-    if (!uploadQueue.length) { uploading = false; setTimeout(function() { document.getElementById('progressWrap').classList.remove('active'); }, 1500); loadFiles(); return; }
+    if (!uploadQueue.length) { uploading = false; currentUploadName = ''; savePendingUpload(); setTimeout(function() { document.getElementById('progressWrap').classList.remove('active'); }, 1500); loadFiles(); return; }
     uploading = true;
     var item = uploadQueue.shift(), file = item.file;
+    currentUploadName = file.name;
+    savePendingUpload();
     var fd = new FormData(); fd.append('file', file, file.webkitRelativePath || file.name);
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload?path=' + encodeURIComponent(item.path || ''), true);
@@ -355,6 +390,9 @@ function processUploadQueue() {
     // 没有这个钩子的话，uploading 会永远停在 true、队列静默卡死，用户也得不到任何交代。
     xhr.onabort = function() {
         uploadDone++; uploading = false;
+        // 中断的这个文件**没传完**：放回队首，让"上次这批没传完"的账目把它算进去
+        //（若页面真在离开，下面的 processUploadQueue 不会再有下文；若没离开，它会重传 —— 两种都对）
+        uploadQueue.unshift(item);
         batchToast(file.name + ' 上传被中断（页面刷新或关闭）', 'error');
         processUploadQueue();
     };
@@ -551,6 +589,8 @@ updateGalleryLinks();
 connectWS();
 // 初始加载文件列表（WS 连接后也会触发，但此处确保即使 WS 延迟也能立即显示）
 loadFiles();
+// 轻档：上次刷新/离开时这批没传完 → 如实说一声（不能续传，所以文案里写明要重新选文件）
+checkPendingUpload();
 </script>
 </body>
 </html>

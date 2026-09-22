@@ -137,6 +137,40 @@ var myUsername = '__MY_USERNAME__';
 var files = [], selected = new Set();
 var currentPath = '', searchQuery = '', sortMode = 'time_desc';
 var uploadQueue = [], uploadDone = 0, uploading = false;
+var currentUploadName = '';   // name of the file being uploaded (for the honest "last batch unfinished" note)
+
+// —— Lightweight tier (§九 ①'s "tier 2"): record the in-flight batch in sessionStorage ——
+// ⚠️ It can NOT actually resume (only chunked upload could) — it only fixes "after a refresh
+// the page looks empty and you assume everything finished". So the wording must be **honest**
+// that files have to be picked again; never phrase it as "resumed".
+// sessionStorage fits exactly: survives a refresh in the same tab, gone when the tab closes —
+// the same lifetime as "this batch".
+var PENDING_KEY = 'leaffs_upload_pending';
+
+function savePendingUpload() {
+    try {
+        var names = [];
+        if (currentUploadName) names.push(currentUploadName);
+        for (var i = 0; i < uploadQueue.length; i++) names.push(uploadQueue[i].file.name);
+        if (!names.length) { sessionStorage.removeItem(PENDING_KEY); return; }
+        sessionStorage.setItem(PENDING_KEY, JSON.stringify({
+            left: names.length, names: names.slice(0, 20)
+        }));
+    } catch (e) { /* sessionStorage may be unavailable in private mode: bookkeeping must not break uploading */ }
+}
+
+function checkPendingUpload() {
+    try {
+        var raw = sessionStorage.getItem(PENDING_KEY);
+        if (!raw) return;
+        sessionStorage.removeItem(PENDING_KEY);   // report once, not on every refresh
+        var d = JSON.parse(raw);
+        if (!d || !d.left) return;
+        var shown = d.names || [];
+        var more = d.left > shown.length ? ' and ' + (d.left - shown.length) + ' more' : '';
+        batchToast('Last batch did not finish: ' + shown.join(', ') + more + ' (please pick the files again)', 'error');
+    } catch (e) {}
+}
 var viewMode = localStorage.getItem('viewMode') || 'grid';
 
 function onWSConnected() { if (files.length === 0) loadFiles(); }
@@ -324,13 +358,16 @@ function uploadFiles(fileList) {
     }
     if (!queue.length) return;
     uploadQueue = uploadQueue.concat(queue);
+    savePendingUpload();        // bookkeeping on enqueue: this batch is not finished yet
     if (!uploading) processUploadQueue();
 }
 
 function processUploadQueue() {
-    if (!uploadQueue.length) { uploading = false; setTimeout(function() { document.getElementById('progressWrap').classList.remove('active'); }, 1500); loadFiles(); return; }
+    if (!uploadQueue.length) { uploading = false; currentUploadName = ''; savePendingUpload(); setTimeout(function() { document.getElementById('progressWrap').classList.remove('active'); }, 1500); loadFiles(); return; }
     uploading = true;
     var item = uploadQueue.shift(), file = item.file;
+    currentUploadName = file.name;
+    savePendingUpload();
     var fd = new FormData(); fd.append('file', file, file.webkitRelativePath || file.name);
     var xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload?path=' + encodeURIComponent(item.path || ''), true);
@@ -341,6 +378,10 @@ function processUploadQueue() {
     // so without this hook `uploading` stays true forever and the queue dies silently.
     xhr.onabort = function() {
         uploadDone++; uploading = false;
+        // The aborted file did NOT finish: put it back at the head of the queue so the
+        // "last batch unfinished" note counts it (if the page really is leaving, the call below
+        // goes nowhere; if not, it retries — both are correct).
+        uploadQueue.unshift(item);
         batchToast(file.name + ' upload aborted (page refreshed or closed)', 'error');
         processUploadQueue();
     };
@@ -537,6 +578,9 @@ currentPath = pathMatch ? decodeURIComponent(pathMatch[1]) : '';
 updateGalleryLinks();
 connectWS();
 loadFiles();
+// Lightweight tier: if the last batch did not finish before the refresh, say so honestly
+// (resuming is not possible, hence the wording asks to pick the files again).
+checkPendingUpload();
 </script>
 </body>
 </html>
