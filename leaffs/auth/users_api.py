@@ -9,6 +9,25 @@ import time
 ARCHIVE_DIRNAME = '.deleted'
 
 
+def _str_param(data, key):
+    """取一个字符串参数并 strip；**非字符串返回 `None`**（调用方回 400）。
+
+    这个文件里原来有 9 处都写 `data.get('username', '').strip()` 这种形式 ——
+    传数字/对象/数组时 `.strip()` 抛 `AttributeError`，一路落到各端点末尾的
+    `except Exception`，变成 **500「服务器内部错误」**。
+
+    畸形输入该是 400：500 既误导调用方（以为是服务端故障、会去重试），
+    也让这类输入在日志里和真故障混在一起 —— 而"参数形状不对"和"服务器坏了"
+    是完全不同的两件事，混掉之后排查得逐条翻堆栈才知道是哪种。
+
+    缺失与空串仍按 `''` 处理（各端点原来"用户名不能为空"那类判定保持不变）。
+    """
+    v = data.get(key, '')
+    if not isinstance(v, str):
+        return None
+    return v.strip()
+
+
 def _archive_root():
     """被删用户家目录的归档根：`users/.deleted/`"""
     from leaffs.utils.core import UPLOAD_DIR
@@ -234,9 +253,15 @@ def users_add(handler, add_user):
         data = json.loads(handler.rfile.read(length).decode())
         if not isinstance(data, dict):
             data = {}
-        username = data.get('username', '').strip()
+        username = _str_param(data, 'username')
+        if username is None:
+            handler.send_json({'success': False, 'error': 'username 必须是字符串'}, 400); return
         password = data.get('password', '').strip()
-        role = data.get('role', 'user')
+        role = _str_param(data, 'role')
+        if role is None:
+            handler.send_json({'success': False, 'error': 'role 必须是字符串'}, 400); return
+        if not role:
+            role = 'user'          # 与原来的 data.get('role', 'user') 默认值一致
         if not username:
             handler.send_json({'success': False, 'error': '用户名不能为空'}, 400); return
         caller = handler._get_current_caller_role()
@@ -261,7 +286,9 @@ def users_delete(handler, delete_user):
         data = json.loads(handler.rfile.read(length).decode())
         if not isinstance(data, dict):
             data = {}
-        username = data.get('username', '').strip()
+        username = _str_param(data, 'username')
+        if username is None:
+            handler.send_json({'success': False, 'error': 'username 必须是字符串'}, 400); return
         caller = handler._get_current_caller_role()
         import leaffs.auth.core as _ac
         # 1) 前置校验（不落盘）：角色门槛 / 存在性 / 最后一个超管
@@ -306,8 +333,12 @@ def users_role(handler, update_user_role):
         data = json.loads(handler.rfile.read(length).decode())
         if not isinstance(data, dict):
             data = {}
-        username = data.get('username', '').strip()
-        new_role = data.get('role', '').strip()
+        username = _str_param(data, 'username')
+        if username is None:
+            handler.send_json({'success': False, 'error': 'username 必须是字符串'}, 400); return
+        new_role = _str_param(data, 'role')
+        if new_role is None:
+            handler.send_json({'success': False, 'error': 'role 必须是字符串'}, 400); return
         if not username or new_role not in ('admin', 'user'):
             handler.send_json({'success': False, 'error': '参数错误'}, 400); return
         caller = handler._get_current_caller_role()
@@ -335,7 +366,9 @@ def users_password(handler, change_password):
         data = json.loads(handler.rfile.read(length).decode())
         if not isinstance(data, dict):
             data = {}
-        username = data.get('username', '').strip()
+        username = _str_param(data, 'username')
+        if username is None:
+            handler.send_json({'success': False, 'error': 'username 必须是字符串'}, 400); return
         new_password = data.get('password', '').strip()
         if not username:
             handler.send_json({'success': False, 'error': '参数错误'}, 400); return
@@ -362,7 +395,9 @@ def users_quota(handler, set_user_quota):
         data = json.loads(handler.rfile.read(length).decode())
         if not isinstance(data, dict):
             data = {}
-        username = data.get('username', '').strip()
+        username = _str_param(data, 'username')
+        if username is None:
+            handler.send_json({'success': False, 'error': 'username 必须是字符串'}, 400); return
         if not username:
             handler.send_json({'success': False, 'error': '参数错误'}, 400); return
         try:
@@ -394,8 +429,10 @@ def users_rename(handler, update_user_name, add_log, UPLOAD_DIR):
         data = json.loads(handler.rfile.read(length).decode())
         if not isinstance(data, dict):
             data = {}
-        old_name = data.get('old_name', '').strip()
-        new_name = data.get('new_name', '').strip()
+        old_name = _str_param(data, 'old_name')
+        new_name = _str_param(data, 'new_name')
+        if old_name is None or new_name is None:
+            handler.send_json({'success': False, 'error': '用户名必须是字符串'}, 400); return
         if not old_name or not new_name:
             handler.send_json({'success': False, 'error': '参数错误'}, 400); return
         caller = handler._get_current_caller_role()
@@ -451,7 +488,9 @@ def users_speed(handler, set_user_speed_limit):
         data = json.loads(handler.rfile.read(length).decode())
         if not isinstance(data, dict):
             data = {}
-        username = data.get('username', '').strip()
+        username = _str_param(data, 'username')
+        if username is None:
+            handler.send_json({'success': False, 'error': 'username 必须是字符串'}, 400); return
         if not username:
             handler.send_json({'success': False, 'error': '参数错误'}, 400); return
         try:
