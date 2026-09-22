@@ -322,9 +322,10 @@ def valid_username(username):
 
 
 def list_public(username):
-    """访客分享展示页数据：某用户名下存在源文件的映射（公开信息，不含源路径）。
+    """访客分享展示页数据：某用户名下的映射（公开信息，不含源路径）。
 
     与直链同授权语义：映射 = 用户主动发布，独立于游客模式开关。
+    条目带 `type`：目录映射给 `path`（前端据此进目录），文件给 `url`（直链）。
     注意：_virtual_stat/resolve 会再取锁，故锁内只拷贝列表，锁外做 stat。
     """
     if not valid_username(username):
@@ -339,8 +340,61 @@ def list_public(username):
         st = _virtual_stat(vp)
         if st is None:
             continue
-        out.append({'name': vp.rsplit('/', 1)[-1], 'size': st[0],
-                    'mtime': st[1], 'url': '/download/' + vp})
+        mapped = _mapped_target(vp)
+        item = {'name': vp.rsplit('/', 1)[-1], 'size': st[0],
+                'mtime': st[1], 'path': vp}
+        if mapped is not None and os.path.isdir(mapped):
+            item['type'] = 'folder'
+        else:
+            item['type'] = 'file'
+            item['url'] = '/download/' + vp
+        out.append(item)
+    return out
+
+
+def list_public_dir(username, vp):
+    """列出**映射目录内部**一层（访客用）；非映射目录 / 越界 / 不存在 → 空列表。
+
+    ⚠️ 三个前提，缺一不可：
+
+    1. `vp` 必须落在**该用户名自己的**分享区（`_owner_of_virtual` 与入参一致）——
+       否则访客可以借 A 的分享页去列 B 的目录；
+    2. 只有**本机路径映射**（fs 来源）能进目录内部：共享根内的普通分享条目都是单个文件；
+    3. 越界由 `_mapped_target` 里那次 `safe_path(登记的根, 结果)` 判定 ——
+       按登记值判，不拿请求字符串拼绝对路径。
+
+    符号链接一律不列出：它的目标可能在映射根之外，列出来也下载不了（`resolve` 会拒），
+    徒然泄露一个名字。
+    """
+    if not valid_username(username):
+        return []
+    vp = (vp or '').replace('\\', '/').strip('/')
+    if _owner_of_virtual(vp) != username:
+        return []
+    target = _mapped_target(vp)
+    if not target or not os.path.isdir(target):
+        return []
+    try:
+        names = sorted(os.listdir(target))
+    except Exception:
+        return []
+    out = []
+    for nm in names:
+        child = vp + '/' + nm
+        full = os.path.join(target, nm)
+        try:
+            if os.path.islink(full):
+                continue
+            st = os.stat(full)
+        except Exception:
+            continue
+        if os.path.isdir(full):
+            out.append({'name': nm, 'type': 'folder', 'path': child,
+                        'size': 0, 'mtime': int(st.st_mtime)})
+        elif os.path.isfile(full):
+            out.append({'name': nm, 'type': 'file', 'path': child,
+                        'size': st.st_size, 'mtime': int(st.st_mtime),
+                        'url': '/download/' + child})
     return out
 
 

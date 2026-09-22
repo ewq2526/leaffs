@@ -646,6 +646,10 @@ How it relates to the rest of this chapter:
   **registered root** — never by concatenating the request string into an absolute path.
   That resolution has a single implementation (the choke point in 4.3), used by both the read
   and the write paths;
+- **Visitor page**: the share page can **walk into** a mounted folder level by level (folder rows
+  are clickable, with an "Up" row) — behind the very same access-code gate: while locked, not even
+  the listing is served. And only the sharer's *own* mounted folders can be entered (the owner in
+  the virtual path must match the user name on the page, otherwise the result is an empty list);
 - **Read-only**: a mounted source carries a read-only flag in the resolution result, and
   **every write entry point refuses** accordingly — delete (one implementation on the HTTP
   side, another on the WebSocket side), mkdir, upload. The reason is plain: what is mounted is

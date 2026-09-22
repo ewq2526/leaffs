@@ -241,3 +241,60 @@ def test_share_list_reports_can_mount_false_for_remote_session(client):
     r = client.get('/api/share')
     assert r.status_code == 200
     assert r.json().get('can_mount') is False, r.text[:200]
+
+
+# ---------- ⑤ 访客分享页：进映射目录 ----------
+
+def test_list_public_marks_folder_and_file(mount_env):
+    """分享页数据要能区分目录与文件：目录给 path（进目录用），文件给 url（直链）"""
+    m, outside = mount_env['m'], mount_env['outside']
+    _mkfile(os.path.join(outside, '电影', 'a.mkv'), b'1')
+    single = _mkfile(os.path.join(outside, 'one.pdf'), b'2')
+    assert m.publish_fs(os.path.join(outside, '电影'), '电影', 'admin')[1] is None
+    assert m.publish_fs(single, 'one.pdf', 'admin')[1] is None
+
+    items = {it['name']: it for it in m.list_public('admin')}
+    assert items['电影']['type'] == 'folder', items
+    assert items['电影']['path'] == 'public/shares/admin/电影'
+    assert 'url' not in items['电影'], '目录不该有下载直链'
+    assert items['one.pdf']['type'] == 'file'
+    assert items['one.pdf']['url'] == '/download/public/shares/admin/one.pdf'
+
+
+def test_list_public_dir_lists_one_level(mount_env):
+    """进目录后列一层：子目录还能继续点，文件带直链"""
+    m, outside = mount_env['m'], mount_env['outside']
+    _mkfile(os.path.join(outside, '电影', 'sub', 'b.txt'), b'b')
+    _mkfile(os.path.join(outside, '电影', 'a.mkv'), b'a')
+    assert m.publish_fs(os.path.join(outside, '电影'), '电影', 'admin')[1] is None
+
+    rows = {it['name']: it for it in m.list_public_dir('admin', 'public/shares/admin/电影')}
+    assert set(rows) == {'a.mkv', 'sub'}, rows
+    assert rows['sub']['type'] == 'folder'
+    assert rows['sub']['path'] == 'public/shares/admin/电影/sub'
+    assert rows['a.mkv']['type'] == 'file'
+    assert rows['a.mkv']['url'] == '/download/public/shares/admin/电影/a.mkv'
+    assert rows['a.mkv']['size'] == 1
+
+
+def test_list_public_dir_rejects_other_users_area(mount_env):
+    """借别人的分享页列目录必须拒 —— 属主对不上就是空列表"""
+    m, outside = mount_env['m'], mount_env['outside']
+    _mkfile(os.path.join(outside, '电影', 'a.mkv'), b'a')
+    assert m.publish_fs(os.path.join(outside, '电影'), '电影', 'admin')[1] is None
+    assert m.list_public_dir('bob', 'public/shares/admin/电影') == []
+
+
+def test_list_public_dir_rejects_non_mapping_and_escape(mount_env):
+    """不是映射目录、或者想往外走 —— 一律空列表（不给"这儿有东西"的信号）"""
+    m, outside = mount_env['m'], mount_env['outside']
+    _mkfile(os.path.join(outside, '电影', 'a.mkv'), b'a')
+    assert m.publish_fs(os.path.join(outside, '电影'), '电影', 'admin')[1] is None
+
+    # 分享区本身不是映射目录：普通分享的条目是单文件，没有"目录内部"这回事
+    assert m.list_public_dir('admin', 'public/shares/admin') == []
+    # 映射里的普通文件也不是目录
+    assert m.list_public_dir('admin', 'public/shares/admin/电影/a.mkv') == []
+    # 往外走
+    assert m.list_public_dir('admin', 'public/shares/admin/电影/../..') == []
+    assert m.list_public_dir('admin', 'public/shares/admin/电影/../../outside') == []

@@ -104,14 +104,16 @@
           needCode: '该分享需要访问码', codeTip: '输入分享者提供的访问码后即可查看与下载', confirm: '确认',
           wrong: '访问码不正确', remain: '还可尝试', times: '次', sending: '验证中…',
           lockedIp: '尝试次数过多，本机今日已被限制，请稍后再试或联系分享者',
-          lockedAll: '该分享页当前已锁定，请联系分享者解锁' },
+          lockedAll: '该分享页当前已锁定，请联系分享者解锁',
+          up: '返回上一级', emptyDir: '这个目录是空的', folder: '文件夹', open: '打开' },
     en: { shared: 'shared files', sub: 'No login needed — tap to download · only forward to those you trust',
           loading: 'Loading…', empty: 'Nothing available yet', bad: 'Invalid link',
           foot: 'making files easy to move', at: 'updated',
           needCode: 'Access code required', codeTip: 'Enter the access code from the sharer to view and download', confirm: 'Confirm',
           wrong: 'Wrong access code', remain: 'attempts left', times: '', sending: 'Verifying…',
           lockedIp: 'Too many attempts — this device is limited for today, ask the sharer for help',
-          lockedAll: 'This share is currently locked, please contact the sharer' }
+          lockedAll: 'This share is currently locked, please contact the sharer',
+          up: 'Up', emptyDir: 'This folder is empty', folder: 'Folder', open: 'Open' }
   };
   var zh = ((navigator.language || 'zh').toLowerCase().indexOf('zh') === 0);
   var I = T[zh ? 'zh' : 'en'];
@@ -197,51 +199,110 @@
     if (e.key === 'Enter') submitCode();
   });
 
-  function render(d) {
-    var files = (d && d.files) || [];
-    $('loading').style.display = 'none';
-    if (!files.length) { $('emptyBox').style.display = ''; return; }
-    var box = $('files');
-    files.forEach(function (f) {
-      var row = document.createElement('div');
-      row.className = 'frow';
-      var ic = document.createElement('div');
-      ic.className = 'fic';
-      ic.textContent = iconFor(f.name);
-      var mid = document.createElement('div');
-      mid.className = 'fmid';
-      var nm = document.createElement('div');
-      nm.className = 'fname';
-      nm.textContent = f.name;
-      var mt = document.createElement('div');
-      mt.className = 'fmeta';
+  var curPath = '';          // 当前所在的映射目录（'' = 分享根那一层）
+
+  function rowFor(f) {
+    var row = document.createElement('div');
+    row.className = 'frow';
+    var ic = document.createElement('div');
+    ic.className = 'fic';
+    ic.textContent = (f.type === 'folder') ? '📁' : iconFor(f.name);
+    var mid = document.createElement('div');
+    mid.className = 'fmid';
+    var nm = document.createElement('div');
+    nm.className = 'fname';
+    nm.textContent = f.name;
+    var mt = document.createElement('div');
+    mt.className = 'fmeta';
+    if (f.type === 'folder') {
+      mt.textContent = I.folder;
+      row.style.cursor = 'pointer';
+      row.onclick = function () { load(f.path); };
+    } else {
       mt.textContent = fmtSize(f.size) + ' · ' + I.at + ' ' + new Date(f.mtime * 1000).toLocaleDateString();
-      mid.appendChild(nm);
-      mid.appendChild(mt);
+    }
+    mid.appendChild(nm);
+    mid.appendChild(mt);
+    row.appendChild(ic);
+    row.appendChild(mid);
+    if (f.type === 'folder') {
+      var ob = document.createElement('span');
+      ob.className = 'dbtn';
+      ob.textContent = I.open;
+      row.appendChild(ob);
+    } else {
       var a = document.createElement('a');
       a.className = 'dbtn';
       a.href = f.url;
       a.textContent = zh ? '下载' : 'Download';
-      row.appendChild(ic);
-      row.appendChild(mid);
+      a.onclick = function (e) { e.stopPropagation(); };
       row.appendChild(a);
-      box.appendChild(row);
-    });
+    }
+    return row;
   }
 
-  fetch('/p/' + encodeURIComponent(who) + '/api').then(function (r) {
-    if (r.status === 403) {
-      return r.json().then(function (d) {
-        if (d && d.error === 'code_required') { showCodeBox(); return null; }
-        showErr();
-        return null;
-      });
+  function render(d) {
+    var files = (d && d.files) || [];
+    $('loading').style.display = 'none';
+    var box = $('files');
+    box.innerHTML = '';
+    if (!files.length) {
+      var et = $('emptyBox').querySelector('span[data-i]');
+      if (et) et.textContent = curPath ? I.emptyDir : I.empty;
+      $('emptyBox').style.display = '';
+      return;
     }
-    if (!r.ok) throw new Error('bad');
-    return r.json();
-  }).then(function (d) {
-    if (d) render(d);
-  }).catch(function () { showErr(); });
+    $('emptyBox').style.display = 'none';
+    if (curPath) {
+      // 进目录之后给一条"返回上一级"：分享页只有这一层导航，够用且不必记路径
+      var upRow = document.createElement('div');
+      upRow.className = 'frow';
+      upRow.style.cursor = 'pointer';
+      var uic = document.createElement('div');
+      uic.className = 'fic';
+      uic.textContent = '↩';
+      var umid = document.createElement('div');
+      umid.className = 'fmid';
+      var unm = document.createElement('div');
+      unm.className = 'fname';
+      unm.textContent = I.up;
+      umid.appendChild(unm);
+      upRow.appendChild(uic);
+      upRow.appendChild(umid);
+      upRow.onclick = function () {
+        var parts = curPath.split('/');
+        parts.pop();
+        load(parts.join('/'));
+      };
+      box.appendChild(upRow);
+    }
+    files.forEach(function (f) { box.appendChild(rowFor(f)); });
+  }
+
+  function load(path) {
+    curPath = path || '';
+    $('emptyBox').style.display = 'none';
+    $('files').innerHTML = '';
+    // 只有从分享根出发、且确有内容时才显示"加载中"，换目录时不闪
+    $('loading').style.display = curPath ? 'none' : '';
+    var url = '/p/' + encodeURIComponent(who) + '/api' +
+      (curPath ? ('?path=' + encodeURIComponent(curPath)) : '');
+    fetch(url).then(function (r) {
+      if (r.status === 403) {
+        return r.json().then(function (d) {
+          if (d && d.error === 'code_required') { showCodeBox(); return null; }
+          showErr();
+          return null;
+        });
+      }
+      if (!r.ok) throw new Error('bad');
+      return r.json();
+    }).then(function (d) {
+      if (d) render(d);
+    }).catch(function () { showErr(); });
+  }
+
+  load('');
 })();
 </script>
 </body>
