@@ -21,6 +21,7 @@ import time
 
 from leaffs.paths import UPLOAD_DIR, CONFIG_DIR
 from leaffs.runtime_log import add_log
+from leaffs.utils.core import resolve_rel
 
 _MAPPINGS_FILE = os.path.join(CONFIG_DIR, 'share_mappings.json')
 _SHARE_ROOT_REL = 'public/shares'
@@ -206,7 +207,8 @@ def list_mappings(username, is_admin=False):
 
 def _src_exists(src_rel):
     try:
-        return os.path.isfile(os.path.join(UPLOAD_DIR, src_rel))
+        resolved = resolve_rel(src_rel, UPLOAD_DIR)
+        return bool(resolved) and os.path.isfile(resolved[0])
     except Exception:
         return False
 

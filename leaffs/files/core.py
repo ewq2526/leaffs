@@ -19,7 +19,7 @@ from leaffs.paths import (
 )
 from leaffs.utils.core import (
     COPY_BUFFER_SIZE,
-    safe_path, abs_path, get_mime, esc_html,
+    resolve_rel, safe_path, abs_path, get_mime, esc_html,
     read_file_cached, invalidate_file_cache,
     get_folder_size, get_folder_stats,
     invalidate_folder_cache, invalidate_folder_cache_smart,
@@ -265,8 +265,10 @@ def mkdir(rel_path, name):
         if norm_path is None:
             return False, 'Permission error'
         rel_path = norm_path.rstrip('/')
-    full = os.path.join(UPLOAD_DIR, rel_path, name) if rel_path else os.path.join(UPLOAD_DIR, name)
-    if not safe_path(UPLOAD_DIR, full): return False, 'Permission error'
+    resolved = resolve_rel(rel_path, UPLOAD_DIR)
+    if not resolved: return False, 'Permission error'
+    full = os.path.join(resolved[0], name)
+    if not safe_path(resolved[1], full): return False, 'Permission error'
     try:
         os.makedirs(full, exist_ok=True)
         invalidate_folder_cache(os.path.dirname(full))
@@ -415,10 +417,10 @@ def handle_upload(rfile, content_type, content_length, sub_path, auto_unique=Fal
     # 场景可上传到尚未存在的子路径（如 path=xxx/新建目录），不建目录则写 .part 直接失败。
     # 此处已过 fs_api 的权限/路径校验（write_allowed/_check_path_permission/R2 根权限），
     # 但建目录前仍要再确认落在共享根内：盘符路径（C:/…）在 Windows 上会让 join 直接跳出去
-    target_root = os.path.join(UPLOAD_DIR, sub_path) if sub_path else UPLOAD_DIR
-    from leaffs.utils.core import safe_path as _safe_path
-    if not _safe_path(UPLOAD_DIR, target_root):
+    resolved_target = resolve_rel(sub_path, UPLOAD_DIR)
+    if not resolved_target:
         return 0, ['路径不合法']
+    target_root = resolved_target[0]
     try:
         os.makedirs(target_root, exist_ok=True)
     except Exception:
@@ -654,8 +656,9 @@ def create_zip(file_list, base_path):
                 if norm_path is None:
                     continue
                 rel_path = norm_path
-                full = os.path.join(UPLOAD_DIR, rel_path)
-                if not safe_path(UPLOAD_DIR, full): continue
+                resolved_item = resolve_rel(rel_path, UPLOAD_DIR)
+                if not resolved_item: continue
+                full = resolved_item[0]
                 if not os.path.exists(full): continue
                 base_full = os.path.join(UPLOAD_DIR, base_path) if base_path else UPLOAD_DIR
                 arcname = os.path.relpath(full, base_full)

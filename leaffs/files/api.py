@@ -17,6 +17,9 @@ from leaffs.paths import is_upload_tmp_entry, is_upload_tmp_relpath
 # LF-23：删除失败原因的精确翻译（"被占用"与"权限不足"必须分开说，处置方式不同）
 from leaffs.utils.core import (
     delete_fail_reason,
+    # 相对路径 → 绝对路径的**唯一入口**（解析与越界判定都在里面）；
+    # 本文件原来各处自己 os.path.join + is_path_safe，散着写必然漏掉某一处。
+    resolve_rel,
     # 路径规范化**全仓唯一一份**（实现已搬到 utils/core.normalize_rel_path）：
     # 本文件原来与 files/core.py 各抄了一份逐字相同的实现，两边必然漂移。
     # 别名成原名，所有调用点一行都不用动。
@@ -227,8 +230,9 @@ def send_raw(handler, UPLOAD_DIR, PREVIEW_MAX_SIZE, is_path_safe, get_mime, DISC
             handler.send_error(404); return
         if not handler._check_path_permission(p):
             handler.send_error(403); return
-        full = os.path.join(UPLOAD_DIR, p)
-        if not is_path_safe(UPLOAD_DIR, full): handler.send_error(403); return
+        resolved = resolve_rel(p, UPLOAD_DIR)
+        if not resolved: handler.send_error(403); return
+        full = resolved[0]
         if not os.path.exists(full) or os.path.isdir(full): handler.send_error(404); return
         if os.path.getsize(full) > PREVIEW_MAX_SIZE:
             # HTTP/1.1 预备（2026-09-18）：正文必须有定界
@@ -389,8 +393,9 @@ def handle_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, get_mim
         # 回 404 而非 403：这里的语义是"没有这个资源"，与权限无关。
         if is_upload_tmp_relpath(name):
             handler.send_error(404); return
-        path = os.path.join(UPLOAD_DIR, name)
-        if not is_path_safe(UPLOAD_DIR, path): handler.send_error(403); return
+        resolved = resolve_rel(name, UPLOAD_DIR)
+        if not resolved: handler.send_error(403); return
+        path = resolved[0]
         if not os.path.exists(path) or os.path.isdir(path): handler.send_error(404); return
         if not handler._check_path_permission(name):
             handler.send_error(403); return
@@ -502,6 +507,7 @@ def send_thumbnail(handler, UPLOAD_DIR, get_thumbnail, is_path_safe, DISCONNECTE
             handler.send_error(404); return
         if not handler._check_path_permission(p):
             handler.send_error(403); return
+        full = None
         if resolve_share is not None:
             try:
                 real = resolve_share(p)
@@ -510,11 +516,13 @@ def send_thumbnail(handler, UPLOAD_DIR, get_thumbnail, is_path_safe, DISCONNECTE
             # 约定：解析器返回源文件的**绝对路径**（见 share/mappings.resolve）
             if real:
                 full = real
-            else:
-                full = os.path.join(UPLOAD_DIR, p)
-        else:
-            full = os.path.join(UPLOAD_DIR, p)
-        if not is_path_safe(UPLOAD_DIR, full): handler.send_error(403); return
+        if full is None:
+            resolved = resolve_rel(p, UPLOAD_DIR)
+            if not resolved: handler.send_error(403); return
+            full = resolved[0]
+        elif not is_path_safe(UPLOAD_DIR, full):
+            # 解析器给的是绝对路径，仍须落在共享根内（与原来同一条判定）
+            handler.send_error(403); return
         if not os.path.exists(full) or os.path.isdir(full): handler.send_error(404); return
         thumb = get_thumbnail(full)
         if not thumb or not os.path.exists(thumb): handler.send_error(404); return
@@ -820,10 +828,11 @@ def handle_delete(handler, UPLOAD_DIR, is_path_safe, _delete_thumb,
             if not handler._check_path_permission(path):
                 skipped_permission += 1
                 continue
-            full = os.path.join(UPLOAD_DIR, path)
-            if not is_path_safe(UPLOAD_DIR, full):
+            resolved = resolve_rel(path, UPLOAD_DIR)
+            if not resolved:
                 skipped_permission += 1  # 路径逃逸/非法落点：按权限类拒绝计数
                 continue
+            full = resolved[0]
             # 目标不存在：可删但找不到 → 幂等（不计数、不报权限错误）
             if not os.path.exists(full): continue
             try:
@@ -890,8 +899,10 @@ def handle_mkdir(handler, UPLOAD_DIR, is_path_safe, invalidate_folder_cache, DIS
             handler.send_json({'error': '无权限在此目录创建文件夹'}, 403); return
         if not handler._check_path_permission(path + '/' if path else ''):
             handler.send_json({'error': '无权限在此目录创建文件夹'}, 403); return
-        full = os.path.join(UPLOAD_DIR, path, name)
-        if not is_path_safe(UPLOAD_DIR, full): handler.send_json({'error': '权限错误'}, 403); return
+        base_resolved = resolve_rel(path, UPLOAD_DIR)
+        if not base_resolved: handler.send_json({'error': '权限错误'}, 403); return
+        full = os.path.join(base_resolved[0], name)
+        if not is_path_safe(base_resolved[1], full): handler.send_json({'error': '权限错误'}, 403); return
         os.makedirs(full, exist_ok=True)
         invalidate_folder_cache(os.path.dirname(full))
         handler.send_json({'success': True})
@@ -942,12 +953,12 @@ def search_files(handler, UPLOAD_DIR):
             # C-04：查询串超长 → 400（不触发递归扫描）
             handler.send_json({'error': f'查询过长（最多 {_SEARCH_MAX_Q} 字符）'}, 400); return
         results = []
-        search_root = os.path.join(UPLOAD_DIR, base_path) if base_path else UPLOAD_DIR
+        resolved = resolve_rel(base_path, UPLOAD_DIR)
         # 搜索根必须真的落在共享根内：base_path 只过了 check_path_permission，
         # 而盘符路径（C:/…）在 Windows 上会让 os.path.join 直接返回它本身、跳出共享根
-        from leaffs.utils.core import safe_path as _safe_path
-        if not _safe_path(UPLOAD_DIR, search_root):
+        if not resolved:
             handler.send_json({'error': '无权限'}, 403); return
+        search_root = resolved[0]
         if not os.path.exists(search_root):
             handler.send_json({'files': [], 'query': query}); return
         truncated = False
@@ -1068,9 +1079,10 @@ def zip_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, DISCONNECT
         if base_path and not handler._check_path_permission(base_path):
             handler.send_json({'error': '无权限'}, 403); return
         if base_path:
-            base_full = os.path.join(UPLOAD_DIR, base_path)
-            if not is_path_safe(UPLOAD_DIR, base_full):
+            resolved_base = resolve_rel(base_path, UPLOAD_DIR)
+            if not resolved_base:
                 handler.send_json({'error': '路径不安全'}, 403); return
+            base_full = resolved_base[0]
         else:
             base_full = UPLOAD_DIR
 
@@ -1108,7 +1120,11 @@ def zip_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, DISCONNECT
                 if not handler._check_path_permission(rel_path):
                     skipped += 1
                     continue
-                full = os.path.join(UPLOAD_DIR, rel_path)
+                resolved_item = resolve_rel(rel_path, UPLOAD_DIR)
+                if not resolved_item:
+                    skipped += 1
+                    continue
+                full = resolved_item[0]
                 arcname = os.path.relpath(full, base_full)
             if not is_path_safe(UPLOAD_DIR, full):
                 skipped += 1

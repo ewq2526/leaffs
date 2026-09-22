@@ -85,12 +85,31 @@ def safe_path(base, target):
         nt, nb = real_target, real_base
     return nt == nb or nt.startswith(nb + os.sep)
 
-def abs_path(rel_path):
-    """相对路径转绝对路径，并做安全检查"""
-    full = os.path.join(UPLOAD_DIR, rel_path) if rel_path else UPLOAD_DIR
-    if not safe_path(UPLOAD_DIR, full):
+def resolve_rel(rel_path, base=None):
+    """相对路径 → `(绝对路径, 所属根, 只读)`；非法 / 越界一律 `None`。
+
+    **全仓唯一的"相对路径 → 绝对路径"入口**：读路径（预览 / 下载 / 缩略图 /
+    打包 / 搜索）与写路径（上传 / 删除 / 建目录）都必须走它。
+    各处自己 `os.path.join(根, rel)` 再 `safe_path` 的写法必然漏掉某一处 ——
+    判定散着写就会漂移，收成这一份才谈得上"新来源接进来不会漏"。
+
+    `base` 默认共享根。调用方注入的那个根（`files/api.py` 的 `UPLOAD_DIR` 参数）
+    要显式传进来，别在这里偷偷用全局值：测试会 patch 注入值，
+    两者混用会让"以为在临时目录里跑"的用例落到真实数据根上。
+
+    只读位现在恒为 False（共享根本身可写）；映射进来的根接在这里时才会是 True。
+    """
+    root = UPLOAD_DIR if base is None else base
+    full = os.path.join(root, rel_path) if rel_path else root
+    if not safe_path(root, full):
         return None
-    return full
+    return full, root, False
+
+
+def abs_path(rel_path):
+    """相对路径转绝对路径，并做安全检查（非法 / 越界返回 None）"""
+    resolved = resolve_rel(rel_path)
+    return resolved[0] if resolved else None
 
 
 # Win32 保留设备名：这些名字（含 `NUL.txt` 这种带扩展名的形态）在 Windows 上由系统
