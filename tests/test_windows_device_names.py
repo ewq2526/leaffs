@@ -55,10 +55,22 @@ def test_lookalikes_are_not_rejected(p):
     assert has_windows_device_name(p) is False, '误伤了正常名字：%r' % p
 
 
-def test_both_normalizers_agree():
-    """两份 _normalize_rel_path 必须口径一致（它们本来就是同一份代码抄了两遍）"""
+def test_only_one_normalizer_exists():
+    """路径规范化**只有一份实现** —— 各引用必须指向同一个函数对象。
+
+    原来 `files/core.py` 与 `files/api.py` 各有一份**逐字相同**的实现。
+    N-3 那次设备名检查该加的地方其实是**两份**，只加一份就会漏掉另一半 ——
+    两份一样的判定必然漂移。现在实现住在 `utils/core.normalize_rel_path`，
+    这条钉住"别又长出第二份"（`is` 比的是对象身份，谁抄一份就红）。
+    """
     from leaffs.files import api as FA
     from leaffs.files import core as FC
+    from leaffs.utils import core as UC
+
+    assert FA._normalize_rel_path is UC.normalize_rel_path, \
+        'files/api.py 用的不是共享实现 —— 别又抄了一份'
+    assert FC._normalize_rel_path is UC.normalize_rel_path, \
+        'files/core.py 用的不是共享实现 —— 别又抄了一份'
 
     for p in ('NUL', 'NUL.txt', 'users/admin/NUL', 'public/CON/x.txt'):
         assert FA._normalize_rel_path(p) is None, 'HTTP 侧没挡住：%r' % p

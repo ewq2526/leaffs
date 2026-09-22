@@ -122,6 +122,44 @@ def has_windows_device_name(rel_path):
             return True
     return False
 
+
+def normalize_rel_path(rel_path):
+    """规范化相对路径并禁止路径穿越 —— **全仓唯一一份**。
+
+    为什么收到这里：原来 `files/core.py` 与 `files/api.py` 各有一份**逐字相同**的实现
+    （`files/api.py` 刻意不 import `files/core.py`，于是两边各自抄了一遍）。
+    两份一样的判定必然漂移 —— N-3 就是例证：设备名检查该加的地方其实是**两份**，
+    只加一份就会漏。收成一份之后，新增判定不会再漏掉另一半。
+
+    返回规范化后的相对路径（正斜杠）；**非法一律返回 `None`**，`''` 表示"根"（合法）。
+    """
+    if not rel_path:
+        return ''
+    # 先检查原始路径中是否包含 ..（必须在 normpath 之前检查，否则 normpath 会先解析掉 ..）
+    raw_parts = rel_path.replace('\\', '/').split('/')
+    if '..' in raw_parts:
+        return None
+    if raw_parts and raw_parts[0] in ('..', '.'):
+        return None
+    # 规范化路径：移除多余的 . 和 /
+    norm = os.path.normpath(rel_path).replace('\\', '/')
+    # 禁止绝对路径
+    if norm.startswith('/'):
+        return None
+    # 禁止 Windows 盘符（C:/x、C:x）：normpath 不去盘符，而
+    # os.path.join(UPLOAD_DIR, 'C:/x') 在 Windows 上会直接返回 'C:/x' —— 等于跳出共享根
+    if len(norm) >= 2 and norm[1] == ':' and norm[0].isalpha():
+        return None
+    # 标准化后再次检查，防止 normpath 改变相对结构
+    if norm in ('..', '../') or norm.startswith('../'):
+        return None
+    # 禁止 Win32 保留设备名（NUL/CON/COM1…）：os.path.exists 对它们返回 True，
+    # 于是能混过"文件是否存在"的检查、到下游才炸（N-3）
+    if has_windows_device_name(norm):
+        return None
+    return norm
+
+
 def get_mime(path):
     mime, _ = mimetypes.guess_type(path)
     return mime or 'application/octet-stream'

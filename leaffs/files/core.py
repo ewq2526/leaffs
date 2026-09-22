@@ -22,7 +22,10 @@ from leaffs.utils.core import (
     invalidate_folder_cache, invalidate_folder_cache_smart,
     has_ffmpeg, thumbnail_backend, _delete_thumb, cleanup_orphan_thumbs, get_thumbnail,
     cleanup_upload_tmp, delete_fail_reason,
-    has_windows_device_name,
+    # 路径规范化**全仓唯一一份**（实现搬到了 utils/core.normalize_rel_path）：
+    # 本文件与 files/api.py 原来各抄了一份逐字相同的实现，N-3 那次设备名检查
+    # 就差点只加在一份上。这里别名成原名，所有调用点一行都不用动。
+    normalize_rel_path as _normalize_rel_path,
     UploadQuotaExceeded,
 )
 
@@ -138,33 +141,8 @@ def sanitize_entry_name(name):
         return None
     return name
 
-def _normalize_rel_path(rel_path):
-    """规范化相对路径并禁止路径穿越"""
-    if not rel_path:
-        return ''
-    # 先检查原始路径中是否包含 ..（必须在 normpath 之前检查，否则 normpath 会先解析掉 ..）
-    raw_parts = rel_path.replace('\\', '/').split('/')
-    if '..' in raw_parts:
-        return None
-    if raw_parts and raw_parts[0] in ('..', '.'):
-        return None
-    # 规范化路径：移除多余的 . 和 /
-    norm = os.path.normpath(rel_path).replace('\\', '/')
-    # 禁止绝对路径
-    if norm.startswith('/'):
-        return None
-    # 禁止 Windows 盘符（C:/x、C:x）：normpath 不去盘符，而
-    # os.path.join(UPLOAD_DIR, 'C:/x') 在 Windows 上会直接返回 'C:/x' —— 等于跳出共享根
-    if len(norm) >= 2 and norm[1] == ':' and norm[0].isalpha():
-        return None
-    # 标准化后再次检查
-    if norm in ('..', '../') or norm.startswith('../'):
-        return None
-    # 禁止 Win32 保留设备名（NUL/CON/COM1…）：os.path.exists 对它们返回 True，
-    # 于是能混过"文件是否存在"的检查、到下游才炸（N-3）
-    if has_windows_device_name(norm):
-        return None
-    return norm
+# `_normalize_rel_path` 的实现已搬到 `utils/core.normalize_rel_path`（全仓唯一一份），
+# 由文件顶部的 import 以别名引入 —— 这里只留个路标，别再往这儿抄第二份。
 
 def _count_files_recursive(path):
     """递归统计指定路径下的文件总数和总大小

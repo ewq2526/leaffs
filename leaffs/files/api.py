@@ -15,7 +15,13 @@ from leaffs.runtime_log import log_exception as _log_exc
 # 列表/搜索/下载/缩略图/大小统计统一调它，免得各处各写一份条件而漏掉某一处。
 from leaffs.paths import is_upload_tmp_entry, is_upload_tmp_relpath
 # LF-23：删除失败原因的精确翻译（"被占用"与"权限不足"必须分开说，处置方式不同）
-from leaffs.utils.core import delete_fail_reason, has_windows_device_name
+from leaffs.utils.core import (
+    delete_fail_reason,
+    # 路径规范化**全仓唯一一份**（实现已搬到 utils/core.normalize_rel_path）：
+    # 本文件原来与 files/core.py 各抄了一份逐字相同的实现，两边必然漂移。
+    # 别名成原名，所有调用点一行都不用动。
+    normalize_rel_path as _normalize_rel_path,
+)
 # §二 第 4 条：上传读流期间"实时校验发现超额"的异常。定义在 `leaffs.utils.core` 的配额节
 # —— 因为 `files/api.py` 与 `files/core.py` 是"注入解耦"关系（前者不 import 后者），
 # 两边要用**同一个类型**，只能放在都能依赖的地方。
@@ -970,33 +976,8 @@ def search_files(handler, UPLOAD_DIR):
         handler.send_json({'error': '搜索失败'}, 500)
 
 
-def _normalize_rel_path(rel_path):
-    """规范化相对路径并禁止路径穿越"""
-    if not rel_path:
-        return ''
-    # 先检查原始路径中是否包含 ..（必须在 normpath 之前检查，否则 normpath 会先解析掉 ..）
-    raw_parts = rel_path.replace('\\', '/').split('/')
-    if '..' in raw_parts:
-        return None
-    if raw_parts and raw_parts[0] in ('..', '.'):
-        return None
-    # 规范化路径：移除多余的 . 和 /
-    norm = os.path.normpath(rel_path).replace('\\', '/')
-    # 禁止绝对路径
-    if norm.startswith('/'):
-        return None
-    # 禁止 Windows 盘符（C:/x、C:x）：normpath 不去盘符，而
-    # os.path.join(UPLOAD_DIR, 'C:/x') 在 Windows 上会直接返回 'C:/x' —— 等于跳出共享根
-    if len(norm) >= 2 and norm[1] == ':' and norm[0].isalpha():
-        return None
-    # 标准化后再次检查，防止 normpath 改变相对结构
-    if norm in ('..', '../') or norm.startswith('../'):
-        return None
-    # 禁止 Win32 保留设备名（NUL/CON/COM1…）：os.path.exists 对它们返回 True，
-    # 于是能混过"文件是否存在"的检查、到下游才炸（N-3）
-    if has_windows_device_name(norm):
-        return None
-    return norm
+# `_normalize_rel_path` 的实现已搬到 `utils/core.normalize_rel_path`（全仓唯一一份），
+# 由文件顶部的 import 以别名引入 —— 这里只留个路标，别再往这儿抄第二份。
 
 
 class _ZipStreamWriter:
