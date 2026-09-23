@@ -49,7 +49,7 @@ def parse_cookies(raw):
 
     **全仓只此一份**：会话解析（`auth/core.get_session`）、无效会话预检
     （`server/handler._has_invalid_session_cookie`）、分享码票据
-    （`share/access._cookie_ok`）、页面主题偏好（`web/render._cookie_accent` /
+    （`share/access.is_authorized`）、页面主题偏好（`web/render._cookie_accent` /
     `_cookie_theme`）现在都调它。
 
     为什么必须收成一份：这五处原本各写一遍，而且**已经不一致了** —— 会话那三处取

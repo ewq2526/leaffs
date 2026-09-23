@@ -569,21 +569,31 @@ data endpoint.
 
 Design points:
 
-- **Hashing uses a slow hash** (the same parameters and format as login passwords), not a single round.
-  Access codes have a minimum length of just six characters, so a single-round hash could be cracked
-  offline the moment the mapping file leaks — and at that point **the online IP lock and global lock both
-  become worthless**;
-- Hashes in the old format must still verify, and are **upgraded automatically the first time the correct
-  code is entered**. ⚠️ When touching this, **do not delete the old-format branch** — that would
-  invalidate every existing access code at once;
+- **Granularity is per share**: every share mapping and every mount has its own code — not one per
+  user. The index key is a **random label** generated when the entry is registered, **not the name**:
+  names change (rename / move), collide (same name in different namespaces) and can be enumerated,
+  while a random label is free of all three;
+- **The code is stored in plain text**: it is something you *tell people* (forward it, write it down),
+  not a secret password — and **an owner must be able to read their own code back**;
+  a hash cannot be read back, which means it is lost the moment it is set. Only **the owner and
+  admins** may read it (enforced in `read_code`);
+- Hashes migrated from the older formats (the earlier PBKDF2 and the even earlier fixed-salt single
+  round) must still verify, and are **upgraded to plain text the first time the correct code is
+  entered**. ⚠️ When touching this, **do not delete the old-format branch** — that would invalidate
+  every existing access code at once;
 - **Writing is only allowed on a successful verification** — a wrong code must never trigger any write,
   otherwise that becomes a write side effect usable for probing;
 - The slow hash must not be computed while holding the lock (it is not reentrant). Always "**take the
   value under the lock, compute outside it**"; an upgrade write must re-acquire the lock and re-check that
   nothing changed concurrently.
 
+**Who may set or read it**: for an ordinary share it is the owner (or an admin); a **mount has no
+owner**, so its code can only be set from a **server-machine session** — the mount was created there.
+
 **Authorisation tickets**: the credential issued after a successful check is an **opaque random value**
-(about 192 bits), with the server recording "who" and "expires when".
+(about 192 bits), with the server recording "which shares" and "expires when". One ticket can **accumulate
+several shares** (a `labels` list) — one code per cookie would blow up the request headers, so the cookie
+name is a single fixed one.
 
 ⚠️ The ticket **must not be "the hash of the code"**: that value can be derived from the code — an
 attacker could enumerate candidate codes offline, compute the hash, and write a matching cookie to
@@ -620,9 +630,9 @@ time".
 
 ### 8.6 Cascade on user deletion
 
-Only **two places** persist data keyed by username and need clearing: the "shared by" entries in the
-mapping table, and all of that user's records in the access-code table (code hash, error counters, both
-locks, tickets).
+Deleting a user clears **two places**: the "shared by" entries in the mapping table, and every entry in
+the access-code table **owned by that user** (code, error counters, both locks, tickets) — the table is
+indexed by random label, and the `owner` field on each entry is what finds them.
 
 ⚠️ Order convention: **archive the home directory first → then purge the share data → finally delete the
 account and sessions**. The reasoning is that the purge is irreversible but low-harm (the user just sets a
@@ -640,7 +650,7 @@ shared_files/                 ← shared root (data root)
 ├── users/<name>/             ← per-user private folders
 ├── public/                   ← public folder
 │   └── shares/<name>/<item>   ← ordinary shares (src): per user, access-code protected
-└── mounts/<name>              ← server mounts (fs): no user, no access-code layer
+└── mounts/<name>              ← server mounts (fs): no user; code set from the server machine
 ```
 
 **Two sources, two behaviours**:
@@ -684,10 +694,9 @@ Key points:
 - **Expiry**: if the source is deleted or moved, the entry stays but shows "source is gone" —
   the same behaviour as ordinary shares, because what is registered is a reference, not a copy.
 
-⚠️ **Not done yet** (next step): an access code of the mount area's own (set on the server side,
-independent of shares), and moving the code granularity from "one per user" to "**one per
-share**" (indexed by a **random label** internally, with the code **readable back** by its owner
-and by admins).
+⚠️ **Access codes**: a mount can carry one too (one code per share, indexed by a random label),
+and **only the server-machine session can set it** — a mount has no owner. A visitor sees a
+"code required" placeholder in the listing (no name) and taps it to enter the code.
 
 ---
 

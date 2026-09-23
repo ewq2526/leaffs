@@ -105,7 +105,8 @@
           wrong: '访问码不正确', remain: '还可尝试', times: '次', sending: '验证中…',
           lockedIp: '尝试次数过多，本机今日已被限制，请稍后再试或联系分享者',
           lockedAll: '该分享页当前已锁定，请联系分享者解锁',
-          up: '返回上一级', emptyDir: '这个目录是空的', folder: '文件夹', open: '打开' },
+          up: '返回上一级', emptyDir: '这个目录是空的', folder: '文件夹', open: '打开',
+          lockedItem: '需要访问码 · 点这里输入' },
     en: { shared: 'shared files', sub: 'No login needed — tap to download · only forward to those you trust',
           loading: 'Loading…', empty: 'Nothing available yet', bad: 'Invalid link',
           foot: 'making files easy to move', at: 'updated',
@@ -113,7 +114,8 @@
           wrong: 'Wrong access code', remain: 'attempts left', times: '', sending: 'Verifying…',
           lockedIp: 'Too many attempts — this device is limited for today, ask the sharer for help',
           lockedAll: 'This share is currently locked, please contact the sharer',
-          up: 'Up', emptyDir: 'This folder is empty', folder: 'Folder', open: 'Open' }
+          up: 'Up', emptyDir: 'This folder is empty', folder: 'Folder', open: 'Open',
+          lockedItem: 'Access code required · tap to enter' }
   };
   var zh = ((navigator.language || 'zh').toLowerCase().indexOf('zh') === 0);
   var I = T[zh ? 'zh' : 'en'];
@@ -157,22 +159,29 @@
     el.textContent = t;
     el.className = 'cmsg ' + (cls || '');
   }
-  function showCodeBox() {
-    $('loading').style.display = 'none';
+
+  var pendingLabel = '';     // 正在为哪一条输码（每条分享各有随机标签，互不影响）
+
+  function askCode(label) {
+    pendingLabel = label;
+    codeMsg('', '');
+    var inp = $('codeInput');
+    inp.disabled = false; inp.value = '';
     $('codeBox').style.display = '';
-    $('codeInput').focus();
+    if ($('codeBox').scrollIntoView) $('codeBox').scrollIntoView({ block: 'nearest' });
+    inp.focus();
   }
 
   function submitCode() {
     var inp = $('codeInput');
     var code = inp.value.trim();
-    if (!code) { codeMsg(I.empty, 'err'); return; }
+    if (!pendingLabel || !code) { codeMsg(I.empty, 'err'); return; }
     var btn = $('codeBtn');
     btn.disabled = true;
     codeMsg(I.sending, '');
     fetch('/api/share/auth', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: who, code: code })
+      body: JSON.stringify({ label: pendingLabel, code: code })
     }).then(function (r) {
       return r.json().then(function (d) { return { ok: r.ok, d: d }; });
     }).then(function (res) {
@@ -202,6 +211,26 @@
   var curPath = '';          // 当前所在的映射目录（'' = 分享根那一层）
 
   function rowFor(f) {
+    if (f.locked) {
+      // 没解锁的那一条：**名字、大小、时间一个都不给** —— 只说明"需要访问码"，
+      // 点它就能输码（目标用随机标签指认，标签本身不含任何信息）
+      var lrow = document.createElement('div');
+      lrow.className = 'frow';
+      lrow.style.cursor = 'pointer';
+      var lic = document.createElement('div');
+      lic.className = 'fic';
+      lic.textContent = '🔒';
+      var lmid = document.createElement('div');
+      lmid.className = 'fmid';
+      var lnm = document.createElement('div');
+      lnm.className = 'fname';
+      lnm.textContent = I.lockedItem;
+      lmid.appendChild(lnm);
+      lrow.appendChild(lic);
+      lrow.appendChild(lmid);
+      lrow.onclick = function () { askCode(f.label); };
+      return lrow;
+    }
     var row = document.createElement('div');
     row.className = 'frow';
     var ic = document.createElement('div');
@@ -289,8 +318,7 @@
       (curPath ? ('?path=' + encodeURIComponent(curPath)) : '');
     fetch(url).then(function (r) {
       if (r.status === 403) {
-        return r.json().then(function (d) {
-          if (d && d.error === 'code_required') { showCodeBox(); return null; }
+        return r.json().then(function () {
           showErr();
           return null;
         });

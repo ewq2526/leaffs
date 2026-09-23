@@ -46,6 +46,7 @@ def mount_env(data_root_factory, monkeypatch):
 
     import leaffs.files.core as fcore
     import leaffs.paths as paths
+    import leaffs.share.access as sacc
     import leaffs.share.mappings as m
     import leaffs.utils.core as uc
 
@@ -55,6 +56,9 @@ def mount_env(data_root_factory, monkeypatch):
     monkeypatch.setattr(m, 'UPLOAD_DIR', shared)
     monkeypatch.setattr(m, '_MAPPINGS_FILE', os.path.join(root, 'share_mappings.json'))
     monkeypatch.setattr(m, '_cache', None)
+    # 分享码的存储也要隔离：默认落在真实 config 下，不换就写进真配置
+    monkeypatch.setattr(sacc, '_ACCESS_FILE', os.path.join(root, 'share_access.json'))
+    monkeypatch.setattr(sacc, '_CACHE', None)
     monkeypatch.setattr(uc, 'CACHE_DIR', cache)
     monkeypatch.setattr(uc, 'THUMB_DIR', os.path.join(cache, 'thumbs'))
     monkeypatch.setattr(uc, 'FOLDER_SIZE_DIR', os.path.join(cache, 'folder_sizes'))
@@ -290,6 +294,32 @@ def test_mount_inside_list_shows_real_sizes(mount_env):
     sub = [f for f in cur['files'] if f['name'] == '系列'][0]
     assert sub['size'] == 4000, sub
     assert cur['total_size_sum'] == 4000, cur
+
+
+def test_locked_mount_shows_placeholder_not_name(mount_env):
+    """设了码又没解锁的挂载点：列表里给"需要访问码"占位 —— **不给名字**，
+    只带上随机标签（不可枚举、不含名字），访客对着它输码。解锁后就正常显示。
+    """
+    import leaffs.share.access as sacc
+
+    m = mount_env['m']
+    _mount_movie(mount_env)
+    label, owner = m.access_scope('mounts/电影')
+    assert label, '登记条目时应当生成随机标签'
+    sacc.set_code(label, 'code123456', owner)
+
+    res = {'files': [], 'total_file_count': 0, 'total_size_sum': 0}
+    assert m.merge_into_list('mounts', res, unlocked=lambda vp: False) is True, res
+    row = res['files'][0]
+    assert row['type'] == 'locked', row
+    assert row['label'] == label, row
+    assert row['name'] == '需要访问码', row
+    assert row['path'] == '', row
+
+    res2 = {'files': [], 'total_file_count': 0, 'total_size_sum': 0}
+    m.merge_into_list('mounts', res2, unlocked=lambda vp: True)
+    row2 = [f for f in res2['files'] if f['name'] == '电影'][0]
+    assert row2['type'] == 'folder', row2
 
 
 # ---------- ⑤ 落点复核按"所属的根"判 ----------

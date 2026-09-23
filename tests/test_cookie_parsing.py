@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Cookie 解析口径收成一份（§三 ③-2）。
+"""Cookie 解析口径收成一份。
 
 **问题**：全仓有 **5 处**手写 Cookie 解析，而且**现在已经不一致**：
 
@@ -7,12 +7,12 @@
 |---|---|---|
 | `auth/core.get_session` | `'=' in part` + `split('=', 1)` | 最后一个 |
 | `server/handler._has_invalid_session_cookie` | `startswith(NAME + '=')` | 最后一个 |
-| `share/access._cookie_ok` | `partition('=')` | 最后一个 |
+| `share/access._cookie_ok`（现 `is_authorized`） | `partition('=')` | 最后一个 |
 | `web/render._cookie_accent` | `partition('=')` + 立即 return | **第一个** |
 | `web/render._cookie_theme` | 同上 | **第一个** |
 
 同名 Cookie 现实中不多见（浏览器写同名是覆盖），但"谁先谁后"这种语义分散在五份拷贝里
-迟早出事 —— LF-27 的"列表构建两份实现"就是这么漂移的。修法 = 收成一份
+迟早出事 —— "列表构建两份实现"的漂移就是这么来的。修法 = 收成一份
 `utils/core.parse_cookies()`（同名取**最后一个**，与 RFC 6265、浏览器行为、
 以及前 3 处现状一致），5 处都调它。
 """
@@ -80,7 +80,7 @@ def test_session_and_precheck_agree_on_same_name():
     处理不可控（实测服务端拿到的顺序并不是我给的那个），端到端验不了"取第几个"。
     直接构造承载两处判定的对象更准，也更能说明问题。
 
-    不调 `create_session`：那会往真实 `config/sessions.json` 落盘（LF-29 之后）。
+    不调 `create_session`：那会往真实 `config/sessions.json` 落盘。
     直接塞一个有 IP 绑定的内存会话，用完清掉。
     """
     import time as _t
@@ -127,7 +127,7 @@ _SOURCES = (
 def test_no_handwritten_cookie_split_left():
     """解析只有一份：这几个模块里不该再有 `split(';')` 这种手写拆分
 
-    这条锁的是**设计决定**（LF-27 的教训：两份实现必然漂移），不是实现细节 ——
+    这条锁的是**设计决定**（两份实现必然漂移），不是实现细节 ——
     以后要在别处解析 Cookie，请调 `utils/core.parse_cookies`。
     """
     import os

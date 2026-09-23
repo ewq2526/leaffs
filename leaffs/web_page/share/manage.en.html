@@ -48,14 +48,7 @@
                     </div>
                     <div style="border-top:1px solid var(--border,#eef1f8);margin-top:12px;padding-top:12px">
                         <div style="font-size:13px;font-weight:650;color:var(--text);margin-bottom:6px">Access code <span id="codeState" style="font-weight:500;font-size:11.5px;color:var(--text-light,#8a97bd)"></span></div>
-                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                            <input id="shareCodeInput" type="text" maxlength="32" autocomplete="off"
-                                   placeholder="Code visitors must enter (leave empty & save = off)"
-                                   style="flex:1;min-width:200px;font-size:12px;padding:7px 10px;border:1px solid var(--border,#dbe4f5);border-radius:8px;background:var(--bg,#f4f7fd);color:var(--text)">
-                            <button class="btn-admin primary" onclick="saveCode()" style="font-size:11px">Save</button>
-                            <button class="btn-admin" onclick="clearCode()" style="font-size:11px">Disable</button>
-                        </div>
-                        <div style="font-size:11px;color:var(--text-light,#a3aed0);margin-top:5px">When enabled, visitors need the code to view/download (browser remembers 1 hour). Wrong attempts trigger brute-force protection — see alert below.</div>
+                        <div style="font-size:11px;color:var(--text-light,#a3aed0)">The code is <b>per share</b> — use “Set code / View code” on each row below. Visitors who enter it are remembered for 1 hour; wrong attempts trigger brute-force protection (see the alert below).</div>
                     </div>
                     <div id="attackTip" style="display:none;margin-top:10px;padding:9px 12px;border-radius:10px;background:rgba(208,86,107,.10);border:1px solid rgba(208,86,107,.35);font-size:12px;color:#b03a50;line-height:1.7"></div>
                     <div id="mountBox" style="display:none;margin:12px 0">
@@ -136,36 +129,49 @@ function fmtTs(ts) {
 function loadShareStatus() {
     fetch('/api/share/status').then(function (r) { return r.json(); }).then(function (st) {
         var codeState = document.getElementById('codeState');
-        if (codeState) codeState.textContent = st.code_enabled ? '(enabled)' : '(disabled)';
+        if (codeState) {
+            // The code is per share, so report how many have one rather than an on/off flag
+            var n = (st && st.coded_count) || 0;
+            codeState.textContent = n ? ('(' + n + ' with a code)') : '(none yet)';
+        }
         renderAttackTip(st);
     }).catch(function () {});
 }
-function saveCode() {
-    var code = document.getElementById('shareCodeInput').value.trim();
-    if (!code) { clearCode(); return; }
-    if (code.length < 6 || code.length > 32) { batchToast('Code must be 6~32 chars', 'error'); return; }
-    fetch('/api/share/code', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code })
-    }).then(function (r) { return r.json(); }).then(function (d) {
-        if (d && d.success) {
-            batchToast('Access code saved', 'success');
-            document.getElementById('shareCodeInput').value = '';
-            loadShareStatus();
-        } else { batchToast((d && d.error) || 'Failed to save', 'error'); }
-    }).catch(function () { batchToast('Failed to save', 'error'); });
+
+// One code per share: "Set code / View code" reads the current code back first (your own code
+// should be visible to you), then saves. Empty input = turn that share's code off.
+function editCode(path, btn) {
+    if (btn) btn.disabled = true;
+    fetch('/api/share/code?path=' + encodeURIComponent(path))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (btn) btn.disabled = false;
+            if (!d || d.error) { batchToast((d && d.error) || 'Failed to read', 'error'); return; }
+            var cur = d.legacy ? '' : (d.code || '');
+            var tip = d.legacy
+                ? 'This share was set with the old format (the plain code cannot be recovered). Enter a new one to replace it (empty = off):'
+                : 'Access code for this share (empty = off, 6~32 chars):';
+            var v = prompt(tip, cur);
+            if (v === null) return;
+            applyCode(path, v.trim(), btn);
+        })
+        .catch(function () { if (btn) btn.disabled = false; batchToast('Failed to read', 'error'); });
 }
-function clearCode() {
+
+function applyCode(path, code, btn) {
+    if (code && (code.length < 6 || code.length > 32)) { batchToast('Code must be 6~32 chars', 'error'); return; }
+    if (btn) btn.disabled = true;
     fetch('/api/share/code', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: '' })
-    }).then(function (r) { return r.json(); }).then(function (d) {
-        if (d && d.success) {
-            batchToast('Access code disabled', 'success');
-            document.getElementById('shareCodeInput').value = '';
-            loadShareStatus();
-        } else { batchToast('Failed', 'error'); }
-    }).catch(function () { batchToast('Failed', 'error'); });
+        body: JSON.stringify({ path: path, code: code })
+    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+          if (btn) btn.disabled = false;
+          if (!res.ok) { batchToast((res.d && res.d.error) || 'Failed to save', 'error'); return; }
+          batchToast(code ? 'Code set for this share' : 'Code turned off for this share', 'success');
+          loadShareStatus();
+          loadList();
+      }).catch(function () { if (btn) btn.disabled = false; batchToast('Failed to save', 'error'); });
 }
 function resetAttempts() {
     if (!confirm('Reset today\'s attempts and unlock?')) return;
@@ -363,18 +369,28 @@ function loadList() {
                 cp.textContent = 'Copy link';
                 cp.onclick = function () { copyText(full); };
             }
+            var cd = document.createElement('button');
+            cd.className = 'btn-admin'; cd.style.cssText = 'font-size:11px';
+            cd.textContent = it.coded ? 'View/change code' : 'Set code';
+            cd.onclick = function () { editCode(it.path, cd); };
             var rm = document.createElement('button');
             rm.className = 'btn-admin danger'; rm.style.cssText = 'font-size:11px';
             rm.textContent = 'Remove';
             rm.onclick = function () { removeMap(it.path, rm); };
             row.appendChild(nm); row.appendChild(st);
+            if (it.coded) {
+                var lk = document.createElement('span');
+                lk.style.cssText = 'font-size:11px;color:#7a5b2f;background:rgba(200,150,60,.14);border-radius:999px;padding:1px 8px';
+                lk.textContent = 'code set';
+                row.appendChild(lk);
+            }
             if (!it.exists) {
                 var gone = document.createElement('span');
                 gone.style.cssText = 'font-size:11px;color:#b3542e;background:rgba(200,110,60,.12);border-radius:999px;padding:1px 8px';
                 gone.textContent = 'source missing';
                 row.appendChild(gone);
             }
-            row.appendChild(cp); row.appendChild(rm);
+            row.appendChild(cp); row.appendChild(cd); row.appendChild(rm);
             box.appendChild(row);
         });
     }).catch(function () {

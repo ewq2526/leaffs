@@ -267,7 +267,17 @@ function render() {
 
     var h = '';
     for (var i = 0; i < filtered.length; i++) {
-        var f = filtered[i], checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
+        var f = filtered[i];
+        if (f.type === 'locked') {
+            // A locked mount: **no name, no size** — just "access code required", tap to enter
+            h += '<div class="file-card folder" style="cursor:pointer" onclick="askShareCode(\'' + jsAttr(f.label || '') + '\')">';
+            h += '<span class="icon">&#128274;</span>';
+            h += '<div class="name">Access code required</div>';
+            h += '<div class="meta">&mdash;</div>';
+            h += '</div>';
+            continue;
+        }
+        var checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
         // A mounted folder reports no size: it is mapped in and takes no part in folder-size
         // accounting; sizes appear once you enter it (keyed on the **source** flag local,
         // not on "virtual entry")
@@ -341,6 +351,27 @@ function toggleCardSelect(p, el) {
     updateSelected();
 }
 function updateSelected() { document.getElementById('selectedCount').textContent = selected.size; }
+
+// One access code per share: enter the code for that locked entry (targeted by a random label)
+function askShareCode(label) {
+    if (!label) return;
+    var code = prompt('This share requires an access code:');
+    if (!code) return;
+    fetch('/api/share/auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: label, code: code.trim() })
+    }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+    }).then(function (res) {
+        var d = (res && res.d) || {};
+        if (res.ok && d.ok) { batchToast('Unlocked', 'success'); loadFiles(); return; }
+        if (d.error === 'locked') {
+            batchToast(d.reason === 'global' ? 'This share is locked — ask the sharer' : 'Too many attempts, try later', 'error');
+            return;
+        }
+        batchToast('Wrong access code', 'error');
+    }).catch(function () { batchToast('Verification failed', 'error'); });
+}
 
 var MAX_UPLOAD_SIZE = 10 * 1024 * 1024 * 1024;
 (function(){

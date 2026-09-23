@@ -79,6 +79,15 @@ def start_server():
     _ac.load_sessions()
     _ac.start_session_cleanup()
     _fs.cleanup_orphan_thumbs()
+    # 分享码的粒度从"每个用户名一个"改成"每条分享一个"（2026-09-22）：把老表里
+    # 该用户名的码哈希复制到它每条分享的标签上 —— 旧码继续有效，只是回显不出明文。
+    # 幂等，迁移过一次之后老表就空了。
+    try:
+        import leaffs.share.access as _sacc
+        import leaffs.share.mappings as _smap
+        _sacc.migrate_user_codes([(lab, own) for lab, own, _vp in _smap.all_scopes()])
+    except Exception as _e:
+        add_log('分享码迁移失败（不影响启动）: %s' % _e, 'warn')
     # LF-26：进程被 kill / 崩溃时，正在写的上传临时文件会留在 UPLOAD_DIR/.uploads/ 里，
     # 而那个目录对用户不可见（LF-22）—— 不清就成了隐形垃圾。**刚启动时必然没有在途上传**，
     # 所以这是唯一安全的清理时机（运行期清会把正在上传的文件干掉）。

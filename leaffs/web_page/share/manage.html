@@ -47,14 +47,7 @@
                     </div>
                     <div style="border-top:1px solid var(--border,#eef1f8);margin-top:12px;padding-top:12px">
                         <div style="font-size:13px;font-weight:650;color:var(--text);margin-bottom:6px">访问码保护 <span id="codeState" style="font-weight:500;font-size:11.5px;color:var(--text-light,#8a97bd)"></span></div>
-                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                            <input id="shareCodeInput" type="text" maxlength="32" autocomplete="off"
-                                   placeholder="访客需输入的访问码（留空保存=关闭）"
-                                   style="flex:1;min-width:200px;font-size:12px;padding:7px 10px;border:1px solid var(--border,#dbe4f5);border-radius:8px;background:var(--bg,#f4f7fd);color:var(--text)">
-                            <button class="btn-admin primary" onclick="saveCode()" style="font-size:11px">保存</button>
-                            <button class="btn-admin" onclick="clearCode()" style="font-size:11px">关闭</button>
-                        </div>
-                        <div style="font-size:11px;color:var(--text-light,#a3aed0);margin-top:5px">开启后访客需输码才能看/下载（浏览器记住 1 小时）；输错会触发防爆破，见下方提醒。</div>
+                        <div style="font-size:11px;color:var(--text-light,#a3aed0)">访问码是<b>每条分享各自一条</b> —— 在下面每条右侧点「设码 / 查看码」。访客输码后浏览器记住 1 小时；输错会触发防爆破（见下方提醒）。</div>
                     </div>
                     <div id="attackTip" style="display:none;margin-top:10px;padding:9px 12px;border-radius:10px;background:rgba(208,86,107,.10);border:1px solid rgba(208,86,107,.35);font-size:12px;color:#b03a50;line-height:1.7"></div>
                     <div id="mountBox" style="display:none;margin:12px 0">
@@ -135,36 +128,49 @@ function fmtTs(ts) {
 function loadShareStatus() {
     fetch('/api/share/status').then(function (r) { return r.json(); }).then(function (st) {
         var codeState = document.getElementById('codeState');
-        if (codeState) codeState.textContent = st.code_enabled ? '（已开启）' : '（未开启）';
+        if (codeState) {
+            // 码是每条一条，所以这里报"几条设了码"，而不是一个开关
+            var n = (st && st.coded_count) || 0;
+            codeState.textContent = n ? ('（' + n + ' 条已设码）') : '（都还没设码）';
+        }
         renderAttackTip(st);
     }).catch(function () {});
 }
-function saveCode() {
-    var code = document.getElementById('shareCodeInput').value.trim();
-    if (!code) { clearCode(); return; }
-    if (code.length < 6 || code.length > 32) { batchToast('长度需 6~32 位', 'error'); return; }
-    fetch('/api/share/code', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code })
-    }).then(function (r) { return r.json(); }).then(function (d) {
-        if (d && d.success) {
-            batchToast('访问码已保存', 'success');
-            document.getElementById('shareCodeInput').value = '';
-            loadShareStatus();
-        } else { batchToast((d && d.error) || '保存失败', 'error'); }
-    }).catch(function () { batchToast('保存失败', 'error'); });
+
+// 每条分享各一个码：点「设码 / 查看码」——先把当前码读回来预填（自己的码本来就该看得见），
+// 留空保存 = 关闭这一条的码。
+function editCode(path, btn) {
+    if (btn) btn.disabled = true;
+    fetch('/api/share/code?path=' + encodeURIComponent(path))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+            if (btn) btn.disabled = false;
+            if (!d || d.error) { batchToast((d && d.error) || '读取失败', 'error'); return; }
+            var cur = d.legacy ? '' : (d.code || '');
+            var tip = d.legacy
+                ? '这条的码是旧格式保存的（读不回明文）。输入一个新码即可覆盖（留空=关闭）：'
+                : '这一条的访问码（留空=关闭，6~32 位）：';
+            var v = prompt(tip, cur);
+            if (v === null) return;
+            applyCode(path, v.trim(), btn);
+        })
+        .catch(function () { if (btn) btn.disabled = false; batchToast('读取失败', 'error'); });
 }
-function clearCode() {
+
+function applyCode(path, code, btn) {
+    if (code && (code.length < 6 || code.length > 32)) { batchToast('长度需 6~32 位', 'error'); return; }
+    if (btn) btn.disabled = true;
     fetch('/api/share/code', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: '' })
-    }).then(function (r) { return r.json(); }).then(function (d) {
-        if (d && d.success) {
-            batchToast('已关闭访问码', 'success');
-            document.getElementById('shareCodeInput').value = '';
-            loadShareStatus();
-        } else { batchToast('操作失败', 'error'); }
-    }).catch(function () { batchToast('操作失败', 'error'); });
+        body: JSON.stringify({ path: path, code: code })
+    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+          if (btn) btn.disabled = false;
+          if (!res.ok) { batchToast((res.d && res.d.error) || '保存失败', 'error'); return; }
+          batchToast(code ? '这一条已设码' : '已关闭这一条的访问码', 'success');
+          loadShareStatus();
+          loadList();
+      }).catch(function () { if (btn) btn.disabled = false; batchToast('保存失败', 'error'); });
 }
 function resetAttempts() {
     if (!confirm('重置今日防爆破计数并解除锁定？')) return;
@@ -361,6 +367,16 @@ function loadList() {
                 loc.textContent = '本机路径';
                 row.appendChild(loc);
             }
+            if (it.coded) {
+                var lk = document.createElement('span');
+                lk.style.cssText = 'font-size:11px;color:#7a5b2f;background:rgba(200,150,60,.14);border-radius:999px;padding:1px 8px';
+                lk.textContent = '已设码';
+                row.appendChild(lk);
+            }
+            var cd = document.createElement('button');
+            cd.className = 'btn-admin'; cd.style.cssText = 'font-size:11px';
+            cd.textContent = it.coded ? '查看/改码' : '设码';
+            cd.onclick = function () { editCode(it.path, cd); };
             var cp = document.createElement('button');
             cp.className = 'btn-admin'; cp.style.cssText = 'font-size:11px';
             if (it.type === 'folder') {
@@ -376,7 +392,7 @@ function loadList() {
             rm.textContent = '移除';
             rm.onclick = function () { removeMap(it.path, rm); };
             row.appendChild(nm); row.appendChild(st);
-            row.appendChild(cp); row.appendChild(rm);
+            row.appendChild(cp); row.appendChild(cd); row.appendChild(rm);
             box.appendChild(row);
         });
     }).catch(function () {

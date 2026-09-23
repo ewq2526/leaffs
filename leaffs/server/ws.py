@@ -38,7 +38,11 @@ import leaffs.server.push as _push
 import leaffs.server.tls as _tls
 # LF-27：分享码判定与 HTTP 侧**共用一份**（share/access.code_gate）——
 # WS 的列表也要按分享码过滤，不能自己再写一套"谁算解锁"。
+# ⚠️ 侧边还要 `mappings.access_scope`：码的粒度是**每条分享**，光有虚拟路径判不出是哪一条 ——
+# 少了它这里会抛 NameError，而下面那个 `except Exception` 会把它吞掉、把每一条都判成"没解锁"
+# （症状：WS 列表里 shares 永远不出现、每条挂载都显示成"需要访问码"占位）。
 import leaffs.share.access as _sacc
+import leaffs.share.mappings as _mapping
 from leaffs.watchdog import _wd_ws_tick
 from leaffs.runtime_log import add_log
 
@@ -566,15 +570,17 @@ async def ws_handler(websocket):
                 if t == 'list':
                     p = _ws_str(data, 'path')
 
-                    def _ws_share_unlocked(owner):
-                        """该 owner 的分享码是否已解锁 —— 与 HTTP 侧**同一套判定**。
+                    def _ws_share_unlocked(vp):
+                        """这条分享的码解锁了没有 —— 与 HTTP 侧**同一套判定**。
 
                         **必须传真实回调**：`merge_into_list(unlocked=None)` 的语义是
-                        "不过滤"，那等于把设了码的分享目录白送给任何连得上 WS 的人。
+                        "不过滤"，那等于把设了码的分享白送给任何连得上 WS 的人。
+                        粒度是**每条分享**（不是每个用户）：标签由 `access_scope` 从虚拟路径取。
                         """
                         try:
+                            label, owner = _mapping.access_scope(vp)
                             return _sacc.code_gate(
-                                owner,
+                                label, owner,
                                 getattr(websocket, 'cached_cookie', ''),
                                 getattr(websocket, 'remote_address', ('', 0))[0],
                                 ws_user or '')

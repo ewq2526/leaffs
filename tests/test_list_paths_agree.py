@@ -29,6 +29,8 @@
   · 用例 3 是**对照组**（两边都不显示 `.uploads`，改前改后都绿）。
   · 用例 4 是**防退化守卫**：改之前 WS 压根不含 shares，所以它在旧代码上也是绿的 ——
     它防的是修法的错误版本（WS 侧传 `unlocked=None` ＝ 不过滤 ＝ 绕过分享码）。
+    该用例同时钉住分享码的**粒度是每条分享**（不是每个用户）：设了码的那条两条路都不出现，
+    而同一个人名下**没设码**的那条照旧出现。
 """
 import json
 import os
@@ -43,6 +45,7 @@ import pytest
 HTTP_PORT, WS_PORT = 8111, 8112
 PROJ_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHARE_FILE = 'lf27-agree.txt'
+OPEN_FILE = 'lf27-open.txt'       # 粒度对照用：同一个人的另一条分享（不设码）
 TMP_DIRNAME = '.uploads'
 
 
@@ -112,8 +115,11 @@ def inst(data_root_factory):
             assert r.status_code == 200, r.text
             r = c.post('/api/share/publish', json={'paths': ['public/' + SHARE_FILE]})
             assert r.status_code == 200, r.text
+            share_vp = (r.json().get('published') or [{}])[0].get('path') or ''
+            assert share_vp, r.text
 
-        yield SimpleNamespace(root=root, base=base, ws_url=ws_url, admin_cookie=admin_cookie)
+        yield SimpleNamespace(root=root, base=base, ws_url=ws_url,
+                              admin_cookie=admin_cookie, share_vp=share_vp)
     finally:
         proc.terminate()
         try:
@@ -188,7 +194,7 @@ def test_uploads_dir_hidden_from_root_listing_on_both(inst):
 
 
 def test_code_protected_share_is_hidden_on_both_paths(inst, guest_cookie):
-    """★★ 防退化守卫：分享码设上之后，没过码的人在**两条路上**都看不到 shares
+    """★★ 防退化守卫：分享码设上之后，没过码的人在**两条路上**都看不到**那条**分享
 
     防的是修法的错误版本：`merge_into_list(unlocked=None)` 的语义是**不过滤**，
     WS 上若图省事传 `None`，等于把设了码的分享目录白送给任何连得上 WS 的人
@@ -197,11 +203,15 @@ def test_code_protected_share_is_hidden_on_both_paths(inst, guest_cookie):
     ⚠️ 这条在**改之前也是绿的**（那时 WS 压根不含 shares），所以它是守卫、不是复现。
     真正让它有意义的是下面那两条**对照断言**：游客必须能看到 public 里的普通文件，
     否则"看不到 shares"可能只是因为整个请求失败了 —— 那就是假绿。
+
+    ⚠️ 粒度是**每条分享**（码挂在随机标签上，不再挂在用户名上）：这里设码必须指明
+    `path`（哪一条）；挡住的那条不影响同一个人名下**没设码**的其他分享 ——
+    最后一段就是拿这个跟旧的"每个用户一个码"语义区分开的。
     """
     with httpx.Client(base_url=inst.base, timeout=20) as c:
         c.cookies.set('wifi_session', inst.admin_cookie)
-        r = c.post('/api/share/code', json={'code': 'lf27code'})
-        assert r.status_code == 200, r.text
+        r = c.post('/api/share/code', json={'path': inst.share_vp, 'code': 'lf27code'})
+        assert r.status_code == 200 and r.json().get('enabled') is True, r.text
 
     # ① 分享者本人免输码：两条路都该看得到
     own_http = _names(_http_list(inst.base, inst.admin_cookie, 'public').json())
@@ -209,7 +219,7 @@ def test_code_protected_share_is_hidden_on_both_paths(inst, guest_cookie):
     assert 'shares' in own_http and 'shares' in own_ws, \
         '分享者本人在自己的列表里该看得到 shares（免输码）：HTTP=%s WS=%s' % (own_http, own_ws)
 
-    # ② 游客没过码：两条路都不该出现（连文件夹本身都不给）
+    # ② 游客没过码：**设了码的那条**在两条路上都不出现（连它所在的虚拟目录都不给）
     guest_http = _names(_http_list(inst.base, guest_cookie, 'public').json())
     guest_ws_msg = _ws_list(inst.ws_url, guest_cookie, 'public')
     guest_ws = _names(guest_ws_msg)
@@ -222,11 +232,31 @@ def test_code_protected_share_is_hidden_on_both_paths(inst, guest_cookie):
         '游客的 WS 列表没成功拿到普通文件（%r）—— 同样会让下面那条变成假绿'
         % (guest_ws_msg,))
 
+    # 此刻这条分享是 admin 名下**唯一**的映射：它被挡 ⇒ shares 这个虚拟目录整体不出现
     assert 'shares' not in guest_http, \
         '没过码的游客在 HTTP 列表里看到了受保护的 shares：%s' % guest_http
     assert 'shares' not in guest_ws, (
         '没过码的游客在 **WS 列表**里看到了受保护的 shares：%s\n'
         '（`unlocked=None` 的语义是"不过滤" —— 传它就等于绕过分享码）' % guest_ws)
+
+    # ③ 粒度对照：给**同一个人**再发一条**不设码**的分享 —— 两条路上 shares 又该回来。
+    #    旧的"每个用户一个码"语义下，admin 名下有码 ⇒ admin 的分享**全部**消失，这里必红。
+    with httpx.Client(base_url=inst.base, timeout=20) as c:
+        c.cookies.set('wifi_session', inst.admin_cookie)
+        r = c.post('/api/upload?path=public',
+                   files={'file': (OPEN_FILE, b'lf27open', 'text/plain')})
+        assert r.status_code == 200, r.text
+        r = c.post('/api/share/publish', json={'paths': ['public/' + OPEN_FILE]})
+        assert r.status_code == 200, r.text
+
+    open_http = _names(_http_list(inst.base, guest_cookie, 'public').json())
+    open_ws_msg = _ws_list(inst.ws_url, guest_cookie, 'public')
+    open_ws = _names(open_ws_msg)
+    assert 'shares' in open_http and 'shares' in open_ws, (
+        '同一个人名下多了**一条不设码的分享**，游客两条路上却还是看不到 shares —— '
+        '说明挡的粒度还是"每个用户"（他有一条设了码，名下别的分享也被一起挡了）：\n'
+        '  HTTP = %s\n  WS   = %s' % (open_http, open_ws))
+    assert open_ws == open_http, 'HTTP=%s WS=%s' % (open_http, open_ws)
 
 
 def test_home_pages_show_ws_errors():

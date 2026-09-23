@@ -308,7 +308,7 @@ def users_delete(handler, delete_user):
         try:
             import leaffs.share.access as _sacc
             import leaffs.share.mappings as _smap
-            _sacc.purge_user(username)
+            _sacc.purge_owner(username)
             _smap.remove_by_owner(username)
         except Exception as e:
             from leaffs.runtime_log import log_exception

@@ -16,6 +16,7 @@
 """
 import json
 import os
+import secrets
 import threading
 import time
 
@@ -30,7 +31,16 @@ _MAX_TOTAL = 500          # 全量映射上限（防失控增长）
 _MAX_USER = 100           # 单用户上限（只约束普通分享；挂载不分用户，只受总量上限约束）
 
 _lock = threading.Lock()
-_cache = None             # {virtual_rel: {'src': src_rel, 'by': username, 'created': float}}
+_cache = None             # {virtual_rel: {'src'|'fs': ..., 'by': 属主, 'created': float, 'label': 随机标签}}
+
+
+def _new_label():
+    """给一条分享生成**随机标签** —— 分享码按它索引，不按名字。
+
+    名字会变（改名/移动）、会撞（不同命名空间同名）、能枚举；
+    随机标签三样都不沾（见 `share/access.py` 顶部的说明）。
+    """
+    return secrets.token_urlsafe(9)
 
 
 def _load_locked():
@@ -38,6 +48,7 @@ def _load_locked():
     if _cache is not None:
         return
     _cache = {}
+    need_save = False
     try:
         with open(_MAPPINGS_FILE, 'r', encoding='utf-8') as f:
             raw = json.load(f)
@@ -61,11 +72,24 @@ def _load_locked():
                     entry['fs'] = fs
                 else:
                     continue
+                # 随机标签：分享码按它索引。老记录没有 → 补一个，**并且落盘** ——
+                # 不落盘的话每次加载都会换一个新标签，那条分享的码就永远对不上。
+                lab = item.get('label')
+                if isinstance(lab, str) and lab:
+                    entry['label'] = lab
+                else:
+                    entry['label'] = _new_label()
+                    need_save = True
                 _cache[vp] = entry
     except FileNotFoundError:
         pass
     except Exception as e:
         add_log('分享映射加载失败: %s' % e, 'warn')
+    if need_save:
+        try:
+            _save_locked()
+        except Exception:
+            pass
 
 
 def _save_locked():
@@ -153,7 +177,8 @@ def publish(src_rel, username):
         if name is None:
             return None, '文件名非法'
         vp = vdir + '/' + name
-        _cache[vp] = {'src': norm, 'by': username, 'created': time.time()}
+        _cache[vp] = {'src': norm, 'by': username, 'created': time.time(),
+                      'label': _new_label()}
         _save_locked()
     add_log('分享映射已添加: %s → %s' % (norm, vp), 'info')
     return vp, None
@@ -203,7 +228,8 @@ def publish_fs(fs_path, username):
             return None, '挂载数量已达上限'
         if vp in _cache:
             return None, '已经有一条同名挂载（%s），先卸掉它再挂' % _cache[vp].get('fs', '')
-        _cache[vp] = {'fs': target, 'by': username, 'created': time.time()}
+        _cache[vp] = {'fs': target, 'by': username, 'created': time.time(),
+                      'label': _new_label()}
         _save_locked()
     add_log('本机路径已挂载: %s → %s' % (target, vp), 'info')
     return vp, None
@@ -238,6 +264,41 @@ def lookup_fs_prefix(rel):
     return best
 
 
+def access_scope(vp):
+    """这条虚拟路径属于哪个**分享条目**：返回 `(标签, 属主)`。
+
+    分享码按**条目**判（每条分享一个码），所以闸门需要"路径 → 标签"这一步：
+      * `public/shares/<用户名>/<名字>` → 那一条分享；
+      * `mounts/<名字>` 及其**内部任意层级** → 那个挂载点（`fs` 来源靠前缀解析）。
+    不属于任何登记条目（普通磁盘路径）→ `('', '')`，闸门据此恒放行。
+    """
+    if not isinstance(vp, str) or not vp:
+        return ('', '')
+    rel = vp.replace('\\', '/').strip('/')
+    with _lock:
+        _load_locked()
+        item = _cache.get(rel)
+        if isinstance(item, dict) and item.get('label'):
+            return (item['label'], item.get('by') or '')
+    hit = lookup_fs_prefix(rel)
+    if hit:
+        with _lock:
+            _load_locked()
+            item = _cache.get(hit[0])
+        if isinstance(item, dict) and item.get('label'):
+            return (item['label'], item.get('by') or '')
+    return ('', '')
+
+
+def all_scopes():
+    """所有条目的 `(标签, 属主, 虚拟路径)` —— 供启动时把老的"按用户名一个码"迁移过来。"""
+    with _lock:
+        _load_locked()
+        return [(it.get('label') or '', it.get('by') or '', vp)
+                for vp, it in _cache.items()
+                if isinstance(it, dict) and it.get('label')]
+
+
 def remove(virtual_rel, username, is_admin=False):
     """移除映射。仅创建者本人或 admin。返回 (ok, errmsg)。"""
     if not isinstance(virtual_rel, str):
@@ -250,8 +311,16 @@ def remove(virtual_rel, username, is_admin=False):
             return False, '映射不存在'
         if not is_admin and item.get('by') != username:
             return False, '无权移除他人的分享'
+        label = item.get('label') or ''
         del _cache[vp]
         _save_locked()
+    if label:
+        # 条目没了，它的码 / 计数 / 锁 / 票据也一起清 —— 否则就是指向不存在分享的残留
+        try:
+            from leaffs.share import access as _sacc
+            _sacc.forget(label)
+        except Exception:
+            pass
     add_log('分享映射已移除: %s' % vp, 'info')
     return True, None
 
@@ -344,7 +413,7 @@ def list_public(username):
         if st is None:
             continue
         out.append({'name': vp.rsplit('/', 1)[-1], 'size': st[0],
-                    'mtime': st[1], 'url': '/download/' + vp})
+                    'mtime': st[1], 'path': vp, 'url': '/download/' + vp})
     return out
 
 
@@ -440,14 +509,6 @@ def _virtual_stat(vp):
         return None
 
 
-def _owner_of_virtual(vp):
-    """public/shares/<用户名>/… → 用户名；不是映射路径则返回 ''"""
-    parts = (vp or '').split('/')
-    if len(parts) >= 3 and parts[0] == 'public' and parts[1] == 'shares':
-        return parts[2]
-    return ''
-
-
 def merge_into_list(rel_path, result, unlocked=None):
     """把 rel_path 下的虚拟映射条目合并进 list_files 结果 dict（就地修改）。
 
@@ -455,8 +516,8 @@ def merge_into_list(rel_path, result, unlocked=None):
     同时把虚拟条目计入 total_file_count / total_size_sum。
     返回是否发生了合并。
 
-    unlocked：可选回调 (owner) -> bool。返回 False 的 owner，其虚拟条目**一律不合并** ——
-    连文件夹本身都不出现在列表里，统计也不计入。分享码没解锁时，文件名/大小/修改时间
+    unlocked：可选回调 `(虚拟路径) -> bool`。返回 False 的那条分享**一律不合并** ——
+    连名字都不出现在列表里，统计也不计入。分享码没解锁时，文件名/大小/修改时间
     本身就是信息，不能白看列表。传 None 表示不过滤（服务端内部调用）。
     """
     _load_locked()
@@ -465,13 +526,14 @@ def merge_into_list(rel_path, result, unlocked=None):
             and not rel.startswith('public/shares/'):
         return False
 
-    def visible(owner):
+    def visible(vp):
+        """这条分享解锁了没有（判定只有一份实现：HTTP 与 WS 都提供同一个回调）"""
         if unlocked is None:
             return True
-        if not owner:
+        if not vp:
             return False
         try:
-            return bool(unlocked(owner))
+            return bool(unlocked(vp))
         except Exception:
             return False
 
@@ -495,8 +557,9 @@ def merge_into_list(rel_path, result, unlocked=None):
         result['total_size_sum'] = (result.get('total_size_sum') or 0) + size_extra
 
     # ---------- 服务器挂载区（`mounts/`，与 public 同级）----------
-    # 两种来源两种逻辑：普通分享按用户分、有分享码；挂载**不分用户、也没有分享码** ——
-    # 它的访问权限与公共目录一个级别（由权限层判），所以这里不看 `unlocked`。
+    # 两种来源两种逻辑：普通分享**按用户分**（条目挂在用户名下）；挂载**没有属主** ——
+    # 它的访问权限与公共目录一个级别（由权限层判），码挂在自己那条的随机标签上
+    # （下面按 `visible(vp)` 逐条判，锁着的挂载点给"需要访问码"占位）。
     # ⚠️ 根层那个 `mounts` 目录的 size 报 0：挂载是映射出来的，**不参与**目录大小统计；
     # 进了 `mounts/` 之后，条目按各自来源报（文件报真实大小，目录由 `_virtual_stat` 报 0）。
     if rel in ('', _MOUNT_ROOT_REL):
@@ -521,6 +584,17 @@ def merge_into_list(rel_path, result, unlocked=None):
         for vp, item in mounts:
             name = vp.split('/', 1)[1]
             if name in disk_names:
+                continue
+            if not visible(vp):
+                # 锁着的挂载点给一个**占位**：不给名字，只给随机标签让访客能对着它输码。
+                # （分享区那边不给占位 —— 它有分享页那条单独的入口；挂载区在浏览页里，
+                #   不给占位就永远没有输码的地方。）
+                label = item.get('label') or ''
+                if label:
+                    files.append({'name': '需要访问码', 'path': '', 'type': 'locked',
+                                  'label': label, 'size': 0, 'mtime': 0,
+                                  'virtual': True, 'local': True})
+                    merged = True
                 continue
             st = _virtual_stat(vp)
             if st is None:
@@ -548,7 +622,7 @@ def merge_into_list(rel_path, result, unlocked=None):
             return False
         subs = []
         for vp in _cache:
-            if not visible(_owner_of_virtual(vp)):
+            if not visible(vp):
                 continue
             st = _virtual_stat(vp)
             if st is not None:
@@ -569,14 +643,13 @@ def merge_into_list(rel_path, result, unlocked=None):
         users = sorted({m.split('/')[2] for m in _cache
                         if m.startswith('public/shares/') and len(m.split('/')) >= 3})
         for u in users:
-            if not visible(u):
-                continue
             if u in disk_names:
                 continue
             subs = []
             pref = 'public/shares/' + u + '/'
             for vp in _cache:
-                if vp.startswith(pref):
+                # 逐条判：没解锁的分享**连名字都不给**；该用户名下一条都没解锁 → 目录不出现
+                if vp.startswith(pref) and visible(vp):
                     st = _virtual_stat(vp)
                     if st is not None:
                         subs.append(st)
@@ -589,15 +662,16 @@ def merge_into_list(rel_path, result, unlocked=None):
         return merged
 
     # rel == public/shares/<用户名>：补充该用户映射的文件（源失效的不展示）
-    # 没解锁就整个目录什么都不给 —— 空列表，而不是 403：403 等于告诉对方"这里本来有东西"
-    if not visible(_owner_of_virtual(rel)):
-        return False
+    # **逐条判解锁**：没解锁的那条连名字都不出现 —— 空列表，而不是 403：
+    # 403 等于告诉对方"这里本来有东西"
     pref = rel + '/'
     count_extra = 0
     size_extra = 0
     for vp in sorted(_cache):
         if not vp.startswith(pref):
             continue
+        if not visible(vp):
+            continue                    # 这一条没解锁 → 连名字都不给
         rest = vp[len(pref):]
         if '/' in rest:                 # 更深层级不存在（映射只到文件名）
             continue

@@ -280,7 +280,17 @@ function render() {
 
     var h = '';
     for (var i = 0; i < filtered.length; i++) {
-        var f = filtered[i], checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
+        var f = filtered[i];
+        if (f.type === 'locked') {
+            // 锁着的挂载点：**名字、大小一个都不给** —— 只显示"需要访问码"，点它输码
+            h += '<div class="file-card folder" style="cursor:pointer" onclick="askShareCode(\'' + jsAttr(f.label || '') + '\')">';
+            h += '<span class="icon">&#128274;</span>';
+            h += '<div class="name">需要访问码</div>';
+            h += '<div class="meta">&mdash;</div>';
+            h += '</div>';
+            continue;
+        }
+        var checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
         // 服务器挂载的目录不报大小：它是映射出来的，不参与目录大小统计；
         // 点进去那一层才逐个显示条目大小（判据是**来源** local，不是"虚拟条目"）
         var sz = (isFolder && f.local) ? '&mdash;' : formatSize(f.size), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
@@ -352,6 +362,27 @@ function toggleCardSelect(p, el) {
     updateSelected();
 }
 function updateSelected() { document.getElementById('selectedCount').textContent = selected.size; }
+
+// 访问码是**每条分享**一条：这里为被锁住的那一条输码（目标用随机标签指认）
+function askShareCode(label) {
+    if (!label) return;
+    var code = prompt('这一条需要访问码：');
+    if (!code) return;
+    fetch('/api/share/auth', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: label, code: code.trim() })
+    }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+    }).then(function (res) {
+        var d = (res && res.d) || {};
+        if (res.ok && d.ok) { batchToast('已解锁', 'success'); loadFiles(); return; }
+        if (d.error === 'locked') {
+            batchToast(d.reason === 'global' ? '这一条已被锁定，请联系分享者' : '尝试次数过多，请稍后再试', 'error');
+            return;
+        }
+        batchToast('访问码不正确', 'error');
+    }).catch(function () { batchToast('验证失败', 'error'); });
+}
 
 var MAX_UPLOAD_SIZE = 10 * 1024 * 1024 * 1024;
 (function(){

@@ -130,8 +130,6 @@ _ADMIN_ONLY_GET = frozenset((
 #   * 原密码不正确（`auth/self_api.py`）
 #   * 游客模式已关闭（`auth/login_api.py` 的 guest_login）
 #   * 分享码错误 / 被锁定（`server/handler.py` 的 share_auth）
-#   * 分享页的"需要输码"引导（`/p/<用户>/api` 的 `code_required`）—— 前端
-#     `web_page/share/public.html` 就靠这个 403 弹输码框，改了分享页就坏
 #
 # **不写日志**：这个映射是全局的、无例外的（除豁免清单），排障时看代码即可；
 # 逐次记一条"本来是 401/403"反而会被攻击者刷屏。
@@ -1369,6 +1367,9 @@ class HTTPHandler(BaseHTTPRequestHandler):
             it['url'] = ('/browse/' + it['path']) if it.get('type') == 'folder' \
                 else ('/download/' + it['path'])
             it['removable'] = is_admin or it.get('by') == username
+            # 这条设了码没有 —— 码是按条目的，列表里得逐条告诉界面
+            _lab, _own = _mapping.access_scope(it['path'])
+            it['coded'] = _sacc.code_enabled(_lab) if _lab else False
         # can_mount：只有"服务端本机令牌会话"才显示入口（服务端同时也会判定，不靠前端藏按钮）
         self.send_json({'mappings': items,
                         'can_mount': self._is_local_token_session()})
@@ -1385,12 +1386,38 @@ class HTTPHandler(BaseHTTPRequestHandler):
             return None, None
         return role, self._get_username_from_session() or ''
 
+    def _share_item_actor(self, p):
+        """给某条分享设/读码前的鉴权：返回 (label, owner, err)。
+
+        两种来源分别判：
+          * 普通分享（有属主）：本人或管理员；
+          * 挂载点（没有属主）：**只有服务端本机会话** —— 挂载本来就是它建的。
+        """
+        label, owner = _mapping.access_scope(p)
+        if not label:
+            return '', '', '找不到这条分享'
+        role = self._get_effective_role() or ''
+        if owner:
+            me = self._get_username_from_session() or ''
+            if owner != me and role not in ('admin', 'super_admin'):
+                return '', '', '无权设置他人的分享码'
+        elif not self._is_local_token_session():
+            return '', '', '挂载点的访问码只能在服务端本机设置'
+        return label, owner, ''
+
     def share_code_set(self):
-        """POST /api/share/code {code: 新码 | ''} —— 设/换/清自己的分享码"""
-        role, username = self._share_session_actor()
+        """POST /api/share/code {path: 虚拟路径, code: 新码 | ''} —— 给**某条分享**设/换/清码
+
+        码的粒度是**每条分享**（不是每个用户）：每条映射、每个挂载点各一条码。
+        """
+        role, _username = self._share_session_actor()
         if not role:
             return
         data = self._read_json() or {}
+        p = str(data.get('path') or '').strip()
+        if not p:
+            self.send_json({'error': '缺少 path（哪一条分享）'}, 400)
+            return
         code = data.get('code')
         if code is None:
             self.send_json({'error': '缺少 code（空串=清除）'}, 400)
@@ -1399,11 +1426,40 @@ class HTTPHandler(BaseHTTPRequestHandler):
         if code and not (6 <= len(code) <= 32):
             self.send_json({'error': '分享码长度需 6~32 个字符'}, 400)
             return
-        ok, err = _sacc.set_code(username, code, self._actor())
-        if not ok:
-            self.send_json({'error': err or '设置失败'}, 400)
+        label, owner, err = self._share_item_actor(p)
+        if err:
+            self.send_json({'error': err}, 403)
             return
-        self.send_json({'success': True, 'enabled': bool(code)})
+        ok, err2 = _sacc.set_code(label, code, owner, self._actor())
+        if not ok:
+            self.send_json({'error': err2 or '设置失败'}, 400)
+            return
+        self.send_json({'success': True, 'enabled': bool(code), 'path': p})
+
+    def share_code_get(self):
+        """GET /api/share/code?path= —— 把码**读回来**（只给本人与管理员）
+
+        码存明文就是为了这个：设完自己看不到，等于设完就丢。
+        迁移来的旧码只有哈希、回显不出明文，这里回 `legacy: true` 让界面提示重设。
+        """
+        role = self._get_effective_role()
+        if not role:
+            self.send_json({'error': 'Unauthorized'}, 401)
+            return
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        p = (q.get('path', [''])[0] or '').strip()
+        if not p:
+            self.send_json({'error': '缺少 path'}, 400)
+            return
+        label, owner, err = self._share_item_actor(p)
+        if err:
+            self.send_json({'error': err}, 403)
+            return
+        me = self._get_username_from_session() or ''
+        info = _sacc.read_code(label, me, owner,
+                               is_admin=role in ('admin', 'super_admin'))
+        info['path'] = p
+        self.send_json(info)
 
     def share_reset(self):
         """POST /api/share/reset {username?} —— 本人重置防爆破计数（admin 可对他人）"""
@@ -1421,35 +1477,39 @@ class HTTPHandler(BaseHTTPRequestHandler):
         self.send_json({'success': True})
 
     def share_auth(self):
-        """POST /api/share/auth {username, code} —— 访客输入分享码
-        正确 → 下发 1 小时授权 Cookie；错误 → 记失败并返回锁定状态/剩余次数。
+        """POST /api/share/auth {label, code} —— 访客为**某一条分享**输码
+        正确 → 把这条加进 1 小时授权票据；错误 → 记失败并返回锁定状态/剩余次数。
+
+        用**随机标签**而不是路径来指认哪一条：标签不可枚举、也不含文件名，
+        所以"给访客一个可以输码的目标"不会把名字泄露出去。
         """
         data = self._read_json() or {}
-        username = str(data.get('username') or '').strip()
+        label = str(data.get('label') or '').strip()
         code = str(data.get('code') or '').strip()
-        if not _mapping.valid_username(username) or not code:
+        if not label or not code:
             self.send_json({'ok': False, 'error': '参数无效'}, 400)
             return
-        if not _sacc.code_enabled(username):
+        if not _sacc.code_enabled(label):
             self.send_json({'ok': False, 'error': '该分享未设置访问码'}, 400)
             return
         ip = self.client_address[0]
         # 锁定判定：全局锁中 / 该 IP 当日已锁 → 直接拒
-        blocked, reason = _sacc.access_blocked(username, ip)
+        blocked, reason = _sacc.access_blocked(label, ip)
         if blocked:
             self.send_json({'ok': False, 'error': 'locked', 'reason': reason}, 403,
                            exempt=True)
             return
-        cname = _sacc.cookie_name(username)
-        if _sacc.verify_code(username, code):
-            # 成功：签发 1 小时**授权票据**（该 IP 计数清零由 on_success 处理）。
+        cookie_header = self.headers.get('Cookie', '')
+        if _sacc.verify_code(label, code):
+            # 成功：把这条加进**授权票据**（一张票据可累积多条分享的解锁；
+            # 一条码一个 Cookie 会把请求头撑爆），该 IP 计数清零由 on_success 处理。
             # 票据是不透明随机值 —— 早先这里直接把"码的哈希"当 Cookie 值，而哈希能由码
             # 推算出来：离线枚举出码后自己写一个同名 Cookie 就能下载，全程不经过本接口，
             # IP 锁与全局锁都拦不到。
-            ticket = _sacc.issue_ticket(username)
+            ticket = _sacc.issue_ticket(label, cookie_header)
             hours = max(1, int(round(_sacc.param('cookie_hours'))))
             sc = ('%s=%s; Path=/; Max-Age=%d; HttpOnly; SameSite=Lax'
-                  % (cname, ticket, hours * 3600))
+                  % (_sacc.SHARE_COOKIE, ticket, hours * 3600))
             if self._is_secure():
                 # Cookie 不隔离端口：明文模式下不带 Secure 的话，访问一次 8082 那类明文页就可能把它带走
                 sc += '; Secure'
@@ -1461,9 +1521,9 @@ class HTTPHandler(BaseHTTPRequestHandler):
             self.send_header('Content-Length', str(len(_ok_body)))
             self.end_headers()
             self.wfile.write(_ok_body)
-            _sacc.on_success(username, ip)
+            _sacc.on_success(label, ip)
             return
-        ev = _sacc.record_failure(username, ip)
+        ev = _sacc.record_failure(label, ip)
         body = {'ok': False, 'error': 'incorrect', 'remaining': ev['remaining']}
         if ev['global_now']:
             body['error'] = 'locked'
@@ -1962,15 +2022,15 @@ def _g_files(h, path, role):
 
 
 def _share_unlocked_check(h):
-    """给文件列表用的分享码判断，返回 (owner) -> bool。
+    """给文件列表用的分享码判断，返回 `(虚拟路径) -> bool`。
 
-    规则与 _share_code_gate 同一套：没设码 = 恒解锁，分享者本人 = 解锁。
-    没解锁的 owner，其分享目录在列表里完全不出现（连文件夹本身都不给），
+    规则与 `_share_code_gate` 同一套：没设码 = 恒解锁，分享者本人 = 解锁。
+    **粒度是每条分享**：没解锁的那条在列表里完全不出现（连名字都不给），
     免得没过码的人靠文件名/大小/时间白拿信息。
     """
-    def check(owner):
+    def check(vp):
         try:
-            return _share_code_gate(h, owner, h.headers.get('Cookie', ''))
+            return _share_code_gate(h, vp, h.headers.get('Cookie', ''))
         except Exception:
             return False
     return check
@@ -1984,8 +2044,7 @@ def _g_raw(h, path, role):
         if rp:
             real = _mapping.resolve(rp)
             if real is not None:
-                owner = _share_owner_of(rp)
-                if not _share_code_gate(h, owner, h.headers.get('Cookie', '')):
+                if not _share_code_gate(h, rp, h.headers.get('Cookie', '')):
                     h.send_error(403)
                     return
                 _share_stream_file(h, real, inline=True)
@@ -2007,9 +2066,8 @@ def _g_thumb(h, path, role):
         rel = ''
     if rel:
         try:
-            owner = _share_owner_of(rel)
-            if owner and _mapping.resolve(rel) and \
-                    not _share_code_gate(h, owner, h.headers.get('Cookie', '')):
+            if _mapping.resolve(rel) and \
+                    not _share_code_gate(h, rel, h.headers.get('Cookie', '')):
                 h.send_json({'error': '需要分享码'}, 403)
                 return
         except Exception:
@@ -2029,11 +2087,15 @@ def _g_download(h, path, role):
     except Exception:
         real = None
     if real is not None:
-        owner = _share_owner_of(rel)
-        if not _share_code_gate(h, owner, h.headers.get('Cookie', '')):
+        _label, owner = _mapping.access_scope(rel)
+        if not _share_code_gate(h, rel, h.headers.get('Cookie', '')):
             # 开了分享码：直链不能直接 403（那只是一个错误页，访客没有输码的地方），
-            # 把人带到分享页去 —— 输完码就能看到文件并下载（redirect 内部会做 URL 编码）
-            h.redirect('/p/' + owner)
+            # 把人带到分享页去 —— 输完码就能看到文件并下载（redirect 内部会做 URL 编码）。
+            # 挂载点没有属主、也没有分享页，只能如实拒绝。
+            if owner:
+                h.redirect('/p/' + owner)
+            else:
+                h.send_error(403)
             return
         _share_stream_file(h, real, inline=False)
         return
@@ -2195,6 +2257,10 @@ def _g_p_share(h, path, role):
     """/p/<用户名>[/api] —— 访客分享展示页（公开，无需登录，无管理元素）
 
     展示该用户名下已发布（存在源文件）的映射；直链下载授权独立于游客模式。
+
+    ⚠️ 分享码的粒度是**每条分享**（不是整个页面）：没解锁的那条**连名字都不给** ——
+    列表里只留一个"已加密"占位，输对那条的码之后才显示。这样设了码的文件名/大小
+    不会白送给没过码的人。
     """
     rest = path[len('/p/'):]
     parts = rest.split('/')
@@ -2209,11 +2275,22 @@ def _g_p_share(h, path, role):
         h.send_error(404)
         return
     if len(parts) == 2 and parts[1] == 'api':
-        if not _share_code_gate(h, uname, h.headers.get('Cookie', '')):
-            h.send_json({'ok': False, 'error': 'code_required', 'by': uname}, 403,
-                        exempt=True)
-            return
-        h.send_json({'by': uname, 'files': _mapping.list_public(uname)})
+        cookie = h.headers.get('Cookie', '')
+        out, locked_count = [], 0
+        for it in _mapping.list_public(uname):
+            vp = it.get('path') or ''
+            label, _owner = _mapping.access_scope(vp)
+            if label and not _share_code_gate(h, vp, cookie):
+                # 没解锁：**名字、大小、时间都不给** —— 只给一个随机标签，让访客对着它输码。
+                # 标签是随机值（不可枚举、不含名字），所以它本身不是信息泄露；
+                # 真正的凭据是输对码之后签发的票据。
+                out.append({'label': label, 'locked': True})
+                locked_count += 1
+                continue
+            out.append({'path': vp, 'locked': False, 'name': it.get('name'),
+                        'size': it.get('size'), 'mtime': it.get('mtime'),
+                        'url': it.get('url')})
+        h.send_json({'by': uname, 'files': out, 'locked_count': locked_count})
         return
     if len(parts) in (1, 2) and (len(parts) == 1 or parts[1] == ''):
         page = os.path.join(BASE_DIR, 'web_page', 'share', 'public.html')
@@ -2288,35 +2365,35 @@ def _g_share_list(h, path, role):
     h.share_list()
 
 
+def _g_share_code(h, path, role):
+    """读回某条分享的码（本人与管理员）"""
+    h.share_code_get()
+
+
 def _g_share_status(h, path, role):
     h.share_status()
 
 
-def _share_owner_of(rel):
-    """虚拟路径 public/shares/<用户名>/<文件名> → 用户名；非映射路径 None
-
-    反斜杠要先归一成斜杠：`mappings.resolve()` 是归一化之后再查表的，所以
-    `public\\shares\\<用户>\\<文件>` 这种写法**能命中映射**；这里若不归一，切不出
-    parts[0]=='public'，返回 None —— 而 `_share_code_gate` 首句就是"owner 为空即放行"，
-    等于把设了分享码的文件直接敞开（无需任何 Cookie）。
-    """
-    parts = (rel or '').replace('\\', '/').strip('/').split('/')
-    if len(parts) >= 3 and parts[0] == 'public' and parts[1] == 'shares':
-        return parts[2]
-    return None
-
-
-def _share_code_gate(h, owner, cookie_header):
-    """分享码校验（下载/预览/访客数据）：未设码放行；设码时需 1h 授权 Cookie 或本人会话
+def _share_code_gate(h, rel, cookie_header):
+    """分享码校验（下载/预览/缩略图/打包/访客数据）：未设码放行；设码时需票据或本人会话。
 
     判定逻辑**只有一份**（`share/access.py` 的 `code_gate`）—— WS 的列表也调它。
-    这里只负责把 handler 上的两样东西取出来：当前会话用户名、来源 IP。
+    这里负责两件事：把"虚拟路径 → 这条分享的标签与属主"取出来（`_mapping.access_scope`，
+    它自己会做反斜杠归一 —— ⚠️ 归一这一步不能省：`mappings.resolve()` 归一后再查表，
+    所以 `public\\shares\\<用户>\\<文件>` 这种写法**能命中分享**；这里若不归一就判不出属主，
+    等于把设了码的文件直接敞开），以及从 handler 上取会话用户名与来源 IP。
+
+    取不出标签（不属于任何登记条目）→ 恒放行：那是普通磁盘路径，本来就没有码这回事。
     """
+    try:
+        label, owner = _mapping.access_scope(rel)
+    except Exception:
+        return False          # 判不了就是拒 —— 与"判不出属主就不能放行"同一个立场
     try:
         uname = h._get_username_from_session() or ''
     except Exception:
         uname = ''
-    return _sacc.code_gate(owner, cookie_header, h.client_address[0], uname)
+    return _sacc.code_gate(label, owner, cookie_header, h.client_address[0], uname)
 
 
 def _g_users(h, path, role):
@@ -2342,8 +2419,7 @@ def _g_zip(h, path, role):
         real = _mapping.resolve(rel)
         if not real:
             return None
-        owner = _share_owner_of(rel)
-        if not _share_code_gate(h, owner, h.headers.get('Cookie', '')):
+        if not _share_code_gate(h, rel, h.headers.get('Cookie', '')):
             raise PermissionError('need share code')
         return real
     _fs_api.zip_download(h, _fs.UPLOAD_DIR, _cfg.COPY_BUFFER_SIZE, _fs.safe_path,
@@ -2393,6 +2469,7 @@ GET_ROUTES = (
     (('=', '/api/qrlogin'), _g_qrlogin),
     (('=', '/api/ping'), _g_ping),
     (('=', '/api/share'), _g_share_list),
+    (('=', '/api/share/code'), _g_share_code),
     (('=', '/api/share/status'), _g_share_status),
     (('=', '/api/mount/browse'), _g_mount_browse),
     (('=', '/api/users/archive'), _g_users_archive),

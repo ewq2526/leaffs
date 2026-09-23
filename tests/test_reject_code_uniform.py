@@ -8,7 +8,10 @@
 返回点 —— 逐处改等于下次新写一处又漏）。
 
 **豁免**（那几处必须仍是 403）：它们不是"拒绝访问"，而是**业务失败**，前端要把原因显示给
-用户，而且分享页的输码流程就靠那个 403。完整清单见 `handler._REJECT_AS_NOT_FOUND` 的注释。
+用户 —— 分享页输码流程靠的就是 `/api/share/auth` 那条 403。
+（分享页**页面级**的 `code_required` 403 已经没有了：分享码的粒度改成"每条分享"之后是
+**逐条判** —— 没解锁的那条只给一个随机标签占位，页面本身照常 200。）
+完整清单见 `handler._REJECT_AS_NOT_FOUND` 的注释。
 
 本文件两道守卫：
 1. **黑盒**：代表性端点在 匿名 / 游客 / 普通用户 三种身份下**都不许回 401/403**；
@@ -36,7 +39,7 @@ BASE = 'http://127.0.0.1:%d' % PORT
 GET_APIS = (
     '/api/users', '/api/config', '/api/config/advanced', '/api/config/deep',
     '/api/logs', '/api/connections', '/api/stats', '/api/files',
-    '/api/share', '/api/share/status', '/api/url-download/tasks',
+    '/api/share', '/api/share/code', '/api/share/status', '/api/url-download/tasks',
     '/api/url-download/config', '/api/thumb?path=public', '/api/raw?path=public',
 )
 POST_APIS = (
@@ -47,7 +50,8 @@ POST_APIS = (
     ('/api/config', {'guest_mode': True}),
     ('/api/config/deep', {'folder_size_ttl': 60}),
     ('/api/share/publish', {'paths': ['users/admin/zz-nope.txt']}),
-    ('/api/share/code', {'code': 'zz-nope-123'}),
+    # 设码必须指明是哪**一条**分享（码按条目的随机标签索引）
+    ('/api/share/code', {'path': 'public/shares/zz-nope/zz-nope.txt', 'code': 'zz-nope-123'}),
     ('/api/logs/clear', {}),
     ('/api/url-download/config', {'max_concurrent': 2}),
 )
@@ -151,17 +155,32 @@ def test_exempt_business_failures_are_still_403(rej_server):
         r = c.post('/api/account/password',
                    json={'old_password': 'nope', 'new_password': 'abcdefgh'})
         assert r.status_code == 403, r.status_code
-        # ③ 分享页"需要输码"引导（前端 public.html 就认这个 403）
-        r = c.post('/api/share/code', json={'code': 'abc123'})
+        # ③ 分享页已经没有页面级的 `code_required` 403（改成**逐条**判）：一条设了码的分享
+        #    对访客只留一个随机标签占位，页面数据接口照常 200。为它准备一条真实分享 ——
+        #    输码接口要有个"哪一条"可指。
+        r = c.post('/api/upload?path=public', files={'file': ('rejcode-probe.txt', b'x')})
+        assert r.status_code == 200, r.text
+        r = c.post('/api/share/publish', json={'paths': ['public/rejcode-probe.txt']})
+        assert r.status_code == 200 and r.json().get('success'), r.text
+        vp = (r.json().get('published') or [{}])[0].get('path') or ''
+        assert vp, r.text
+        r = c.post('/api/share/code', json={'path': vp, 'code': 'abc123'})
         assert r.status_code == 200 and r.json().get('enabled') is True, r.text
         try:
-            r = anon.get('/p/admin/api')
-            assert r.status_code == 403 and r.json().get('error') == 'code_required', r.text
+            d = anon.get('/p/admin/api')
+            assert d.status_code == 200, d.text
+            locked = [f for f in (d.json().get('files') or []) if f.get('locked')]
+            assert len(locked) == 1 and locked[0].get('label'), d.text
+            # 占位里**不能**带名字（没过码的人连文件名都不该知道）
+            assert 'name' not in locked[0], d.text
             # ④ 分享码错误（业务失败 + 前端要显示剩余次数）
-            r = anon.post('/api/share/auth', json={'username': 'admin', 'code': 'wrong'})
+            r = anon.post('/api/share/auth',
+                          json={'label': locked[0]['label'], 'code': 'wrong'})
             assert r.status_code == 403 and r.json().get('error') == 'incorrect', r.text
         finally:
-            c.post('/api/share/code', json={'code': ''})
+            # 共享状态（这条分享与它的码）用完就还原
+            c.post('/api/share/code', json={'path': vp, 'code': ''})
+            c.post('/api/share/unpublish', json={'path': vp})
     finally:
         c.close()
         anon.close()
@@ -188,7 +207,6 @@ _EXEMPT_ALLOWED = (
     ('leaffs/auth/self_api.py', '原密码不正确'),
     ('leaffs/server/handler.py', "'error': 'locked'"),   # share_auth 锁定态
     ('leaffs/server/handler.py', 'body'),                # share_auth 错码/锁定（同一个 body 变量）
-    ('leaffs/server/handler.py', 'code_required'),       # 分享页"需要输码"引导
 )
 
 

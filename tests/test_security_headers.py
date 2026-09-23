@@ -32,6 +32,40 @@ def _assert_common(resp, where):
         assert resp.headers.get(k) == v, '%s: 缺 %s（实际 %r）' % (where, k, resp.headers.get(k))
 
 
+def _publish(client, src_rel):
+    """把一条文件发布成分享，返回它的**虚拟路径**（设码要指明是哪一条）"""
+    r = client.post('/api/share/publish', json={'paths': [src_rel]})
+    assert r.status_code == 200 and r.json().get('success'), r.text
+    pub = r.json().get('published') or []
+    assert pub, r.text
+    return pub[0]['path']
+
+
+def _set_code(client, vp, code):
+    """给**这一条**分享设码（码的粒度是每条分享，不再按用户名）"""
+    r = client.post('/api/share/code', json={'path': vp, 'code': code})
+    assert r.status_code == 200 and r.json().get('enabled') is bool(code), r.text
+
+
+def _label_of(data_root, vp):
+    """取这条分享的随机标签 —— 访客输码时用它指认"哪一条"（`/api/share/auth {label, code}`）。
+
+    映射表由服务端写在自己的数据根里，这里把测试进程内的模块指向同一份文件，
+    再走一次 `access_scope`（服务端闸门判"这个路径属于哪条分享"用的就是它）。
+    """
+    import leaffs.share.mappings as _m
+    _m._MAPPINGS_FILE = os.path.join(data_root, 'config', 'share_mappings.json')
+    _m._cache = None
+    label, _owner = _m.access_scope(vp)
+    return label
+
+
+def _drop_share(client, vp):
+    """清码并移除映射 —— 分享码是**共享服务进程上的持久状态**，断言成败都要还原"""
+    client.post('/api/share/code', json={'path': vp, 'code': ''})
+    client.post('/api/share/unpublish', json={'path': vp})
+
+
 def test_json_api_has_common_headers_and_no_store(client):
     """普通 JSON API：公共头齐全，且 Cache-Control: no-store"""
     r = client.get('/api/ping')
@@ -73,7 +107,7 @@ def test_error_responses_have_common_headers(client):
     _assert_common(r, '不存在的端点')
 
 
-def test_share_page_and_code_auth_have_common_headers(client):
+def test_share_page_and_code_auth_have_common_headers(client, data_root):
     """B5：两处**手写响应**也要有公共头（`/p/<用户>` 页面、`/api/share/auth` 成功路径）。
 
     它们不走 `send_json` / `redirect`，是 A8「覆写 `end_headers` 统一补头」覆盖的典型，
@@ -82,27 +116,34 @@ def test_share_page_and_code_auth_have_common_headers(client):
     页面那条**不该**带收紧的 CSP（`public.html` 有内联脚本，`script-src 'self'` 会打断它），
     所以这里只断言公共头，不把 CSP 钉成非空 —— 免得将来有人"顺手补个 CSP"把分享页打坏。
 
-    ⚠️ 成功路径必须先设分享码，而分享码是**共享服务进程上的持久状态**：
-    设完必须清掉（放 `finally`），否则后面依赖"匿名可读分享页"的用例（`test_share_sessions.py`）
-    会看到一个 403 code_required 而全线变红。
+    ⚠️ 成功路径必须先给**某一条分享**设码（码的粒度是每条分享，设码要指明 path），
+    而分享码与映射都是**共享服务进程上的持久状态**：设完必须清掉（放 `finally`），
+    否则后面依赖"匿名可读分享页"的用例（`test_share_sessions.py`）会撞上一条需要输码的
+    分享而变红。授权 Cookie 的名字是固定常量 `access.SHARE_COOKIE`（不再随用户名变）。
     """
     r = client.get('/p/nobody/')
     assert r.status_code == 200, r.text
     _assert_common(r, '/p/nobody/')
 
     login(client)
-    r = client.post('/api/share/code', json={'code': 'abc123'})
-    assert r.status_code == 200 and r.json().get('enabled') is True, r.text
+    r = client.post('/api/upload?path=public', files={'file': ('hdrprobe.txt', b'h')})
+    assert r.status_code == 200 and r.json().get('saved') == 1, r.text
+    vp = _publish(client, 'public/hdrprobe.txt')
+    _set_code(client, vp, 'abc123')
     try:
+        from leaffs.share import access as _sacc
+        label = _label_of(data_root, vp)
+        assert label, '登记一条分享时没有生成标签'
         with httpx.Client(base_url=client.base_url, timeout=20) as anon:
-            ok = anon.post('/api/share/auth', json={'username': 'admin', 'code': 'abc123'})
+            ok = anon.post('/api/share/auth', json={'label': label, 'code': 'abc123'})
             assert ok.status_code == 200, ok.text
             _assert_common(ok, 'POST /api/share/auth（成功路径）')
-            assert 'leaf_sh_' in (ok.headers.get('set-cookie') or ''), \
-                '成功路径必须下发授权 Cookie：%r' % ok.headers.get('set-cookie')
+            assert _sacc.SHARE_COOKIE + '=' in (ok.headers.get('set-cookie') or ''), \
+                '成功路径必须下发授权 Cookie（%s）：%r' % (
+                    _sacc.SHARE_COOKIE, ok.headers.get('set-cookie'))
     finally:
         # 共享进程上的状态：断言成败都要还原，否则污染后续用例
-        assert client.post('/api/share/code', json={'code': ''}).status_code == 200
+        _drop_share(client, vp)
 
 
 def test_handwritten_streaming_and_page_responses_have_cache_control(client, data_root):
@@ -130,7 +171,7 @@ def test_handwritten_streaming_and_page_responses_have_cache_control(client, dat
                 where, dict(resp.headers))
 
 
-def test_zip_and_share_auth_success_have_cache_control(client):
+def test_zip_and_share_auth_success_have_cache_control(client, data_root):
     """zip 打包流与分享码认证成功路径（含授权 Cookie）也要有缓存头"""
     import json as _json
     import urllib.parse as _up
@@ -143,16 +184,18 @@ def test_zip_and_share_auth_success_have_cache_control(client):
     assert z.headers.get('Cache-Control'), \
         '/api/zip：打包流没有 Cache-Control：%r' % dict(z.headers)
 
-    r = client.post('/api/share/code', json={'code': 'abc123'})
-    assert r.status_code == 200 and r.json().get('enabled') is True, r.text
+    # 码的粒度是**每条分享**：先发布这一条、再给它设码，输码时用它的随机标签指认
+    vp = _publish(client, 'public/zipc.txt')
+    _set_code(client, vp, 'abc123')
     try:
+        label = _label_of(data_root, vp)
         with httpx.Client(base_url=client.base_url, timeout=20) as anon:
-            ok = anon.post('/api/share/auth', json={'username': 'admin', 'code': 'abc123'})
+            ok = anon.post('/api/share/auth', json={'label': label, 'code': 'abc123'})
             assert ok.status_code == 200, ok.text
             assert ok.headers.get('Cache-Control'), \
                 '分享码成功路径（含授权 Cookie）没有 Cache-Control：%r' % dict(ok.headers)
     finally:
-        assert client.post('/api/share/code', json={'code': ''}).status_code == 200
+        _drop_share(client, vp)
 
 
 def test_cached_assets_keep_their_own_policy(client):

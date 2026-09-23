@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""`issues.md` §二 第 7 条：跨自然日翻转**不能**把"分享页全锁"清掉。
+"""跨自然日翻转**不能**把"全锁"清掉。
 
 **问题**：`_flush_day_locked()` 在跨日时重置按天计的计数与锁 —— 这本身是对的
 （IP 当日锁、当日错误数、60 秒滑动窗口都该清），但它**顺带把 `global_lock_until` 也清了**。
@@ -12,6 +12,8 @@
 **修法**：`_flush_day_locked` 里不再重置 `global_lock_until`；判定逻辑不变
 （`access_blocked`: `global_lock_until > now`）。清全锁只有两条合法途径：
 等它自己到期，或本人 `clear_attempts()`（主动重置）。
+
+⚠️ 锁与计数挂在**每条分享**上（随机标签索引，`_CACHE['items']`），不再是"每个用户一条"。
 """
 import os
 import time
@@ -19,6 +21,10 @@ import time
 import pytest
 
 from leaffs.share import access as S
+
+# 那条正在被攻击的分享的标签（真实值由 `share/mappings.py` 登记时随机生成）
+LABEL = 'lab-alice'
+OWNER = 'alice'
 
 
 @pytest.fixture()
@@ -31,10 +37,11 @@ def acc(data_root_factory, monkeypatch):
     return root
 
 
-def _locked_user(until):
-    """一个"正在被攻击、已触发全锁"的用户记录"""
+def _locked_item(until):
+    """一条"正在被攻击、已触发全锁"的分享记录"""
     now = time.time()
-    return {'code_hash': '', 'ip_errors': {'1.1.1.1': 3}, 'ip_locked': {'1.1.1.1': True},
+    return {'code': '', 'code_hash': '', 'owner': OWNER,
+            'ip_errors': {'1.1.1.1': 3}, 'ip_locked': {'1.1.1.1': True},
             'window': [now], 'window_ips': {'1.1.1.1': now},
             'global_lock_until': until, 'attack_ips': ['1.1.1.1'], 'last_events': [{}]}
 
@@ -42,14 +49,14 @@ def _locked_user(until):
 def test_day_flip_does_not_clear_global_lock(acc):
     """★ 跨日之后全锁**仍然在**（旧实现把它清零 ⇒ 攻击者的锁跨零点自动解除）"""
     now = time.time()
-    S._CACHE = {'date': '1970-01-01', 'tickets': {},
-                'users': {'alice': _locked_user(now + 1800)}}
+    S._CACHE = {'date': '1970-01-01', 'tickets': {}, 'users': {},
+                'items': {LABEL: _locked_item(now + 1800)}}
 
     S._flush_day_locked()
 
-    u = S._CACHE['users']['alice']
+    it = S._CACHE['items'][LABEL]
     assert S._CACHE['date'] == S._today(), '日期该翻到今天'
-    assert u['global_lock_until'] > now, (
+    assert it['global_lock_until'] > now, (
         '跨日把还在生效的全锁清掉了 —— 23:59 触发的 30 分钟锁跨零点就解了（§二 第 7 条）')
 
 
@@ -59,15 +66,15 @@ def test_day_flip_still_clears_per_day_state(acc):
     （只该去掉 `global_lock_until` 那一项，别把整段重置一起删。）
     """
     now = time.time()
-    S._CACHE = {'date': '1970-01-01', 'tickets': {},
-                'users': {'alice': _locked_user(now + 1800)}}
+    S._CACHE = {'date': '1970-01-01', 'tickets': {}, 'users': {},
+                'items': {LABEL: _locked_item(now + 1800)}}
 
     S._flush_day_locked()
 
-    u = S._CACHE['users']['alice']
-    assert u['ip_errors'] == {}, '按天的 IP 错误数应当清零'
-    assert u['ip_locked'] == {}, 'IP 当日锁应当清零（否则那个 IP 被永久锁死）'
-    assert u['window'] == [] and u['window_ips'] == {}, '滑动窗口该收空'
+    it = S._CACHE['items'][LABEL]
+    assert it['ip_errors'] == {}, '按天的 IP 错误数应当清零'
+    assert it['ip_locked'] == {}, 'IP 当日锁应当清零（否则那个 IP 被永久锁死）'
+    assert it['window'] == [] and it['window_ips'] == {}, '滑动窗口该收空'
 
 
 def test_access_blocked_still_global_after_day_flip(acc):
@@ -77,11 +84,11 @@ def test_access_blocked_still_global_after_day_flip(acc):
     让"盘上"与"内存"一致（也顺便验证了二者在跨日这一刻不会打架）。
     """
     now = time.time()
-    S._CACHE = {'date': '1970-01-01', 'tickets': {},
-                'users': {'alice': _locked_user(now + 1800)}}
+    S._CACHE = {'date': '1970-01-01', 'tickets': {}, 'users': {},
+                'items': {LABEL: _locked_item(now + 1800)}}
     S._save_locked()          # 盘上也是这份（并已对齐指纹 ⇒ 下面不会白重载）
 
-    blocked, reason = S.access_blocked('alice', '9.9.9.9')
+    blocked, reason = S.access_blocked(LABEL, '9.9.9.9')
 
     assert blocked is True and reason == 'global', (
         '跨日之后全锁失效了：blocked=%r reason=%r' % (blocked, reason))

@@ -29,6 +29,19 @@ def _ensure_user(client, username):
     assert r.status_code == 200, r.text
 
 
+def _label_of(data_root, vp):
+    """取某条分享的**随机标签** —— 分享码现在按标签索引，不再按用户名。
+
+    映射表由服务端写在自己的数据根里，这里把测试进程内的模块指向同一份文件，
+    再走一次 `access_scope`（服务端闸门判"这个路径属于哪条分享"用的就是它）。
+    """
+    import leaffs.share.mappings as _m
+    _m._MAPPINGS_FILE = os.path.join(data_root, 'config', 'share_mappings.json')
+    _m._cache = None
+    label, _owner = _m.access_scope(vp)
+    return label
+
+
 def test_publish_list_and_anonymous_download(client, data_root):
     _put(data_root, 'users/admin/报告.txt', b'hello mapping')
     _put(data_root, 'users/admin/机密资料.bin', b'\x01\x02\x03')
@@ -214,37 +227,50 @@ def test_visitor_share_page(client, data_root):
 
 
 def test_share_code_flow(client, data_root):
-    """分享码：设码后访客页/直链需授权；正确码下发 1h cookie；可关闭；guest 无权设码"""
+    """分享码：设码后**那一条**只留占位；正确码下发 1h 票据；可关闭；guest 无权设码"""
     _put(data_root, 'users/admin/codefile.txt', b'code-data')
     login(client)
     r = client.post('/api/share/publish', json={'paths': ['users/admin/codefile.txt']})
     assert r.status_code == 200, r.text
+    vp = r.json()['published'][0]['path']
+    label = _label_of(data_root, vp)
+    assert label, '登记一条分享时没有生成标签'
 
-    # 设码（4~32 位）
-    r = client.post('/api/share/code', json={'code': 'abc123'})
+    # 设码（6~32 位）：粒度是**这一条分享**，所以必须指明是哪一条
+    r = client.post('/api/share/code', json={'path': vp, 'code': 'abc123'})
     assert r.status_code == 200 and r.json().get('enabled') is True, r.text
+    # 码存明文：本人能读回来（迁移来的旧码只有哈希，那种情况回 legacy=True）
+    back = client.get('/api/share/code', params={'path': vp})
+    assert back.status_code == 200, back.text
+    assert back.json().get('code') == 'abc123', back.text
+    assert back.json().get('legacy') is False, back.text
 
-    # 匿名（无 cookie）：访客页 200、数据接口 403 code_required；
-    # 直链不再回 403（访客在错误页上没有输码的地方）而是 302 送去分享页
+    # 匿名（无票据）：访客页 200、数据接口也是 200 —— 不再有页面级的 code_required 403，
+    # 改成**逐条**判：没解锁的那条名字/大小/时间一个都不给，只给随机标签让访客对着它输码
     anon = httpx.Client(base_url=client.base_url, timeout=20)
     try:
         assert anon.get('/p/admin/').status_code == 200
         d = anon.get('/p/admin/api')
-        assert d.status_code == 403 and d.json().get('error') == 'code_required'
-        r = anon.get('/download/public/shares/admin/codefile.txt', follow_redirects=False)
+        assert d.status_code == 200, d.text
+        body = d.json()
+        locked = [f for f in body['files'] if f.get('locked')]
+        assert locked == [{'label': label, 'locked': True}], locked
+        assert body['locked_count'] == len(locked), body
+        assert 'codefile.txt' not in [f.get('name') for f in body['files']]
+        # 直链不再回 403（访客在错误页上没有输码的地方）而是 302 送去分享页
+        r = anon.get('/download/' + vp, follow_redirects=False)
         assert r.status_code == 302, r.status_code
         assert r.headers.get('location', '').endswith('/p/admin'), r.headers.get('location')
         # 跟随跳转应落在分享页上（那里才是输码的地方）
-        assert anon.get('/download/public/shares/admin/codefile.txt',
-                        follow_redirects=True).status_code == 200
+        assert anon.get('/download/' + vp, follow_redirects=True).status_code == 200
     finally:
         anon.close()
 
-    # 输错 → remaining 递减
+    # 输错 → 拒绝（记账见 test_share_code_bruteforce）
     bad = httpx.Client(base_url=client.base_url, timeout=20)
     try:
         for _ in range(2):
-            d = bad.post('/api/share/auth', json={'username': 'admin', 'code': 'wrong'}).json()
+            d = bad.post('/api/share/auth', json={'label': label, 'code': 'wrong'}).json()
             assert d.get('error') == 'incorrect', d
     finally:
         bad.close()
@@ -252,11 +278,15 @@ def test_share_code_flow(client, data_root):
     # 正确码（新浏览器）→ Set-Cookie；此后 api/直链放行
     okc = httpx.Client(base_url=client.base_url, timeout=20)
     try:
-        r = okc.post('/api/share/auth', json={'username': 'admin', 'code': 'abc123'})
+        r = okc.post('/api/share/auth', json={'label': label, 'code': 'abc123'})
         assert r.status_code == 200 and r.json().get('ok') is True, r.text
-        assert 'leaf_sh_' in r.headers.get('set-cookie', '')
-        assert okc.get('/p/admin/api').status_code == 200
-        dl = okc.get('/download/public/shares/admin/codefile.txt')
+        from leaffs.share import access as _sacc
+        assert _sacc.SHARE_COOKIE + '=' in r.headers.get('set-cookie', ''), \
+            r.headers.get('set-cookie')
+        body = okc.get('/p/admin/api').json()
+        assert body['locked_count'] == 0, body
+        assert 'codefile.txt' in [f['name'] for f in body['files']], body
+        dl = okc.get('/download/' + vp)
         assert dl.status_code == 200 and dl.content == b'code-data'
     finally:
         okc.close()
@@ -264,18 +294,18 @@ def test_share_code_flow(client, data_root):
     # 无 cookie 的浏览器仍拿不到文件（未持有授权）：同样被送去分享页输码
     other = httpx.Client(base_url=client.base_url, timeout=20)
     try:
-        r = other.get('/download/public/shares/admin/codefile.txt', follow_redirects=False)
+        r = other.get('/download/' + vp, follow_redirects=False)
         assert r.status_code == 302, r.status_code
         assert r.headers.get('location', '').endswith('/p/admin'), r.headers.get('location')
     finally:
         other.close()
 
-    # 关闭码 → 匿名直链恢复
-    r = client.post('/api/share/code', json={'code': ''})
+    # 关闭码（= 清掉这一条的码）→ 匿名直链恢复
+    r = client.post('/api/share/code', json={'path': vp, 'code': ''})
     assert r.status_code == 200 and r.json().get('enabled') is False, r.text
     anon2 = httpx.Client(base_url=client.base_url, timeout=20)
     try:
-        assert anon2.get('/download/public/shares/admin/codefile.txt').status_code == 200
+        assert anon2.get('/download/' + vp).status_code == 200
     finally:
         anon2.close()
 
@@ -284,17 +314,20 @@ def test_share_code_flow(client, data_root):
     try:
         lg = g.post('/api/guest/login')
         assert lg.status_code == 200
-        assert g.post('/api/share/code', json={'code': '1234'}).status_code == 404
+        assert g.post('/api/share/code', json={'path': vp, 'code': '1234'}).status_code == 404
     finally:
         g.close()
 
 
-def test_share_code_bruteforce(client, data_root):
+def test_share_code_bruteforce(client, data_root, monkeypatch):
     """防爆破：IP 当日 5 次错 → IP 锁；60s 窗口 5 次错 → 全局锁；重置可恢复"""
     _put(data_root, 'users/admin/bf.txt', b'x')
     login(client)
-    client.post('/api/share/publish', json={'paths': ['users/admin/bf.txt']})
-    r = client.post('/api/share/code', json={'code': 'pw-0000'})
+    r = client.post('/api/share/publish', json={'paths': ['users/admin/bf.txt']})
+    assert r.status_code == 200, r.text
+    vp = r.json()['published'][0]['path']
+    label = _label_of(data_root, vp)
+    r = client.post('/api/share/code', json={'path': vp, 'code': 'pw-0000'})
     assert r.status_code == 200, r.text
 
     cfg_path = os.path.join(data_root, 'config', 'server_config.json')
@@ -312,14 +345,14 @@ def test_share_code_bruteforce(client, data_root):
         try:
             locked = False
             for i in range(5):
-                d = a.post('/api/share/auth', json={'username': 'admin', 'code': 'bad%d' % i})
+                d = a.post('/api/share/auth', json={'label': label, 'code': 'bad%d' % i})
                 body = d.json()
                 if body.get('error') == 'locked' and body.get('reason') == 'ip':
                     locked = True
                     break
             assert locked, '第 5 次错应触发 IP 锁'
             # 锁后（同 IP）正确码也被拒
-            d = a.post('/api/share/auth', json={'username': 'admin', 'code': 'pw-0000'})
+            d = a.post('/api/share/auth', json={'label': label, 'code': 'pw-0000'})
             assert d.status_code == 403 and d.json().get('reason') == 'ip'
         finally:
             a.close()
@@ -338,7 +371,7 @@ def test_share_code_bruteforce(client, data_root):
         try:
             got = None
             for i in range(5):
-                d = a1.post('/api/share/auth', json={'username': 'admin', 'code': 'zz%d' % i})
+                d = a1.post('/api/share/auth', json={'label': label, 'code': 'zz%d' % i})
                 got = d.json()
                 if got.get('reason') == 'ip':
                     break
@@ -349,7 +382,7 @@ def test_share_code_bruteforce(client, data_root):
         # 另一个来源 IP 照常能输码（修复前会被全局锁连坐）
         a2 = _src('127.0.0.3')
         try:
-            d = a2.post('/api/share/auth', json={'username': 'admin', 'code': 'pw-0000'})
+            d = a2.post('/api/share/auth', json={'label': label, 'code': 'pw-0000'})
             assert d.status_code == 200, '单机错码不该把别人一起锁住：%s' % d.text
         finally:
             a2.close()
@@ -359,35 +392,42 @@ def test_share_code_bruteforce(client, data_root):
             cu = _src(ip)
             try:
                 for i in range(3):
-                    cu.post('/api/share/auth', json={'username': 'admin', 'code': 'yy%d' % i})
+                    cu.post('/api/share/auth', json={'label': label, 'code': 'yy%d' % i})
             finally:
                 cu.close()
         a3 = _src('127.0.0.6')
         try:
-            d = a3.post('/api/share/auth', json={'username': 'admin', 'code': 'pw-0000'})
+            d = a3.post('/api/share/auth', json={'label': label, 'code': 'pw-0000'})
             assert d.status_code == 403 and d.json().get('reason') == 'global', d.text
         finally:
             a3.close()
 
         # ---- 日翻转要清掉 IP 锁（原来漏清 → 某个 IP 错满就永久锁死）----
+        # 指向数据根下的独立文件：这条判的是 access.py 自己的逻辑，不动真实配置
         from leaffs.share import access as _sacc
 
+        monkeypatch.setattr(_sacc, '_ACCESS_FILE',
+                            os.path.join(data_root, 'share_access_ut.json'))
+        monkeypatch.setattr(_sacc, '_CACHE', None)
         _sacc._load_locked()
-        _sacc._CACHE['users'] = {'admin': {'ip_locked': {'1.1.1.1': True}}}
+        _sacc._CACHE['items'] = {label: {'owner': 'admin', 'ip_locked': {'1.1.1.1': True}}}
         _sacc._CACHE['date'] = '1970-01-01'
         _sacc._flush_day_locked()
-        assert _sacc._CACHE['users']['admin']['ip_locked'] == {}, '日翻转应清空 ip_locked'
+        assert _sacc._CACHE['items'][label]['ip_locked'] == {}, '日翻转应清空 ip_locked'
 
         # ---- 重置后恢复 ----
         r = client.post('/api/share/reset', json={})
         assert r.status_code == 200 and r.json().get('success') is True
         c = httpx.Client(base_url=client.base_url, timeout=20)
         try:
-            d = c.post('/api/share/auth', json={'username': 'admin', 'code': 'pw-0000'})
+            d = c.post('/api/share/auth', json={'label': label, 'code': 'pw-0000'})
             assert d.status_code == 200 and d.json().get('ok') is True, d.text
         finally:
             c.close()
     finally:
+        # 码留在共享的服务进程上会串到后面的用例（码是按条走的，`/p/<用户>/api`
+        # 的 locked_count / 锁定条目都会被它抬高），这里连同映射一起收干净
+        client.post('/api/share/code', json={'path': vp, 'code': ''})
         json.dump(orig, open(cfg_path, 'w', encoding='utf-8'))
 
 
@@ -430,25 +470,33 @@ def test_share_auth_ignores_stale_session_cookie(client, data_root):
 
     _put(data_root, 'users/admin/stalefile.txt', b'stale-data')
     login(client)
-    assert client.post('/api/share/publish',
-                       json={'paths': ['users/admin/stalefile.txt']}).status_code == 200
-    assert client.post('/api/share/code', json={'code': 'abc123'}).status_code == 200
+    r = client.post('/api/share/publish', json={'paths': ['users/admin/stalefile.txt']})
+    assert r.status_code == 200, r.text
+    vp = r.json()['published'][0]['path']
+    label = _label_of(data_root, vp)
+    assert client.post('/api/share/code',
+                       json={'path': vp, 'code': 'abc123'}).status_code == 200
 
     stale = httpx.Client(base_url=client.base_url, timeout=20)
     try:
         stale.cookies.set(AUTH_COOKIE, 'stale-sid-not-in-store')
-        r = stale.post('/api/share/auth', json={'username': 'admin', 'code': 'abc123'})
+        r = stale.post('/api/share/auth', json={'label': label, 'code': 'abc123'})
         assert r.status_code == 200, r.text
         assert r.json().get('ok') is True
     finally:
         stale.close()
+        # 码是**按条**的，而服务进程是 session 级共享的：留着它就等于给 admin
+        # 名下定死了第二条"要输码的分享"，后面任何逐条列 `/p/admin/api` 的用例
+        # 都会连着撞上它（这条不是本用例要验的东西，用完就清）
+        client.post('/api/share/code', json={'path': vp, 'code': ''})
 
 
 def test_share_code_survives_day_flip(data_root, monkeypatch):
     """回归：自然日翻转只能重置防爆破计数，分享码不能被清掉。
 
-    原来是 `_CACHE['users'] = {}` —— 连 code_hash 一起清空，现象是「过了一天，
+    原来是 `_CACHE['users'] = {}` —— 连码一起清空，现象是「过了一天，
     访问码再也输不对」（其实码已经没了，服务端直接回“未设置访问码”）。
+    现在计数与码都挂在**条目**上（键是那条分享的随机标签），翻转只许动计数。
     """
     from leaffs.share import access as acc
 
@@ -458,14 +506,15 @@ def test_share_code_survives_day_flip(data_root, monkeypatch):
                         os.path.join(data_root, 'share_access_ut.json'))
     monkeypatch.setattr(acc, '_CACHE', None)
 
-    assert acc.set_code('admin', 'abc123')[0] is True
-    assert acc.verify_code('admin', 'abc123') is True
+    label = 'dayflip-label'
+    assert acc.set_code(label, 'abc123', 'admin')[0] is True
+    assert acc.verify_code(label, 'abc123') is True
 
     # 把"当天"拨到过去 → 下一次访问就会触发自然日翻转
     with acc._LOCK:
         acc._CACHE['date'] = '2000-01-01'
-        acc._user('admin')['ip_errors'] = {'1.2.3.4': 3}
+        acc._item(label, 'admin')['ip_errors'] = {'1.2.3.4': 3}
 
-    assert acc.code_enabled('admin') is True, '翻转后分享码被清掉了'
-    assert acc.verify_code('admin', 'abc123') is True
-    assert acc._CACHE['users']['admin']['ip_errors'] == {}, '防爆破计数应被重置'
+    assert acc.code_enabled(label) is True, '翻转后分享码被清掉了'
+    assert acc.verify_code(label, 'abc123') is True
+    assert acc._CACHE['items'][label]['ip_errors'] == {}, '防爆破计数应被重置'
