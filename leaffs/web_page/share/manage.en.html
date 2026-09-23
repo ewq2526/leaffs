@@ -232,7 +232,7 @@ function doMount() {
     }).then(function (res) {
         if (!res.ok) { batchToast((res.d && res.d.error) || 'Mount failed', 'error'); return; }
         el.value = '';
-        batchToast('Mounted to the share area', 'ok');
+        batchToast('Mounted to the share area', 'success');
         loadList();
     }).catch(function () { batchToast('Mount failed', 'error'); });
 }
@@ -314,7 +314,7 @@ function pickHere() {
 function usePick(p) {
     document.getElementById('mountPath').value = p;
     closePicker();
-    batchToast('Path filled — hit "Mount"', 'ok');
+    batchToast('Path filled — hit "Mount"', 'success');
 }
 
 function loadList() {

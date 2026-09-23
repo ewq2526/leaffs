@@ -231,7 +231,7 @@ function doMount() {
     }).then(function (res) {
         if (!res.ok) { batchToast((res.d && res.d.error) || '挂载失败', 'error'); return; }
         el.value = '';
-        batchToast('已挂到分享区', 'ok');
+        batchToast('已挂到分享区', 'success');
         loadList();
     }).catch(function () { batchToast('挂载失败', 'error'); });
 }
@@ -313,7 +313,7 @@ function pickHere() {
 function usePick(p) {
     document.getElementById('mountPath').value = p;
     closePicker();
-    batchToast('已填入路径，点「挂载」即可', 'ok');
+    batchToast('已填入路径，点「挂载」即可', 'success');
 }
 
 function rowMeta(it) {
