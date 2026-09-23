@@ -185,7 +185,7 @@ class MainActivity : ComponentActivity() {
                 pageProgress.visibility = View.VISIBLE
                 // 证书流程期间记下每个开始加载的地址：用来确认错误页到底有没有真的加载
                 if (certErrorPagePending || certWarmupPending) {
-                    android.util.Log.i("LeafFS", "证书流程: onPageStart $url")
+                    pyLog("证书流程: onPageStart $url")
                 }
             }
 
@@ -201,8 +201,7 @@ class MainActivity : ComponentActivity() {
                 withWebColors { }
                 // 证书流程期间把每一拍打出来：用来判断放行脚本是不是发早了
                 if (certErrorPagePending || certWarmupPending) {
-                    android.util.Log.i("LeafFS",
-                        "证书流程: onPageStop(success=$success) lastUrl=$lastUrl")
+                    pyLog("证书流程: onPageStop(success=$success) lastUrl=$lastUrl")
                 }
                 // 证书放行不在这里做：onLoadError 会返回一个自带错误页（data: URL），
                 // 那个页面一加载就自己调 document.addCertException 并用 leaffs:// 回执（见 certErrorPage）。
@@ -215,7 +214,7 @@ class MainActivity : ComponentActivity() {
                     lastUrl.startsWith("$srvScheme://127.0.0.1:") &&
                     !lastUrl.startsWith("$srvScheme://127.0.0.1:$wsPort")
                 ) {
-                    android.util.Log.i("LeafFS", "启动遮罩: 已进入 $lastUrl，撤掉遮罩")
+                    pyLog("启动遮罩: 已进入 $lastUrl，撤掉遮罩")
                     // 这一拍就是 login 跳转过去的那个页面 → 记成主页（返回键回它、在它上面则退出）
                     homeUrl = lastUrl
                     hideBootCover()
@@ -229,7 +228,7 @@ class MainActivity : ComponentActivity() {
                     // 必须比对 lastUrl：否则上一个页面的 onPageStop 会把预热提前消耗掉，
                     // 8081 的例外从没加上，前端就连不上 wss（页面正常却一直"重连中"）。
                     certWarmupPending = false
-                    android.util.Log.i("LeafFS", "证书预热: 8081 未报证书错误，直接进入 $certNextUrl")
+                    pyLog("证书预热: 8081 未报证书错误，直接进入 $certNextUrl")
                     if (certNextUrl.isNotEmpty()) session.loadUri(certNextUrl)
                 } else if (success) {
                     certErrorTries = 0   // 正常加载成功 → 放行计数归零
@@ -261,13 +260,13 @@ class MainActivity : ComponentActivity() {
                     if (rest.startsWith("certok/")) {
                         certErrorPagePending = false
                         val next = android.net.Uri.decode(rest.removePrefix("certok/"))
-                        android.util.Log.i("LeafFS", "证书放行成功 → 前往 $next")
+                        pyLog("证书放行成功 → 前往 $next")
                         if (next.isNotEmpty()) session.loadUri(next)
                         return GeckoResult.fromValue(AllowOrDeny.DENY)
                     }
                     if (rest.startsWith("certfail/")) {
                         certErrorPagePending = false
-                        android.util.Log.w("LeafFS", "证书放行失败: " +
+                        pyLog("证书放行失败: " +
                             android.net.Uri.decode(rest.removePrefix("certfail/")))
                         return GeckoResult.fromValue(AllowOrDeny.DENY)
                     }
@@ -282,7 +281,7 @@ class MainActivity : ComponentActivity() {
                 // 「软件内不允许访问外部链接」（网页里的站外链接、PDF 里的外链都不许在
                 // App 内打开）。放行名单见 isInternalUrl()。
                 if (!isInternalUrl(uri)) {
-                    android.util.Log.w("LeafFS", "已阻止外部链接: $uri")
+                    pyLog("已阻止外部链接: $uri")
                     runOnUiThread {
                         Toast.makeText(this@MainActivity, "已阻止访问外部链接",
                                        Toast.LENGTH_SHORT).show()
@@ -320,16 +319,14 @@ class MainActivity : ComponentActivity() {
                     certErrorPagePending = true
                     certWarmupPending = false   // 预热就是为了加例外，现在正在加，别再走预热分支
                     val next = if (certNextUrl.isNotEmpty()) certNextUrl else certErrorUri
-                    android.util.Log.i("LeafFS",
-                        "证书错误(code=${error.code}) → 用自带错误页放行 $certErrorUri " +
+                    pyLog("证书错误(code=${error.code}) → 用自带错误页放行 $certErrorUri " +
                             "(第 $certErrorTries 次)，成功则前往 $next")
                     return GeckoResult.fromValue(certErrorPage(next))
                 }
                 // 预热期间遇到别的错误（连接被拒/超时等）→ 不再纠结 8081，直接进真正的页面
                 if (certWarmupPending) {
                     certWarmupPending = false
-                    android.util.Log.w("LeafFS",
-                        "证书预热: 8081 加载失败(code=${error.code})，直接进入 $certNextUrl")
+                    pyLog("证书预热: 8081 加载失败(code=${error.code})，直接进入 $certNextUrl")
                     if (certNextUrl.isNotEmpty()) return GeckoResult.fromValue(certNextUrl)
                 }
                 // 错误页由 Python 侧生成：直接内联网页 style.css 并复用其 .modal 结构，
@@ -499,6 +496,20 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * Java 侧（App）排查用的日志 —— 经 Chaquopy 转给 Python 的 `leaffs_mobile.jlog`，
+     * 由它写进 leaffs.log / stderr。
+     *
+     * ⚠️ 别改回 `android.util.Log`：那条路在真机上**读不到** —— 本项目没有 logcat 出口，
+     * netguard / 安全区扩展那些排查日志就是这么"打了却从来没见过"的。
+     */
+    private fun pyLog(msg: String) {
+        try {
+            Python.getInstance().getModule("leaffs_mobile").callAttr("jlog", msg)
+        } catch (_: Throwable) {
+        }
+    }
+
+    /**
      * 注册内置扩展（assets/insets）：它的 content script 在 document_start 向 App 要安全区，
      * 再往 body 注入 padding。一次注册，所有页面（含中英文各版）都生效。
      */
@@ -516,10 +527,10 @@ class MainActivity : ComponentActivity() {
                     session.webExtensionController.setMessageDelegate(
                         ext, insetsMessageDelegate(), "browser")
                 }, { e ->
-                    android.util.Log.w("LeafFS", "安全区扩展注册失败", e)
+                    pyLog("安全区扩展注册失败: $e")
                 })
         } catch (t: Throwable) {
-            android.util.Log.w("LeafFS", "安全区扩展不可用", t)
+            pyLog("安全区扩展不可用: $t")
         }
     }
 
@@ -535,24 +546,24 @@ class MainActivity : ComponentActivity() {
      */
     private fun setupNetGuardExtension() {
         try {
-            android.util.Log.i("LeafFS", "netguard: 开始注册内置扩展")
+            pyLog("netguard: 开始注册内置扩展")
             runtime().webExtensionController
                 .installBuiltIn(NETGUARD_EXTENSION)
                 .accept({ ext ->
                     if (ext == null) {
-                        android.util.Log.w("LeafFS", "netguard: installBuiltIn 回调拿到 null")
+                        pyLog("netguard: installBuiltIn 回调拿到 null")
                         return@accept
                     }
-                    android.util.Log.i("LeafFS", "netguard: 扩展已安装，挂 message delegate")
+                    pyLog("netguard: 扩展已安装，挂 message delegate")
                     ext.setMessageDelegate(netGuardMessageDelegate(), "browser")
-                    android.util.Log.i("LeafFS", "netguard: message delegate 已挂上")
+                    pyLog("netguard: message delegate 已挂上")
                 }, { e ->
                     // ⚠️ 若这里报的是"缺权限"，说明内置扩展拿不到 webRequestBlocking —— 那就
                     // 改用 declarativeNetRequest（声明式规则，不需要 blocking 权限）
-                    android.util.Log.w("LeafFS", "netguard 扩展注册失败", e)
+                    pyLog("netguard 扩展注册失败: $e")
                 })
         } catch (t: Throwable) {
-            android.util.Log.w("LeafFS", "netguard 扩展不可用", t)
+            pyLog("netguard 扩展不可用: $t")
         }
     }
 
@@ -576,7 +587,7 @@ class MainActivity : ComponentActivity() {
             // 官方文档的例子（web-extensions.html 的 port_messaging 一节）里就有这一步。
             netGuardPort = port
             port.setDelegate(netGuardPortDelegate)
-            android.util.Log.i("LeafFS", "netguard: 扩展连上来了（Port 已建立）")
+            pyLog("netguard: 扩展连上来了（Port 已建立）")
         }
 
         override fun onMessage(
@@ -609,13 +620,12 @@ class MainActivity : ComponentActivity() {
     private fun handleNetGuardMessage(message: Any) {
         // 原样打出来：消息**可能不是** JSONObject（`as?` 会安静地变成 null，于是 when 全部
         // 跳过、什么都不打 —— 那就又回到"查不出原因"）。先看类型，再判断。
-        android.util.Log.i("LeafFS", "netguard: onMessage class="
+        pyLog("netguard: onMessage class="
             + message.javaClass.simpleName + " msg=" + message.toString())
         val json = message as? JSONObject
         when (json?.optString("type")) {
-            "ready" -> android.util.Log.i("LeafFS", "netguard 扩展已就绪（webRequest 可用）")
-            "blocked" -> android.util.Log.w(
-                "LeafFS", "netguard 拦截外部请求: " + json.optString("url"))
+            "ready" -> pyLog("netguard 扩展已就绪（webRequest 可用）")
+            "blocked" -> pyLog("netguard 拦截外部请求: " + json.optString("url"))
         }
     }
 
@@ -725,7 +735,7 @@ class MainActivity : ComponentActivity() {
             pendingFile = prompt
             pendingFileResult = result
             val isFolder = prompt.type == GeckoSession.PromptDelegate.FilePrompt.Type.FOLDER
-            android.util.Log.d("LeafFS", "文件选择请求 type=${prompt.type} folder=$isFolder " +
+            pyLog("文件选择请求 type=${prompt.type} folder=$isFolder " +
                 "mime=${prompt.mimeTypes?.joinToString() ?: "null"}")
             val intent = if (isFolder) {
                 // 官方示例：文件夹选择器加 CATEGORY_DEFAULT，content:// 可直接交给内核
@@ -995,7 +1005,7 @@ class MainActivity : ComponentActivity() {
                     ok++
                 } catch (t: Throwable) {
                     target.delete()   // 半截文件不留
-                    android.util.Log.w("LeafFS", "导入失败: $name", t)
+                    pyLog("导入失败: $name: $t")
                 }
                 done += size
                 reportProgress(done, total)
@@ -1006,7 +1016,7 @@ class MainActivity : ComponentActivity() {
                 Python.getInstance().getModule("leaffs.files.core")
                     .callAttr("invalidate_folder_cache_smart", rel)
             } catch (t: Throwable) {
-                android.util.Log.w("LeafFS", "失效目录缓存失败", t)
+                pyLog("失效目录缓存失败: $t")
             }
             val n = ok
             val skipped = tooBig
@@ -1085,7 +1095,7 @@ class MainActivity : ComponentActivity() {
             m.put("pct", pct)
             insetsPort?.postMessage(m)
         } catch (t: Throwable) {
-            android.util.Log.w("LeafFS", "推送导入进度失败", t)
+            pyLog("推送导入进度失败: $t")
         }
     }
 
@@ -1154,7 +1164,7 @@ class MainActivity : ComponentActivity() {
         pendingFile = null
         pendingFileResult = null
         if (prompt == null || result == null) return
-        android.util.Log.d("LeafFS", "文件选择返回 resultCode=$resultCode " +
+        pyLog("文件选择返回 resultCode=$resultCode " +
             "data=${data?.data} clip=${data?.clipData?.itemCount ?: 0}")
         if (resultCode != RESULT_OK || data == null) {
             result.complete(prompt.dismiss())
@@ -1181,11 +1191,11 @@ class MainActivity : ComponentActivity() {
             }
             // 不走内核的上传流程：原生直接把文件写进共享目录，随即让网页以为"取消了"
             //（网页不必再 POST 一遍，也就没有 content:// 解析不了的问题）
-            android.util.Log.d("LeafFS", "原生导入 ${picked.size} 个文件 → ${currentRelativeDir()}")
+            pyLog("原生导入 ${picked.size} 个文件 → ${currentRelativeDir()}")
             importPickedFiles(picked)
             result.complete(prompt.dismiss())
         } catch (t: Throwable) {
-            android.util.Log.w("LeafFS", "选文件处理异常", t)
+            pyLog("选文件处理异常: $t")
             result.complete(prompt.dismiss())
         }
     }
@@ -1320,7 +1330,7 @@ class MainActivity : ComponentActivity() {
                     Python.getInstance().getModule("leaffs.utils.core")
                         .callAttr("set_native_thumbnailer", Thumbnailer())
                 } catch (t: Throwable) {
-                    android.util.Log.w("LeafFS", "注册缩略图生成器失败", t)
+                    pyLog("注册缩略图生成器失败: $t")
                 }
                 val res: String = mod.callAttr("start").toJava(String::class.java)
                 val obj = JSONObject(res)
@@ -1431,11 +1441,11 @@ class MainActivity : ComponentActivity() {
             } catch (_: Throwable) {
                 emptyList()
             }
-            android.util.Log.d("LeafFS", "选择动作: $available flags=${selection.flags}")
+            pyLog("选择动作: $available flags=${selection.flags}")
             // 只保留有中文标签的用户动作；内核的内部动作（HIDE/UNSELECT 等）不展示
             val ordered = ORDERED_ACTIONS.filter { available.contains(it) }
             if (ordered.isEmpty()) {
-                android.util.Log.d("LeafFS", "无可用用户动作 → 不弹菜单")
+                pyLog("无可用用户动作 → 不弹菜单")
                 selection.hide()
                 return
             }
@@ -1665,7 +1675,7 @@ class MainActivity : ComponentActivity() {
                 android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                 Uri.fromParts("package", packageName, null)))
         } catch (e: Exception) {
-            android.util.Log.w("LeafFS", "打开应用设置页失败", e)
+            pyLog("打开应用设置页失败: $e")
         }
     }
 

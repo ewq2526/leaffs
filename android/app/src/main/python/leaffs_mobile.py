@@ -303,6 +303,18 @@ def status():
 _theme_state = {'dark': False, 'accent': ''}
 
 
+def jlog(msg):
+    """Java 侧（App）排查用的一行日志 —— 写进 leaffs.log。
+
+    为什么不直接用 android.util.Log：那条路在真机上读不到（本项目没有 logcat 出口），
+    而这条（`add_log`）本来就在用 —— 它还经 stderr 进 logcat 的 `python.stderr`。
+    """
+    try:
+        add_log('java: ' + str(msg), 'info')
+    except Exception:
+        pass
+
+
 def set_theme(dark, accent=''):
     """由 App 调用：网页当前的主题（亮暗 + 主色）。"""
     _theme_state['dark'] = bool(dark)
