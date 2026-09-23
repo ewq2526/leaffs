@@ -238,7 +238,7 @@ function doMount() {
     }).then(function (res) {
         if (!res.ok) { batchToast((res.d && res.d.error) || 'Mount failed', 'error'); return; }
         el.value = '';
-        batchToast('Mounted to the share area', 'success');
+        batchToast('Mounted under mounts/', 'success');
         loadList();
     }).catch(function () { batchToast('Mount failed', 'error'); });
 }

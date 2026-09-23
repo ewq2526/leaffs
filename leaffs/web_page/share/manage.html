@@ -237,7 +237,7 @@ function doMount() {
     }).then(function (res) {
         if (!res.ok) { batchToast((res.d && res.d.error) || '挂载失败', 'error'); return; }
         el.value = '';
-        batchToast('已挂到分享区', 'success');
+        batchToast('已挂载到 mounts/', 'success');
         loadList();
     }).catch(function () { batchToast('挂载失败', 'error'); });
 }
