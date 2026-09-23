@@ -298,3 +298,30 @@ def test_list_public_dir_rejects_non_mapping_and_escape(mount_env):
     # 往外走
     assert m.list_public_dir('admin', 'public/shares/admin/电影/../..') == []
     assert m.list_public_dir('admin', 'public/shares/admin/电影/../../outside') == []
+
+
+# ---------- ⑥ 落点复核按"所属的根"判 ----------
+
+def test_root_for_uses_registered_root_for_mapped_paths(mount_env):
+    """缩略图与打包里各有一句"解析结果仍须落在根内"的复核。
+
+    那些地方一律按共享根判的话，映射进来的目录会被整个判出去 —— 缩略图 403、
+    打包跳过。判定必须按**这条路径所属的根**：映射路径 = 登记的真实目录，
+    普通路径 = 共享根。
+    """
+    import leaffs.files.api as fapi
+
+    m, outside, shared = mount_env['m'], mount_env['outside'], mount_env['shared']
+    _mkfile(os.path.join(outside, '电影', 'a.mkv'), b'a')
+    assert m.publish_fs(os.path.join(outside, '电影'), '电影', 'admin')[1] is None
+
+    def norm(p):
+        return os.path.normcase(os.path.normpath(p))
+
+    # 映射路径 → 根是登记的真实目录（不是共享根，也不是它的父目录）
+    root = fapi._root_for('public/shares/admin/电影/a.mkv', shared)
+    assert norm(root) == norm(os.path.join(outside, '电影')), root
+    # 对照：共享根内的普通路径，根就是共享根
+    assert norm(fapi._root_for('users/admin/x.txt', shared)) == norm(shared)
+    # 越界路径解析不出来 → 退回 base，于是后续那次 is_path_safe 必然失败（拒绝）
+    assert norm(fapi._root_for('public/shares/admin/电影/../../x', shared)) == norm(shared)

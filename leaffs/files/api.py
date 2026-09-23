@@ -91,6 +91,17 @@ def ws_write_allowed(role, username, path, op, guest_mode=True):
     return sub == 'public' or sub.startswith('public/')
 
 
+def _root_for(rel_path, base):
+    """这段相对路径**该在的那个根**：命中本机路径映射时是那条登记的真实根，否则是 `base`。
+
+    读路径上有一类写法是"先问解析器拿绝对路径、再复核一次落点"（缩略图、打包）。
+    复核必须按**它所属的根**判：一律按共享根会把映射区整个判出去 ——
+    缩略图 403、打包跳过，而映射进来的目录本来就在共享根之外。
+    """
+    resolved = resolve_rel(rel_path, base)
+    return resolved[1] if resolved else base
+
+
 def _upload_quota_buckets(target_dir, UPLOAD_DIR):
     """把上传目标目录映射为配额 bucket 名（IC-QUOTA）。
 
@@ -520,8 +531,9 @@ def send_thumbnail(handler, UPLOAD_DIR, get_thumbnail, is_path_safe, DISCONNECTE
             resolved = resolve_rel(p, UPLOAD_DIR)
             if not resolved: handler.send_error(403); return
             full = resolved[0]
-        elif not is_path_safe(UPLOAD_DIR, full):
-            # 解析器给的是绝对路径，仍须落在共享根内（与原来同一条判定）
+        elif not is_path_safe(_root_for(p, UPLOAD_DIR), full):
+            # 解析器给的是绝对路径，仍须落在**它所属的根**内：共享根内的普通分享按共享根判，
+            # 本机路径映射按那条登记的真实根判（一律按共享根会把映射区整个判出去）
             handler.send_error(403); return
         if not os.path.exists(full) or os.path.isdir(full): handler.send_error(404); return
         thumb = get_thumbnail(full)
@@ -1131,7 +1143,10 @@ def zip_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, DISCONNECT
                     continue
                 full = resolved_item[0]
                 arcname = os.path.relpath(full, base_full)
-            if not is_path_safe(UPLOAD_DIR, full):
+            root_here = _root_for(rel_path, UPLOAD_DIR)
+            if not is_path_safe(root_here, full):
+                # 落点复核按**这条路径所属的根**判：共享根内的普通分享按共享根，
+                # 本机路径映射按登记的真实根（一律按共享根会让映射区的文件打不进包）
                 skipped += 1
                 continue
             if not os.path.exists(full):
@@ -1145,8 +1160,9 @@ def zip_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, DISCONNECT
                     dirs[:] = [d for d in dirs if not is_upload_tmp_entry(d)]
                     for file in files:
                         fp = os.path.join(root, file)
-                        # 对子文件也校验路径安全性
-                        if not is_path_safe(UPLOAD_DIR, fp): continue
+                        # 对子文件也校验路径安全性 —— 同样按**这个目录所属的根**判，
+                        # 否则映射目录里的子文件会被逐个跳过（包是空的）
+                        if not is_path_safe(root_here, fp): continue
                         entries.append((fp, os.path.relpath(fp, base_full)))
         # LF-05：一个都没打成功 → **统一回 404**，不再发 200 + 空 ZIP（那是假成功），
         # 也不区分"无权"与"不存在"—— 区分开就是个权限 oracle
