@@ -325,3 +325,28 @@ def test_root_for_uses_registered_root_for_mapped_paths(mount_env):
     assert norm(fapi._root_for('users/admin/x.txt', shared)) == norm(shared)
     # 越界路径解析不出来 → 退回 base，于是后续那次 is_path_safe 必然失败（拒绝）
     assert norm(fapi._root_for('public/shares/admin/电影/../../x', shared)) == norm(shared)
+
+
+# ---------- ⑦ 本机目录选择器 ----------
+
+def test_browse_api_requires_local_token_session(client):
+    """选择器读的是**服务器本机**的文件系统 —— 远程会话必须拿不到（与挂载同一档鉴权）"""
+    login(client)
+    r = client.get('/api/mount/browse')
+    assert r.status_code in (403, 404), r.status_code
+    r2 = client.get('/api/mount/browse', params={'path': 'C:\\'})
+    assert r2.status_code in (403, 404), r2.status_code
+
+
+def test_local_roots_shape():
+    """根列表：Windows 给存在的盘符，其它平台给 `/`"""
+    from leaffs.server.handler import _local_roots
+
+    roots = _local_roots()
+    assert roots, roots
+    paths = [r['path'] for r in roots]
+    if os.name == 'nt':
+        assert all(p.endswith(':\\') for p in paths), paths
+        assert any(p.upper().startswith('C') for p in paths), paths
+    else:
+        assert paths == ['/']

@@ -2125,6 +2125,70 @@ def _g_share_page(h, path, role):
                    _ac.get_session, _ac.get_session_username)
 
 
+def _local_roots():
+    """本机可浏览的根：Windows 给存在的盘符，其它平台给 `/`。"""
+    if os.name != 'nt':
+        return [{'name': '/', 'path': '/'}]
+    out = []
+    for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+        root = letter + ':\\'
+        try:
+            if os.path.exists(root):
+                out.append({'name': letter + ':', 'path': root})
+        except Exception:
+            continue
+    return out
+
+
+def _g_mount_browse(h, path, role):
+    """GET /api/mount/browse[?path=<本机绝对路径>] —— "挂载本机路径"用的目录选择器。
+
+    ⚠️ 这个接口**读的是服务器本机的文件系统**，鉴权与 `/api/share/mount` 同一档：
+    必须是**本机一次性令牌建立的会话**（= 操作者人就坐在服务端这台机器前）。
+    远程会话即使拿着管理员账号也拿不到 —— 否则它等于把整台机器的目录树交出去。
+
+    不带 `path` 时返回可浏览的根列表；带 `path` 时列该目录**一层**（目录 + 普通文件）。
+    符号链接一律不列：链到哪儿都不给看，免得绕着已经判定的范围走。
+    """
+    if not h._is_local_token_session():
+        h.send_json({'error': '本机路径只能在服务端本机浏览'}, 403)
+        return
+    q = urllib.parse.parse_qs(urllib.parse.urlparse(h.path).query)
+    want = (q.get('path', [''])[0] or '').strip()
+    if not want:
+        h.send_json({'path': '', 'parent': None, 'entries': [], 'roots': _local_roots()})
+        return
+    if not os.path.isabs(want):
+        h.send_json({'error': '必须是绝对路径'}, 400)
+        return
+    target = os.path.abspath(want)
+    try:
+        if not os.path.isdir(target):
+            h.send_json({'error': '不是目录'}, 400)
+            return
+        names = sorted(os.listdir(target), key=lambda s: s.lower())
+    except Exception:
+        h.send_json({'error': '目录不可读'}, 400)
+        return
+    entries = []
+    for nm in names:
+        full = os.path.join(target, nm)
+        try:
+            if os.path.islink(full):
+                continue
+            if os.path.isdir(full):
+                entries.append({'name': nm, 'path': full, 'dir': True})
+            elif os.path.isfile(full):
+                entries.append({'name': nm, 'path': full, 'dir': False})
+        except Exception:
+            continue
+    parent = os.path.dirname(target.rstrip('\\/')) or None
+    if parent and os.path.normcase(parent) == os.path.normcase(target):
+        parent = None          # 已在根上（C:\ 或 /）：没有上级
+    h.send_json({'path': target, 'parent': parent,
+                 'entries': entries, 'roots': _local_roots()})
+
+
 def _g_p_share(h, path, role):
     """/p/<用户名>[/api] —— 访客分享展示页（公开，无需登录，无管理元素）
 
@@ -2336,6 +2400,7 @@ GET_ROUTES = (
     (('=', '/api/ping'), _g_ping),
     (('=', '/api/share'), _g_share_list),
     (('=', '/api/share/status'), _g_share_status),
+    (('=', '/api/mount/browse'), _g_mount_browse),
     (('=', '/api/users/archive'), _g_users_archive),
     (('=', '/api/users'), _g_users),
     (('=', '/api/logs'), _g_logs),
