@@ -629,27 +629,43 @@ account and sessions**. The reasoning is that the purge is irreversible but low-
 new code), whereas "account deleted, code still there" makes **a recreated account with the same name
 inherit the old code** — the share page still demands a code, and nobody knows it.
 
-### 8.5 Local path mounts (read-only references)
+### 8.7 Server mount area (`mounts/`, local path mappings)
 
-Besides files inside the shared root, the mapping table supports a second source: an
-**absolute path on the server machine** — a local folder (or a single file) appears in the share
-area with **nothing copied**.
+The mapping table supports a second source: an **absolute path on the server machine** — a local
+folder (or a single file) is exposed with **nothing copied**. It sits **beside** ordinary sharing,
+not inside it:
 
-How it relates to the rest of this chapter:
+```
+shared_files/                 ← shared root (data root)
+├── users/<name>/             ← per-user private folders
+├── public/                   ← public folder
+│   └── shares/<name>/<item>   ← ordinary shares (src): per user, access-code protected
+└── mounts/<name>              ← server mounts (fs): no user, no access-code layer
+```
 
-- **Source**: each record carries one of the two — a shared-root-relative path (original) or a
-  local absolute path (new). Old records simply read back as "inside the shared root", so
-  existing shares keep working;
+**Two sources, two behaviours**:
+
+| | Ordinary share (`src`) | Server mount (`fs`) |
+|---|---|---|
+| Source | path relative to the shared root | absolute path on the server machine |
+| Shape | files only | folder or file |
+| Ownership | **per user** (`shares/<user>/`) | **no owner** (it belongs to the machine) |
+| Created from | Browse → tick → Share | **server machine only** (local-token session) |
+| Access | its own access code | **same level as the public folder** |
+| Size | normal logic (cached) | not part of the public folder's size accounting |
+
+Key points:
+
+- **The name is a projection of the path**: the entry is named after the source itself
+  (`E:\Movies` → `mounts/Movies`), never an alias — mounting can only be done at the server
+  machine, so the operator should see the very name he sees in Explorer. A name clash is
+  **rejected**, not auto-renamed (renaming would make the name disagree with the target);
 - **Resolution**: files *inside* a mounted folder are not registered one by one; they are
   resolved by joining the **virtual prefix with the remainder**, longest prefix winning
   (nested mounts prefer the more specific one). The result is still checked against the
   **registered root** — never by concatenating the request string into an absolute path.
   That resolution has a single implementation (the choke point in 4.3), used by both the read
   and the write paths;
-- **Visitor page**: the share page can **walk into** a mounted folder level by level (folder rows
-  are clickable, with an "Up" row) — behind the very same access-code gate: while locked, not even
-  the listing is served. And only the sharer's *own* mounted folders can be entered (the owner in
-  the virtual path must match the user name on the page, otherwise the result is an empty list);
 - **Read-only**: a mounted source carries a read-only flag in the resolution result, and
   **every write entry point refuses** accordingly — delete (one implementation on the HTTP
   side, another on the WebSocket side), mkdir, upload. The reason is plain: what is mounted is
@@ -660,11 +676,18 @@ How it relates to the rest of this chapter:
   capability follows *presence at the machine*, not the account. The token itself is single-use
   and deleted once consumed, so the check lands on its product (that session), which is bound
   to a loopback origin;
-- **Not followed**: folder-size accounting, search and recursive scans **never enter mount
-  areas** (a mounted folder can be terabytes; one recursion would stall the listing), so a
-  mounted folder reports size 0;
+- **Size accounting**: the `mounts` folder itself **reports 0** and takes no part in folder-size
+  accounting (it is mapped in); **once inside**, entries report real sizes — that level uses the
+  existing folder statistics. The `shares` folder under `public` likewise reports 0: the share
+  area is entirely virtual and takes no part in the public folder's accounting;
+- **Not followed**: search and recursive scans **never enter mount areas**;
 - **Expiry**: if the source is deleted or moved, the entry stays but shows "source is gone" —
   the same behaviour as ordinary shares, because what is registered is a reference, not a copy.
+
+⚠️ **Not done yet** (next step): an access code of the mount area's own (set on the server side,
+independent of shares), and moving the code granularity from "one per user" to "**one per
+share**" (indexed by a **random label** internally, with the code **readable back** by its owner
+and by admins).
 
 ---
 

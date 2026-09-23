@@ -281,7 +281,9 @@ function render() {
     var h = '';
     for (var i = 0; i < filtered.length; i++) {
         var f = filtered[i], checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
-        var sz = formatSize(f.size), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
+        // 服务器挂载的目录不报大小：它是映射出来的，不参与目录大小统计；
+        // 点进去那一层才逐个显示条目大小（判据是**来源** local，不是"虚拟条目"）
+        var sz = (isFolder && f.local) ? '&mdash;' : formatSize(f.size), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
         var ep = encodeURIComponent(f.path), en = esc(f.name), sp = jsAttr(f.path), ft = fileType(f.name);
         // 属性里要放 HTML 转义的路径；data-path 读回来是原始值，正好与 _thumbOk 的键一致
         // ⚠️ 必须用 escAttr：这是**属性位置**，esc 不转引号 ⇒ 路径含 `"` 就能闭合属性

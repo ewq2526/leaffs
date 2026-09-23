@@ -23,7 +23,7 @@ from collections import OrderedDict
 # ===================================================
 from leaffs.paths import (  # noqa: E402
     UPLOAD_DIR, UPLOAD_TMP_DIR, CACHE_DIR, THUMB_DIR,
-    is_upload_tmp_entry, find_bundled_exe,
+    MOUNT_DIRNAME, is_upload_tmp_entry, find_bundled_exe,
 )
 FOLDER_SIZE_DB = os.path.join(CACHE_DIR, 'folder_sizes.json')
 
@@ -95,7 +95,7 @@ def _mapped_prefix(rel_path):
     """
     if not rel_path or not isinstance(rel_path, str):
         return None
-    if not rel_path.replace('\\', '/').lstrip('/').startswith('public/shares/'):
+    if not rel_path.replace('\\', '/').lstrip('/').startswith(MOUNT_DIRNAME + '/'):
         return None
     try:
         from leaffs.share import mappings as _mappings

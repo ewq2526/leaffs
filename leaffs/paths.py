@@ -63,12 +63,19 @@ CACHE_DIR = os.path.join(PROJECT_DIR, '.cache')          # 缩略图/文件夹�
 THUMB_DIR = os.path.join(CACHE_DIR, 'thumbs')
 CONFIG_DIR = os.path.join(PROJECT_DIR, 'config')         # 服务端/下载器/账号等运行配置
 
+# 服务器挂载区：与 `public/`（公共目录）同级的一级目录，磁盘上是空壳 ——
+# 里面的每个条目由分享映射表登记（本机路径映射，见 share/mappings.py）。
+# 它是只读来源：内容在 LeafFS 之外，写操作一律拒（resolve_rel 的只读位）。
+MOUNT_DIRNAME = 'mounts'
+MOUNT_DIR = os.path.join(UPLOAD_DIR, MOUNT_DIRNAME)
+
 # 数据根运行目录即时确保存在（原 ut_core import 期行为，语义不变）
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(UPLOAD_TMP_DIR, exist_ok=True)   # 上传临时目录（对用户不可见，见上）
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(THUMB_DIR, exist_ok=True)
 os.makedirs(CONFIG_DIR, exist_ok=True)
+os.makedirs(MOUNT_DIR, exist_ok=True)
 
 
 def is_upload_tmp_entry(name):

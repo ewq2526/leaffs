@@ -65,7 +65,7 @@
                             <button class="btn-admin" onclick="openPicker()" style="font-size:11px">浏览…</button>
                             <button class="btn-admin primary" onclick="doMount()" style="font-size:11px">挂载</button>
                         </div>
-                        <div style="font-size:11px;color:var(--text-light,#a3aed0);margin-top:5px">目录或单个文件都行，<b>不复制文件</b>；挂上来的内容只读（不能在分享区里删改）。只有服务端本机的窗口能做这件事。</div>
+                        <div style="font-size:11px;color:var(--text-light,#a3aed0);margin-top:5px">目录或单个文件都行，<b>不复制文件</b>；挂上来的内容<b>只读</b>。挂载点出现在 <code>mounts/</code> 下（与公共目录同级），名字就是它在本机上的名字 —— 只有服务端本机的窗口能做这件事。</div>
                     </div>
                     <div id="pickBox" style="display:none;position:fixed;inset:0;background:rgba(15,20,35,.42);z-index:80;align-items:center;justify-content:center">
                         <div style="background:var(--card,#fff);border-radius:12px;width:min(560px,92vw);max-height:82vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 18px 48px rgba(20,28,50,.24)">

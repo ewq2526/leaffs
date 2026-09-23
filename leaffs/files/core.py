@@ -15,7 +15,7 @@ import zipfile as _zipfile
 
 from leaffs.paths import (
     BASE_DIR, UPLOAD_DIR, CACHE_DIR, THUMB_DIR,
-    UPLOAD_TMP_DIR, is_upload_tmp_entry,
+    UPLOAD_TMP_DIR, MOUNT_DIRNAME, is_upload_tmp_entry,
 )
 from leaffs.utils.core import (
     COPY_BUFFER_SIZE,
@@ -65,13 +65,17 @@ def check_path_permission_core(role, username, path, guest_mode=True):
     # （admin 放行：他本来就能读全部，也要留一条清理污染的路。）
     if path == 'public/shares' or path.startswith('public/shares/'):
         return False
+    # 服务器挂载区（`mounts/`，与 public 同级）的访问权限**与公共目录一个级别**：
+    # 能看 public 的就能看它，也一并受 guest_mode 约束。
+    # ⚠️ 这里只管"能不能进"；写操作由解析层的只读位拒绝，是另一个闸。
+    _mount = (path == MOUNT_DIRNAME or path.startswith(MOUNT_DIRNAME + '/'))
     # 游客/匿名：仅在游客模式开启时可访问 public；关闭后一律拒绝（防绕过 UI 直接调 API/WS）
     if role == 'guest' or not username:
         if not guest_mode:
             return False
-        return path.startswith('public/') or path == 'public'
+        return path.startswith('public/') or path == 'public' or _mount
     return (path.startswith(f'users/{username}/') or path == f'users/{username}'
-            or path.startswith('public/') or path == 'public')
+            or path.startswith('public/') or path == 'public' or _mount)
 
 
 def get_user_dir(username):

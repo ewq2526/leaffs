@@ -1345,7 +1345,9 @@ class HTTPHandler(BaseHTTPRequestHandler):
             self.send_json({'error': '缺少 path'}, 400)
             return
         username = self._get_username_from_session() or ''
-        vp, err = _mapping.publish_fs(p, str(data.get('name') or ''), username)
+        # 挂载**不起名**：条目名就是源路径自己的名字（只有服务端能挂，他看到的名字
+        # 就该是他在资源管理器里看到的那个）
+        vp, err = _mapping.publish_fs(p, username)
         if not vp:
             self.send_json({'error': err or '映射失败'}, 400 if err else 500)
             return
@@ -2211,15 +2213,7 @@ def _g_p_share(h, path, role):
             h.send_json({'ok': False, 'error': 'code_required', 'by': uname}, 403,
                         exempt=True)
             return
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(h.path).query)
-        sub = (q.get('path', [''])[0] or '').strip()
-        if sub:
-            # 进映射目录：只列该目录一层。非映射目录 / 越界 / 不存在一律空列表 ——
-            # 空列表比 403 好：403 等于告诉对方"这儿本来有东西"
-            h.send_json({'by': uname, 'path': sub,
-                         'files': _mapping.list_public_dir(uname, sub)})
-        else:
-            h.send_json({'by': uname, 'files': _mapping.list_public(uname)})
+        h.send_json({'by': uname, 'files': _mapping.list_public(uname)})
         return
     if len(parts) in (1, 2) and (len(parts) == 1 or parts[1] == ''):
         page = os.path.join(BASE_DIR, 'web_page', 'share', 'public.html')

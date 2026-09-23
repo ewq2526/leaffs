@@ -19,14 +19,15 @@ import os
 import threading
 import time
 
-from leaffs.paths import UPLOAD_DIR, CONFIG_DIR
+from leaffs.paths import UPLOAD_DIR, CONFIG_DIR, MOUNT_DIRNAME
 from leaffs.runtime_log import add_log
 from leaffs.utils.core import resolve_rel
 
 _MAPPINGS_FILE = os.path.join(CONFIG_DIR, 'share_mappings.json')
-_SHARE_ROOT_REL = 'public/shares'
+_SHARE_ROOT_REL = 'public/shares'      # 普通分享：按用户分（public/shares/<用户名>/）
+_MOUNT_ROOT_REL = MOUNT_DIRNAME        # 服务器挂载：不分用户（mounts/<名字>），与 public 同级
 _MAX_TOTAL = 500          # 全量映射上限（防失控增长）
-_MAX_USER = 100           # 单用户上限
+_MAX_USER = 100           # 单用户上限（只约束普通分享；挂载不分用户，只受总量上限约束）
 
 _lock = threading.Lock()
 _cache = None             # {virtual_rel: {'src': src_rel, 'by': username, 'created': float}}
@@ -158,13 +159,19 @@ def publish(src_rel, username):
     return vp, None
 
 
-def publish_fs(fs_path, name, username):
+def publish_fs(fs_path, username):
     """登记一条**服务器本机路径**映射（目录或单个文件）—— 只登记引用，不复制文件。
 
-    与 `publish` 的区别只在来源：`publish` 的源是共享根内的相对路径，这里的源是
-    本机绝对路径。登记出来的条目同样出现在分享区 `public/shares/<用户名>/` 下，
-    读法与原来一致；**只读** —— 写操作对映射区一律拒绝（见 `resolve_rel` 的只读位）。
+    与 `publish` 是**两种来源、两种逻辑**：
+      * `publish` 的源是共享根内的相对路径，挂在 `public/shares/<用户名>/` 下、**按用户分**；
+      * 这里的源是服务器本机的绝对路径，挂在 `mounts/<名字>` 下、**不分用户** ——
+        它是这台服务器的东西，不属于任何账号（所以也没有用户名那一层）。
 
+    **条目名 = 源路径自己的名字**，不起别名：挂载只有服务端本机能做，他看到的名字就该是
+    自己在资源管理器里看到的那个 —— 名字是路径的投影，不是标签。
+    同名撞车**直接拒**：名字必须与实物一一对应，自动改名会让名字和实际指向对不上。
+
+    **只读**：写操作对挂载区一律拒绝（`resolve_rel` 的只读位，五个写入口都据此判）。
     调用方必须先确认"操作者就在服务端本机"（本机令牌会话）；本函数只校验路径与登记本身。
     """
     from leaffs.files.core import sanitize_entry_name
@@ -186,22 +193,19 @@ def publish_fs(fs_path, name, username):
             return None, '只能映射目录或普通文件'
     except Exception:
         return None, '路径不可读'
-    default_name = os.path.basename(target.rstrip('\\/')) or 'mapped'
-    vdir = _user_dir_rel(username)
+    name = sanitize_entry_name(os.path.basename(target.rstrip('\\/')))
+    if name is None:
+        return None, '这个名字不能作为挂载条目名'
+    vp = _MOUNT_ROOT_REL + '/' + name
     with _lock:
         _load_locked()
         if len(_cache) >= _MAX_TOTAL:
-            return None, '分享映射数量已达上限'
-        mine = sum(1 for vp in _cache if _cache[vp].get('by') == username)
-        if mine >= _MAX_USER:
-            return None, '你的分享映射数量已达上限（%d）' % _MAX_USER
-        name = _unique_name(username, name or default_name)
-        if name is None:
-            return None, '名称非法'
-        vp = vdir + '/' + name
+            return None, '挂载数量已达上限'
+        if vp in _cache:
+            return None, '已经有一条同名挂载（%s），先卸掉它再挂' % _cache[vp].get('fs', '')
         _cache[vp] = {'fs': target, 'by': username, 'created': time.time()}
         _save_locked()
-    add_log('本机路径已映射到分享区: %s → %s' % (target, vp), 'info')
+    add_log('本机路径已挂载: %s → %s' % (target, vp), 'info')
     return vp, None
 
 
@@ -218,8 +222,8 @@ def lookup_fs_prefix(rel):
     if not isinstance(rel, str) or not rel:
         return None
     rel = rel.replace('\\', '/').strip('/')
-    # 映射条目一律登记在分享区虚拟根下：先用这一点把绝大多数请求挡在锁外
-    if not rel.startswith(_SHARE_ROOT_REL + '/'):
+    # 挂载条目一律登记在 `mounts/` 下：先用这一点把绝大多数请求挡在锁外
+    if not rel.startswith(_MOUNT_ROOT_REL + '/'):
         return None
     best = None
     with _lock:
@@ -322,10 +326,9 @@ def valid_username(username):
 
 
 def list_public(username):
-    """访客分享展示页数据：某用户名下的映射（公开信息，不含源路径）。
+    """访客分享展示页数据：某用户名下存在源文件的映射（公开信息，不含源路径）。
 
     与直链同授权语义：映射 = 用户主动发布，独立于游客模式开关。
-    条目带 `type`：目录映射给 `path`（前端据此进目录），文件给 `url`（直链）。
     注意：_virtual_stat/resolve 会再取锁，故锁内只拷贝列表，锁外做 stat。
     """
     if not valid_username(username):
@@ -340,61 +343,8 @@ def list_public(username):
         st = _virtual_stat(vp)
         if st is None:
             continue
-        mapped = _mapped_target(vp)
-        item = {'name': vp.rsplit('/', 1)[-1], 'size': st[0],
-                'mtime': st[1], 'path': vp}
-        if mapped is not None and os.path.isdir(mapped):
-            item['type'] = 'folder'
-        else:
-            item['type'] = 'file'
-            item['url'] = '/download/' + vp
-        out.append(item)
-    return out
-
-
-def list_public_dir(username, vp):
-    """列出**映射目录内部**一层（访客用）；非映射目录 / 越界 / 不存在 → 空列表。
-
-    ⚠️ 三个前提，缺一不可：
-
-    1. `vp` 必须落在**该用户名自己的**分享区（`_owner_of_virtual` 与入参一致）——
-       否则访客可以借 A 的分享页去列 B 的目录；
-    2. 只有**本机路径映射**（fs 来源）能进目录内部：共享根内的普通分享条目都是单个文件；
-    3. 越界由 `_mapped_target` 里那次 `safe_path(登记的根, 结果)` 判定 ——
-       按登记值判，不拿请求字符串拼绝对路径。
-
-    符号链接一律不列出：它的目标可能在映射根之外，列出来也下载不了（`resolve` 会拒），
-    徒然泄露一个名字。
-    """
-    if not valid_username(username):
-        return []
-    vp = (vp or '').replace('\\', '/').strip('/')
-    if _owner_of_virtual(vp) != username:
-        return []
-    target = _mapped_target(vp)
-    if not target or not os.path.isdir(target):
-        return []
-    try:
-        names = sorted(os.listdir(target))
-    except Exception:
-        return []
-    out = []
-    for nm in names:
-        child = vp + '/' + nm
-        full = os.path.join(target, nm)
-        try:
-            if os.path.islink(full):
-                continue
-            st = os.stat(full)
-        except Exception:
-            continue
-        if os.path.isdir(full):
-            out.append({'name': nm, 'type': 'folder', 'path': child,
-                        'size': 0, 'mtime': int(st.st_mtime)})
-        elif os.path.isfile(full):
-            out.append({'name': nm, 'type': 'file', 'path': child,
-                        'size': st.st_size, 'mtime': int(st.st_mtime),
-                        'url': '/download/' + child})
+        out.append({'name': vp.rsplit('/', 1)[-1], 'size': st[0],
+                    'mtime': st[1], 'url': '/download/' + vp})
     return out
 
 
@@ -461,9 +411,24 @@ def resolve(virtual_rel):
 def _virtual_stat(vp):
     """虚拟条目的展示大小/时间（= 源头）；源失效返回 None。
 
-    目录映射的大小按 0 报：**不递归统计** —— 挂进来的可能是几 T 的目录，
-    一次递归就能把列表拖死（统计与搜索都不跟随映射，同一个理由）。
+    ⚠️ **分享区里的条目有两种来源，大小口径不同**（别一刀切）：
+      * `src` = 共享根内的相对路径（普通分享）：**照常报大小** —— 它本来就是共享根里的
+        东西，参与公共目录的大小统计；
+      * `fs` = 服务器本机路径（挂载进来的）：**目录不报大小**（报 0）—— 它是映射出来的，
+        不该参与公共目录的大小计算；要看大小就点进去，那一层用服务端既有的目录统计。
+        单文件照常报（就是那个文件的大小）。
     """
+    with _lock:
+        _load_locked()
+        item = _cache.get(vp)
+    if isinstance(item, dict) and item.get('fs'):
+        try:
+            st = os.stat(item['fs'])
+        except Exception:
+            return None
+        if os.path.isdir(item['fs']):
+            return 0, int(st.st_mtime)          # fs 来源的目录：不报大小
+        return st.st_size, int(st.st_mtime)
     full = _mapped_target(vp) or resolve(vp)
     if not full:
         return None
@@ -496,7 +461,8 @@ def merge_into_list(rel_path, result, unlocked=None):
     """
     _load_locked()
     rel = (rel_path or '').replace('\\', '/').strip('/')
-    if rel != 'public' and rel != 'public/shares' and not rel.startswith('public/shares/'):
+    if rel not in ('', 'public', 'public/shares', _MOUNT_ROOT_REL) \
+            and not rel.startswith('public/shares/'):
         return False
 
     def visible(owner):
@@ -528,6 +494,53 @@ def merge_into_list(rel_path, result, unlocked=None):
         result['total_file_count'] = (result.get('total_file_count') or 0) + count_extra
         result['total_size_sum'] = (result.get('total_size_sum') or 0) + size_extra
 
+    # ---------- 服务器挂载区（`mounts/`，与 public 同级）----------
+    # 两种来源两种逻辑：普通分享按用户分、有分享码；挂载**不分用户、也没有分享码** ——
+    # 它的访问权限与公共目录一个级别（由权限层判），所以这里不看 `unlocked`。
+    # ⚠️ 根层那个 `mounts` 目录的 size 报 0：挂载是映射出来的，**不参与**目录大小统计；
+    # 进了 `mounts/` 之后，条目按各自来源报（文件报真实大小，目录由 `_virtual_stat` 报 0）。
+    if rel in ('', _MOUNT_ROOT_REL):
+        mounts = sorted((vp, item) for vp, item in _cache.items()
+                        if isinstance(item, dict) and item.get('fs'))
+        if not mounts:
+            return False
+        if rel == '':
+            if _MOUNT_ROOT_REL in disk_names:
+                return False
+            times = [st[1] for st in (_virtual_stat(vp) for vp, _ in mounts)
+                     if st is not None]
+            if not times:
+                return False
+            files.append({'name': _MOUNT_ROOT_REL, 'path': _MOUNT_ROOT_REL, 'type': 'folder',
+                          'size': 0, 'mtime': max(times),
+                          'virtual': True, 'local': True})
+            return True
+        merged = False
+        count_extra = 0
+        size_extra = 0
+        for vp, item in mounts:
+            name = vp.split('/', 1)[1]
+            if name in disk_names:
+                continue
+            st = _virtual_stat(vp)
+            if st is None:
+                continue
+            if os.path.isdir(item.get('fs', '')):
+                files.append({'name': name, 'path': vp, 'type': 'folder',
+                              'size': st[0], 'mtime': st[1],
+                              'virtual': True, 'local': True})
+            else:
+                files.append({'name': name, 'path': vp, 'type': 'file',
+                              'size': st[0], 'mtime': st[1],
+                              'virtual': True, 'local': True,
+                              'dl': '/download/' + vp})
+                count_extra += 1
+                size_extra += st[0]
+            merged = True
+        if count_extra:
+            bump(count_extra, size_extra)
+        return merged
+
     merged = False
     if rel == 'public':
         # 有映射时补虚拟根目录项 public/shares（统计=其下全部有效映射）
@@ -543,8 +556,10 @@ def merge_into_list(rel_path, result, unlocked=None):
         if not subs:
             return False
         if 'shares' not in disk_names:
+            # size 报 0：分享区全是虚拟条目，**不参与公共目录的大小统计**
+            # （`subs` 只用来判"到底有没有可用映射"和取 mtime）
             files.append({'name': 'shares', 'path': 'public/shares', 'type': 'folder',
-                          'size': sum(s[0] for s in subs),
+                          'size': 0,
                           'mtime': max(s[1] for s in subs), 'virtual': True})
             merged = True
         return merged
@@ -592,14 +607,8 @@ def merge_into_list(rel_path, result, unlocked=None):
         st = _virtual_stat(vp)
         if st is None:
             continue
-        mapped = _mapped_target(vp)
-        if mapped is not None and os.path.isdir(mapped):
-            # 目录映射：显示成文件夹，能点进去 —— 里面的内容由解析层直接列真实目录
-            # （不进 count_extra/size_extra：文件计数与大小只算文件，与磁盘目录条目一致）
-            files.append({'name': name, 'path': vp, 'type': 'folder',
-                          'size': st[0], 'mtime': st[1], 'virtual': True})
-            merged = True
-            continue
+        # 普通分享只登记**文件**（`publish` 里 `isfile` 卡着），这里没有目录那一支 ——
+        # 目录是挂载区的事（`mounts/`，上面单独一支处理）
         files.append({'name': name, 'path': vp, 'type': 'file',
                       'size': st[0], 'mtime': st[1], 'virtual': True,
                       'dl': '/download/' + vp})

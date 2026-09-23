@@ -268,7 +268,10 @@ function render() {
     var h = '';
     for (var i = 0; i < filtered.length; i++) {
         var f = filtered[i], checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
-        var sz = formatSize(f.size), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
+        // A mounted folder reports no size: it is mapped in and takes no part in folder-size
+        // accounting; sizes appear once you enter it (keyed on the **source** flag local,
+        // not on "virtual entry")
+        var sz = (isFolder && f.local) ? '&mdash;' : formatSize(f.size), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
         var ep = encodeURIComponent(f.path), en = esc(f.name), sp = jsAttr(f.path), ft = fileType(f.name);
         // Attributes need the HTML-escaped path; getAttribute() reads the raw value back,
         // which is exactly the key _thumbOk uses
