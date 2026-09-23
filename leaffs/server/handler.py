@@ -43,6 +43,7 @@ from leaffs.server.hosts import (  # 主机名/IP 工具（过渡期别名，随
     strip_host_port as _strip_host_port,
     primary_lan_ip as _primary_lan_ip,
     collect_ips as _collect_ips,
+    lan_ip as _lan_ip,
     _LOCAL_HOST_NAMES,
 )
 
@@ -1662,8 +1663,10 @@ class HTTPHandler(BaseHTTPRequestHandler):
         """对外 URL base（scheme://host[:port]）。
 
         A-14：host 只接受“本机网卡 IP / localhost”（端口剥离后比对），拒绝任意 Host 头
-        注入（防反射 XSS/伪造二维码 base）。localhost/环回地址视为空 → 回退 socket 探测。
-        无可用 Host 时回退 socket 探测主 LAN IP。
+        注入（防反射 XSS/伪造二维码 base）。localhost/环回地址视为空 → 回退对外地址入口：
+        `hosts.lan_ip()` —— 安卓由 leaffs_mobile 注册的探测给（认 Wi-Fi / 热点、排除蜂窝），
+        桌面走 UDP 探测。**不再自己解析主机名**：那在安卓上必失败（主机名是机型名），
+        恒得 127.0.0.1，二维码发出去就是扫码方自己的回环地址。
         """
         scheme = 'https' if self._is_secure() else 'http'
         host = ''
@@ -1681,10 +1684,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
         except Exception:
             host = ''
         if not host:
-            try:
-                host = socket.gethostbyname(socket.gethostname())
-            except Exception:
-                host = '127.0.0.1'
+            host = _lan_ip()
         port = _cfg.PORT
         return f'{scheme}://{host}' + (f':{port}' if port != 80 else '')
 
