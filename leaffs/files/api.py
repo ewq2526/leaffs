@@ -161,7 +161,8 @@ def build_listing(rel_path, perm_check, list_files, share_filter=None):
          （`list_files` 自己只是"不列出它"，挡不住直接走进去）
       ③ 权限判定 → 不过 = 'denied'
       ④ 扫描磁盘 → 读不了 = 'io'；返回 None 又没原因 = 'unknown'
-      ⑤ 合并虚拟分享映射（分享码没解锁的 owner 由 share_filter 挡掉）
+      ⑤ 合并虚拟分享映射（分享码没解锁的由 share_filter 挡掉；`public` 下那两个虚拟区
+         目录名还要过 perm_check —— 进不去的人连名字都不给）
 
     调用方各自把 err_kind 翻成自己的响应形状（HTTP 状态码 / WS 消息），
     所以这里**只算不发** —— 两边的错误语义本来就不同，硬统一会互相牵制。
@@ -191,7 +192,7 @@ def build_listing(rel_path, perm_check, list_files, share_filter=None):
     # 会静默少一个目录（与 TH1"失败不能静默"同一口径）。
     try:
         from leaffs.share import mappings as _mp
-        _mp.merge_into_list(p, result, unlocked=share_filter)
+        _mp.merge_into_list(p, result, unlocked=share_filter, perm_check=perm_check)
     except Exception as e:
         _log_exc('合并分享虚拟条目', e)
     return result, None, None

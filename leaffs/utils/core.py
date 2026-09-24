@@ -6,6 +6,7 @@
 
 import os
 import json
+import queue
 import time
 import threading
 import shutil
@@ -23,7 +24,7 @@ from collections import OrderedDict
 # ===================================================
 from leaffs.paths import (  # noqa: E402
     UPLOAD_DIR, UPLOAD_TMP_DIR, CACHE_DIR, THUMB_DIR,
-    MOUNT_DIRNAME, is_upload_tmp_entry, find_bundled_exe,
+    MOUNT_REL, is_upload_tmp_entry, find_bundled_exe,
 )
 FOLDER_SIZE_DB = os.path.join(CACHE_DIR, 'folder_sizes.json')
 
@@ -95,7 +96,7 @@ def _mapped_prefix(rel_path):
     """
     if not rel_path or not isinstance(rel_path, str):
         return None
-    if not rel_path.replace('\\', '/').lstrip('/').startswith(MOUNT_DIRNAME + '/'):
+    if not rel_path.replace('\\', '/').lstrip('/').startswith(MOUNT_REL + '/'):
         return None
     try:
         from leaffs.share import mappings as _mappings
@@ -365,8 +366,14 @@ def _agg_key(path):
     return os.path.normcase(os.path.abspath(path))
 
 
-def _get_folder_agg(path):
-    """读取目录聚合 {size, files, folders}：内存 → 分片磁盘 → 递归扫描（按路径加和）"""
+def peek_folder_agg(path):
+    """只查缓存（内存 → 分片磁盘），**不扫描**：没有就返回 None。
+
+    给「列表不等大小」用：列表要的是立刻能给的数，没算过的目录排给后台补
+    （`request_folder_agg`）—— 用户刷新一次就能看到（那时通常已经算好）。
+    ⚠️ 与 `_get_folder_agg` 同一口径：**磁盘命中不看时间**，写进去的值一直有效，
+    直到被显式失效（`invalidate_folder_cache`）。
+    """
     path = _agg_key(path)
     now = time.time()
     with _folder_size_lock:
@@ -379,15 +386,25 @@ def _get_folder_agg(path):
     with _folder_db_lock:
         db = _load_shard(sh)
         agg = _load_folder_agg(db.get(path)) if path in db else None
-    if agg is not None:
-        with _folder_size_lock:
-            _folder_size_memory[path] = (agg, now)
-        return agg
+    if agg is None:
+        return None
+    with _folder_size_lock:
+        _folder_size_memory[path] = (agg, now)
+    return dict(agg)
+
+
+def _get_folder_agg(path):
+    """读取目录聚合 {size, files, folders}：内存 → 分片磁盘 → 递归扫描（按路径加和）"""
+    hit = peek_folder_agg(path)
+    if hit is not None:
+        return hit
+    path = _agg_key(path)
     # 磁盘无此路径或为旧格式 → 锁外扫描（扫描期间不阻塞其它目录的磁盘读取）
     agg = _scan_folder_agg(path)
     now = time.time()
     with _folder_size_lock:
         _folder_size_memory[path] = (agg, now)
+    sh = _shard_name(path)
     with _folder_db_lock:
         db = _load_shard(sh)
         existing = _load_folder_agg(db.get(path)) if path in db else None
@@ -399,6 +416,58 @@ def _get_folder_agg(path):
         db[path] = agg
         _save_shard(sh, db)
     return agg
+
+
+# ---------- 目录大小：后台补算（列表不等它） ----------
+# 「列表立刻返回、大小慢慢算」：列表只 `peek_folder_agg`，没算过的目录排进这里，
+# 由一个后台线程顺序算完写进缓存 —— 用户刷新一次就能看到。
+# ⚠️ **单线程是有意的**：算大小是纯磁盘 IO，并发只会跟正常请求抢盘
+# （要的是「异步，不能阻塞正常服务」，不是"算得越快越好"）。
+# 不做推送：刷新一次即可（上推送要动 WS 协议与前端渲染，不值当）。
+_size_queue = queue.Queue(maxsize=4096)
+_size_pending = set()                    # 已排队的键（去重：一屏几百个目录也只排一次）
+_size_lock = threading.Lock()            # 只护 _size_pending
+_size_worker_started = False
+
+
+def request_folder_agg(path):
+    """把「算这个目录」排进后台队列；列表不等它。已在排队、或队列满，就跳过。"""
+    global _size_worker_started
+    key = _agg_key(path)
+    with _size_lock:
+        if key in _size_pending:
+            return
+        _size_pending.add(key)
+        if not _size_worker_started:
+            _size_worker_started = True
+            threading.Thread(target=_folder_size_worker, daemon=True,
+                             name='leaffs-folder-size').start()
+    try:
+        _size_queue.put_nowait(key)
+    except queue.Full:
+        with _size_lock:
+            _size_pending.discard(key)
+
+
+def _folder_size_worker():
+    """后台线程：顺序补算排队的目录（扫描 → 落盘 → 进内存缓存）"""
+    while True:
+        key = _size_queue.get()
+        try:
+            _get_folder_agg(key)
+        except Exception:
+            pass
+        finally:
+            with _size_lock:
+                _size_pending.discard(key)
+            _size_queue.task_done()
+        # 让一让：这是后台活，别把磁盘占满 —— 正常请求随时会进来
+        time.sleep(0.002)
+
+
+def folder_agg_queue_idle():
+    """后台补算排空了没有（测试用；生产路径不等它）"""
+    return _size_queue.unfinished_tasks == 0
 
 
 def _migrate_folder_db_keys():
@@ -516,6 +585,18 @@ def invalidate_folder_cache(path, recursive=False):
     _notify_gallery_changed()
     ap = _agg_key(path)
     ancestors = _ancestors_under_upload(ap)
+
+    def _recompute_later():
+        """清完缓存，顺手把「重新算」排给后台。
+
+        列表只 `peek_folder_agg`（不等大小），没人排的话用户刷新也只能看到占位 ——
+        上传完这里就排上，刷新时通常已经算好。子孙不排：`recursive=True` 是
+        "整个目录没了"的场景，没有重算的必要。
+        """
+        request_folder_agg(ap)
+        for anc in ancestors:
+            request_folder_agg(anc)
+
     with _folder_size_lock:
         mem_keys = set()
         if recursive:
@@ -536,6 +617,7 @@ def invalidate_folder_cache(path, recursive=False):
         if recursive and (ap == root_ap or ap == cache_ap):
             for name in _shard_names_on_disk():
                 _save_shard(name, {})
+            _recompute_later()
             return
         shard_targets = {}
 
@@ -560,6 +642,7 @@ def invalidate_folder_cache(path, recursive=False):
                     hit = True
             if hit:
                 _save_shard(name, db)
+    _recompute_later()
 
 # ========== 配额在途记账（C-06 / IC-QUOTA） ==========
 # 进程内“在途字节”账本：写操作（上传等）在配额检查通过后 quota_reserve 预留字节，

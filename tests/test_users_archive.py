@@ -15,6 +15,7 @@
 """
 import io
 import os
+import time
 
 import httpx
 import pytest
@@ -141,8 +142,14 @@ def test_deleting_an_archive_refreshes_the_parent_totals(client):
     entry = _make_archive(client, 'arch_agg_user', b'x' * 500)
 
     def users_total():
-        d = client.get('/api/files', params={'path': 'users'}).json()
-        return d['total_size_sum']
+        # 目录大小是**后台补算**的：列表只查缓存、不算（算大小可能很贵），没算过先给 None。
+        # 这里轮询到它算出来为止 —— 顺带也钉住"刷新一次就能看到"这条用户可见的行为。
+        for _ in range(200):
+            d = client.get('/api/files', params={'path': 'users'}).json()
+            if d.get('total_size_sum') is not None:
+                return d['total_size_sum']
+            time.sleep(0.05)
+        raise AssertionError('users 的总大小一直没算出来（后台补算没生效？）')
 
     before = users_total()
     r = client.post('/api/users/archive/delete', json={'names': [entry]})

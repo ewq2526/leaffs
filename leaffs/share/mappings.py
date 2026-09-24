@@ -20,13 +20,13 @@ import secrets
 import threading
 import time
 
-from leaffs.paths import UPLOAD_DIR, CONFIG_DIR, MOUNT_DIRNAME
+from leaffs.paths import UPLOAD_DIR, CONFIG_DIR, MOUNT_DIRNAME, MOUNT_REL
 from leaffs.runtime_log import add_log
-from leaffs.utils.core import resolve_rel
+from leaffs.utils.core import resolve_rel, peek_folder_agg, request_folder_agg
 
 _MAPPINGS_FILE = os.path.join(CONFIG_DIR, 'share_mappings.json')
 _SHARE_ROOT_REL = 'public/shares'      # 普通分享：按用户分（public/shares/<用户名>/）
-_MOUNT_ROOT_REL = MOUNT_DIRNAME        # 服务器挂载：不分用户（mounts/<名字>），与 public 同级
+_MOUNT_ROOT_REL = MOUNT_REL            # 服务器挂载：不分用户（public/mounts/<名字>）
 _MAX_TOTAL = 500          # 全量映射上限（防失控增长）
 _MAX_USER = 100           # 单用户上限（只约束普通分享；挂载不分用户，只受总量上限约束）
 
@@ -80,6 +80,21 @@ def _load_locked():
                 else:
                     entry['label'] = _new_label()
                     need_save = True
+                # 挂载区搬过两次家：最早登记在 `public/shares/<用户名>/` 下（那时它还在分享区
+                # 里），第 2 刀挪到根层 `mounts/`，2026-09-23 起落在公共目录 `public/mounts/`。
+                # 前两个位置的记录在这一处一并改写并落盘 —— 不改写的话，老键要么从列表里
+                # 消失，要么在分享区里被当成"文件"显示（分享区那一支只认普通分享的文件）。
+                # 名称相同的只留一条：同名挂载本来就登记不进来（`publish_fs` 直接拒）。
+                if 'fs' in entry:
+                    if vp.startswith(MOUNT_DIRNAME + '/'):
+                        vp = MOUNT_REL + vp[len(MOUNT_DIRNAME):]
+                        need_save = True
+                    elif vp.startswith(_SHARE_ROOT_REL + '/'):
+                        moved = MOUNT_REL + '/' + vp.rsplit('/', 1)[-1]
+                        if moved in _cache:
+                            continue                # 已经有一条同名挂载了，这条老记录丢掉
+                        vp = moved
+                        need_save = True
                 _cache[vp] = entry
     except FileNotFoundError:
         pass
@@ -189,7 +204,7 @@ def publish_fs(fs_path, username):
 
     与 `publish` 是**两种来源、两种逻辑**：
       * `publish` 的源是共享根内的相对路径，挂在 `public/shares/<用户名>/` 下、**按用户分**；
-      * 这里的源是服务器本机的绝对路径，挂在 `mounts/<名字>` 下、**不分用户** ——
+      * 这里的源是服务器本机的绝对路径，挂在 `public/mounts/<名字>` 下、**不分用户** ——
         它是这台服务器的东西，不属于任何账号（所以也没有用户名那一层）。
 
     **条目名 = 源路径自己的名字**，不起别名：挂载只有服务端本机能做，他看到的名字就该是
@@ -248,7 +263,7 @@ def lookup_fs_prefix(rel):
     if not isinstance(rel, str) or not rel:
         return None
     rel = rel.replace('\\', '/').strip('/')
-    # 挂载条目一律登记在 `mounts/` 下：先用这一点把绝大多数请求挡在锁外
+    # 挂载条目一律登记在 `public/mounts/` 下：先用这一点把绝大多数请求挡在锁外
     if not rel.startswith(_MOUNT_ROOT_REL + '/'):
         return None
     best = None
@@ -269,7 +284,7 @@ def access_scope(vp):
 
     分享码按**条目**判（每条分享一个码），所以闸门需要"路径 → 标签"这一步：
       * `public/shares/<用户名>/<名字>` → 那一条分享；
-      * `mounts/<名字>` 及其**内部任意层级** → 那个挂载点（`fs` 来源靠前缀解析）。
+      * `public/mounts/<名字>` 及其**内部任意层级** → 那个挂载点（`fs` 来源靠前缀解析）。
     不属于任何登记条目（普通磁盘路径）→ `('', '')`，闸门据此恒放行。
     """
     if not isinstance(vp, str) or not vp:
@@ -496,7 +511,17 @@ def _virtual_stat(vp):
         except Exception:
             return None
         if os.path.isdir(item['fs']):
-            return 0, int(st.st_mtime)          # fs 来源的目录：不报大小
+            # 目录报**真实大小**：与共享根里的普通目录同一套（folder 聚合缓存）
+            # —— 它在这一层就是一个目录，没有理由只有它没有大小。
+            # ⚠️ 与列表同一口径：**只查缓存、不算**，没算过的排给后台（刷新一次就有）。
+            #    挂载点可能指向几十万文件的目录，同步算会把列表整个卡住。
+            # ⚠️ 拿不到时 `size` 给 `None`（前端显示「…」），但**元组本身不能是 None** ——
+            #    调用方用 `st is None` 判"源不存在"，那是另一回事（容器会不会出现就靠它）。
+            agg = peek_folder_agg(item['fs'])
+            if agg is None:
+                request_folder_agg(item['fs'])
+                return None, int(st.st_mtime)
+            return agg.get('size', 0), int(st.st_mtime)
         return st.st_size, int(st.st_mtime)
     full = _mapped_target(vp) or resolve(vp)
     if not full:
@@ -509,7 +534,7 @@ def _virtual_stat(vp):
         return None
 
 
-def merge_into_list(rel_path, result, unlocked=None):
+def merge_into_list(rel_path, result, unlocked=None, perm_check=None):
     """把 rel_path 下的虚拟映射条目合并进 list_files 结果 dict（就地修改）。
 
     规则：只补充磁盘上不存在的层级/文件（磁盘条目优先，避免重名）；
@@ -519,10 +544,19 @@ def merge_into_list(rel_path, result, unlocked=None):
     unlocked：可选回调 `(虚拟路径) -> bool`。返回 False 的那条分享**一律不合并** ——
     连名字都不出现在列表里，统计也不计入。分享码没解锁时，文件名/大小/修改时间
     本身就是信息，不能白看列表。传 None 表示不过滤（服务端内部调用）。
+
+    perm_check：可选回调 `(虚拟路径) -> bool`，判断这个人**进不进得了**那个虚拟区。
+    `public` 层补 `shares` / `mounts` 两个入口时先问它一句，进不去的**连目录名都不给**
+    （分享区只有 admin 进得去；挂载区与公共目录一个级别，能看 `public` 的就能看它）。
+    传 None 表示不判 —— HTTP 与 WS 两条真实路径都必须传（忘传就等于把两个虚拟区的名字
+    白送出去，与 `unlocked=None` 是同一类失误）。
     """
     _load_locked()
     rel = (rel_path or '').replace('\\', '/').strip('/')
-    if rel not in ('', 'public', 'public/shares', _MOUNT_ROOT_REL) \
+    # 虚拟条目只出现在这几层：公共目录（补 shares / mounts 两个入口）、分享区的用户层
+    # 与其下每个用户的文件层、以及挂载层。
+    # 根层（`''`）已经没有虚拟条目了 —— 挂载区也挪进了公共目录里。
+    if rel not in ('public', 'public/shares', _MOUNT_ROOT_REL) \
             and not rel.startswith('public/shares/'):
         return False
 
@@ -537,17 +571,26 @@ def merge_into_list(rel_path, result, unlocked=None):
         except Exception:
             return False
 
+    def enterable(vp):
+        """这个人进不进得了这个虚拟区（判定不了 = 不给看，与列表层"判定不了 = 拒绝"同口径）"""
+        if perm_check is None:
+            return True
+        try:
+            return bool(perm_check(vp))
+        except Exception:
+            return False
+
     files = result.get('files')
     if files is None:
         files = []
         result['files'] = files
-    # public/shares 是保留的**虚拟区**：磁盘上的同名条目一律不展示（权限层也已经拒绝读写）。
-    # 不剔的话，谁在 public/ 下建一个实体 shares/<用户名>/ 目录，就能顶掉虚拟分享条目，
-    # 里面放的文件还绕过了分享码。
+    # public/shares 与 public/mounts 都是保留的**虚拟区**：磁盘上的同名条目一律不展示
+    # （权限层也已经拒绝读写）。不剔的话，谁在 public/ 下建一个实体同名目录，就能顶掉
+    # 虚拟条目：分享那边绕过分享码，挂载那边把真实文件混进挂载列表。
     if rel == 'public':
-        files = [f for f in files if f.get('name') != 'shares']
+        files = [f for f in files if f.get('name') not in ('shares', MOUNT_DIRNAME)]
         result['files'] = files
-    elif rel == 'public/shares':
+    elif rel in ('public/shares', _MOUNT_ROOT_REL):
         files = []
         result['files'] = files
     disk_names = {f.get('name') for f in files}
@@ -556,33 +599,24 @@ def merge_into_list(rel_path, result, unlocked=None):
         result['total_file_count'] = (result.get('total_file_count') or 0) + count_extra
         result['total_size_sum'] = (result.get('total_size_sum') or 0) + size_extra
 
-    # ---------- 服务器挂载区（`mounts/`，与 public 同级）----------
-    # 两种来源两种逻辑：普通分享**按用户分**（条目挂在用户名下）；挂载**没有属主** ——
+    # ---------- 服务器挂载区（`public/mounts/`）----------
+    # 两种来源两种逻辑：普通分享**按用户分**（条目挂在用户名下）；挂载**不分用户** ——
+    # 只有服务端本机能挂，没有"谁挂的"那一维，名字就是源路径自己的名字。
     # 它的访问权限与公共目录一个级别（由权限层判），码挂在自己那条的随机标签上
     # （下面按 `visible(vp)` 逐条判，锁着的挂载点给"需要访问码"占位）。
-    # ⚠️ 根层那个 `mounts` 目录的 size 报 0：挂载是映射出来的，**不参与**目录大小统计；
-    # 进了 `mounts/` 之后，条目按各自来源报（文件报真实大小，目录由 `_virtual_stat` 报 0）。
-    if rel in ('', _MOUNT_ROOT_REL):
+    # ⚠️ `public` 层那个 `mounts` 目录的 size 报 0：挂载是映射出来的，**不参与**目录大小
+    # 统计（与 `shares` 同理）；进了 `public/mounts/` 之后，条目按各自来源报
+    # （文件报真实大小，目录由 `_virtual_stat` 报 0）。
+    if rel == _MOUNT_ROOT_REL:
         mounts = sorted((vp, item) for vp, item in _cache.items()
                         if isinstance(item, dict) and item.get('fs'))
         if not mounts:
             return False
-        if rel == '':
-            if _MOUNT_ROOT_REL in disk_names:
-                return False
-            times = [st[1] for st in (_virtual_stat(vp) for vp, _ in mounts)
-                     if st is not None]
-            if not times:
-                return False
-            files.append({'name': _MOUNT_ROOT_REL, 'path': _MOUNT_ROOT_REL, 'type': 'folder',
-                          'size': 0, 'mtime': max(times),
-                          'virtual': True, 'local': True})
-            return True
         merged = False
         count_extra = 0
         size_extra = 0
         for vp, item in mounts:
-            name = vp.split('/', 1)[1]
+            name = vp.rsplit('/', 1)[-1]
             if name in disk_names:
                 continue
             if not visible(vp):
@@ -599,14 +633,15 @@ def merge_into_list(rel_path, result, unlocked=None):
             st = _virtual_stat(vp)
             if st is None:
                 continue
+            # ⚠️ 挂载条目**不带** `local`：那个标记在前端的意思是"文件夹不显示大小"，
+            #    只有 `public/mounts`、`public/shares` 这类虚拟**容器**才该用 ——
+            #    挂载点自己是有大小的，照常报（与共享根里的普通目录一个口径）。
             if os.path.isdir(item.get('fs', '')):
                 files.append({'name': name, 'path': vp, 'type': 'folder',
-                              'size': st[0], 'mtime': st[1],
-                              'virtual': True, 'local': True})
+                              'size': st[0], 'mtime': st[1], 'virtual': True})
             else:
                 files.append({'name': name, 'path': vp, 'type': 'file',
-                              'size': st[0], 'mtime': st[1],
-                              'virtual': True, 'local': True,
+                              'size': st[0], 'mtime': st[1], 'virtual': True,
                               'dl': '/download/' + vp})
                 count_extra += 1
                 size_extra += st[0]
@@ -617,24 +652,31 @@ def merge_into_list(rel_path, result, unlocked=None):
 
     merged = False
     if rel == 'public':
-        # 有映射时补虚拟根目录项 public/shares（统计=其下全部有效映射）
-        if not _cache:
-            return False
-        subs = []
-        for vp in _cache:
-            if not visible(vp):
+        # 有映射时补两个虚拟目录项：public/shares（普通分享）与 public/mounts（本机路径挂载）。
+        # 两者的 size 都报 0 —— 里面全是虚拟条目，**不参与公共目录的大小统计**
+        # （`subs` 只用来判"到底有没有可用映射"和取 mtime）。
+        for dname, drel in (('shares', _SHARE_ROOT_REL), (MOUNT_DIRNAME, _MOUNT_ROOT_REL)):
+            # 进不去这个虚拟区的人，连目录名都不给：分享区只有 admin 进得去，
+            # 挂载区则与公共目录一个级别（能看 `public` 的就能看它）
+            if dname in disk_names or not enterable(drel):
                 continue
-            st = _virtual_stat(vp)
-            if st is not None:
-                subs.append(st)
-        if not subs:
-            return False
-        if 'shares' not in disk_names:
-            # size 报 0：分享区全是虚拟条目，**不参与公共目录的大小统计**
-            # （`subs` 只用来判"到底有没有可用映射"和取 mtime）
-            files.append({'name': 'shares', 'path': 'public/shares', 'type': 'folder',
-                          'size': 0,
-                          'mtime': max(s[1] for s in subs), 'virtual': True})
+            pref = drel + '/'
+            subs = []
+            for vp in _cache:
+                if not vp.startswith(pref) or not visible(vp):
+                    continue
+                st = _virtual_stat(vp)
+                if st is not None:
+                    subs.append(st)
+            if not subs:
+                continue
+            entry = {'name': dname, 'path': drel, 'type': 'folder',
+                     'size': 0, 'mtime': max(s[1] for s in subs), 'virtual': True}
+            # 容器目录标 `local`：列表里文件夹的大小栏据此显示"—"——它是个映射出来的**空壳**，
+            # 自己没有大小；里面那些挂载点则各自报真实大小
+            if dname == MOUNT_DIRNAME:
+                entry['local'] = True
+            files.append(entry)
             merged = True
         return merged
 
@@ -682,7 +724,7 @@ def merge_into_list(rel_path, result, unlocked=None):
         if st is None:
             continue
         # 普通分享只登记**文件**（`publish` 里 `isfile` 卡着），这里没有目录那一支 ——
-        # 目录是挂载区的事（`mounts/`，上面单独一支处理）
+        # 目录是挂载区的事（`public/mounts/`，上面单独一支处理）
         files.append({'name': name, 'path': vp, 'type': 'file',
                       'size': st[0], 'mtime': st[1], 'virtual': True,
                       'dl': '/download/' + vp})

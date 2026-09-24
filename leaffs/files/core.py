@@ -15,13 +15,14 @@ import zipfile as _zipfile
 
 from leaffs.paths import (
     BASE_DIR, UPLOAD_DIR, CACHE_DIR, THUMB_DIR,
-    UPLOAD_TMP_DIR, MOUNT_DIRNAME, is_upload_tmp_entry,
+    UPLOAD_TMP_DIR, is_upload_tmp_entry,
 )
 from leaffs.utils.core import (
     COPY_BUFFER_SIZE,
     resolve_rel, safe_path, abs_path, get_mime, esc_html,
     read_file_cached, invalidate_file_cache,
     get_folder_size, get_folder_stats,
+    peek_folder_agg, request_folder_agg,
     invalidate_folder_cache, invalidate_folder_cache_smart,
     has_ffmpeg, thumbnail_backend, _delete_thumb, cleanup_orphan_thumbs, get_thumbnail,
     cleanup_upload_tmp, delete_fail_reason,
@@ -65,17 +66,17 @@ def check_path_permission_core(role, username, path, guest_mode=True):
     # （admin 放行：他本来就能读全部，也要留一条清理污染的路。）
     if path == 'public/shares' or path.startswith('public/shares/'):
         return False
-    # 服务器挂载区（`mounts/`，与 public 同级）的访问权限**与公共目录一个级别**：
-    # 能看 public 的就能看它，也一并受 guest_mode 约束。
-    # ⚠️ 这里只管"能不能进"；写操作由解析层的只读位拒绝，是另一个闸。
-    _mount = (path == MOUNT_DIRNAME or path.startswith(MOUNT_DIRNAME + '/'))
+    # 挂载区（`public/mounts/`）**不能照这么拒** —— 它就是要给人浏览的（访问权限与公共
+    # 目录一个级别），下面两行的 `public/` 前缀已经覆盖。它那边"往虚拟区塞实体文件"的
+    # 问题由列表层兜：`merge_into_list` 会把 `public/mounts` 这一层的磁盘条目一律清掉，
+    # 塞进去也看不见（而 public 下的文件本来就公共可读，直链可下不算新风险）。
     # 游客/匿名：仅在游客模式开启时可访问 public；关闭后一律拒绝（防绕过 UI 直接调 API/WS）
     if role == 'guest' or not username:
         if not guest_mode:
             return False
-        return path.startswith('public/') or path == 'public' or _mount
+        return path.startswith('public/') or path == 'public'
     return (path.startswith(f'users/{username}/') or path == f'users/{username}'
-            or path.startswith('public/') or path == 'public' or _mount)
+            or path.startswith('public/') or path == 'public')
 
 
 def get_user_dir(username):
@@ -195,8 +196,14 @@ def list_files(rel_path):
                 rp = os.path.join(rel_path, entry.name).replace('\\', '/') if rel_path else entry.name
                 try:
                     if entry.is_dir(follow_symlinks=False):
+                        # 大小**只查缓存、不算**：没算过的排给后台补（刷新一次就有）。
+                        # 列表不能因为"算某个目录"卡住 —— 挂载点可能指向 `C:\Windows`
+                        # 那种几十万文件的目录，同步算就是几十秒不响应。
+                        agg = peek_folder_agg(entry.path)
+                        if agg is None:
+                            request_folder_agg(entry.path)
                         files.append({'name': entry.name, 'path': rp, 'type': 'folder',
-                                      'size': get_folder_size(entry.path),
+                                      'size': None if agg is None else agg.get('size', 0),
                                       'mtime': entry.stat(follow_symlinks=False).st_mtime})
                     else:
                         files.append({'name': entry.name, 'path': rp, 'type': 'file',
@@ -211,11 +218,17 @@ def list_files(rel_path):
     files.sort(key=lambda x: (x['type'] != 'folder', x['name'].lower()))
     # C-03：递归统计改走 folder 聚合缓存（get_folder_stats，TTL 5s + 变更即失效），
     # 去掉每次列表都全盘递归的 DoS 面；与目录项逐项 size 语义冲突处以缓存聚合为准。
-    # （目录项 size 同样来自 get_folder_size 缓存，同源一致；首次/失效后扫描同旧成本。）
+    # 2026-09-23：这一处与目录项一样**只查缓存、不算** —— 它是"当前目录自己的递归统计"，
+    # 在大目录上就是一次全树遍历（列 `C:\Windows` 会卡几十秒）。没算过先给 None
+    # （前端显示「…」），排给后台，刷新一次就有。
     try:
-        _stats = get_folder_stats(full)
-        total_files = _stats.get('files', 0) if _stats else 0
-        total_size = _stats.get('size', 0) if _stats else 0
+        _stats = peek_folder_agg(full)
+        if _stats is None:
+            request_folder_agg(full)
+            total_files, total_size = None, None
+        else:
+            total_files = _stats.get('files', 0)
+            total_size = _stats.get('size', 0)
     except Exception:
         total_files, total_size = 0, 0
     return {'current_path': rel_path or '', 'files': files, 'total_file_count': total_files, 'total_size_sum': total_size}, None

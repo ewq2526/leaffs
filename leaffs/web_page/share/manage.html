@@ -55,26 +55,11 @@
                         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                             <input id="mountPath" type="text" autocomplete="off" placeholder="本机绝对路径，例如 E:\电影 或 D:\资料\a.pdf"
                                    style="flex:1;min-width:220px;font-size:12px;padding:7px 10px;border:1px solid var(--border,#dbe4f5);border-radius:8px;background:var(--bg,#f4f7fd);color:var(--text)">
-                            <button class="btn-admin" onclick="openPicker()" style="font-size:11px">浏览…</button>
+                            <button class="btn-admin" onclick="pickMount(false)" style="font-size:11px">选目录…</button>
+                            <button class="btn-admin" onclick="pickMount(true)" style="font-size:11px">选文件…</button>
                             <button class="btn-admin primary" onclick="doMount()" style="font-size:11px">挂载</button>
                         </div>
-                        <div style="font-size:11px;color:var(--text-light,#a3aed0);margin-top:5px">目录或单个文件都行，<b>不复制文件</b>；挂上来的内容<b>只读</b>。挂载点出现在 <code>mounts/</code> 下（与公共目录同级），名字就是它在本机上的名字 —— 只有服务端本机的窗口能做这件事。</div>
-                    </div>
-                    <div id="pickBox" style="display:none;position:fixed;inset:0;background:rgba(15,20,35,.42);z-index:80;align-items:center;justify-content:center">
-                        <div style="background:var(--card,#fff);border-radius:12px;width:min(560px,92vw);max-height:82vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 18px 48px rgba(20,28,50,.24)">
-                            <div style="padding:11px 14px;border-bottom:1px solid var(--border,#eef1f8);display:flex;align-items:center;gap:8px">
-                                <b style="font-size:13px;color:var(--text)">选择本机目录或文件</b>
-                                <span style="flex:1"></span>
-                                <button class="btn-admin" onclick="closePicker()" style="font-size:11px">关闭</button>
-                            </div>
-                            <div id="pickRoots" style="padding:8px 12px;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border,#eef1f8)"></div>
-                            <div id="pickPath" style="padding:8px 12px;font-size:11.5px;color:var(--text-light,#8a97bd);word-break:break-all;border-bottom:1px solid var(--border,#eef1f8)"></div>
-                            <div id="pickList" style="overflow:auto;flex:1;padding:2px 0"></div>
-                            <div style="padding:10px 14px;border-top:1px solid var(--border,#eef1f8);display:flex;gap:8px;align-items:center">
-                                <button class="btn-admin primary" onclick="pickHere()" style="font-size:11px">选这个目录</button>
-                                <span id="pickSel" style="font-size:11.5px;color:var(--text-light,#8a97bd);word-break:break-all"></span>
-                            </div>
-                        </div>
+                        <div style="font-size:11px;color:var(--text-light,#a3aed0);margin-top:5px">目录或单个文件都行，<b>不复制文件</b>；挂上来的内容<b>只读</b>。挂载点出现在 <code>public/mounts/</code> 下（就在公共目录里，不按用户分），名字就是它在本机上的名字 —— 只有服务端本机（桌面窗口或手机 App）能做这件事。</div>
                     </div>
                     <div id="shareList"></div>
                     <div id="emptyTip" style="display:none;font-size:12px;color:var(--text-light);padding:18px 0;text-align:center">暂无分享 —— 去「浏览」勾选文件后点工具栏「分享」</div>
@@ -88,6 +73,13 @@
 <script>
 var who = myUsername || '';
 document.getElementById('whoami').textContent = who || '(我)';
+// 环境判断：桌面内嵌窗口有 pywebview 桥；安卓 App 的 GeckoView 用 leaffs:// 把请求交给原生。
+// 两者都不是（普通浏览器远程访问）时挂载入口根本不会出现 —— 服务端不给 can_mount。
+var isAndroidApp = /Android/i.test(navigator.userAgent);
+if (isAndroidApp) {
+    var mountInput = document.getElementById('mountPath');
+    if (mountInput) mountInput.placeholder = '手机上的绝对路径，例如 /storage/emulated/0/DCIM';
+}
 (function () {
     var navDownloader = document.getElementById('navDownloader');
     var navAdmin = document.getElementById('navAdmin');
@@ -237,88 +229,32 @@ function doMount() {
     }).then(function (res) {
         if (!res.ok) { batchToast((res.d && res.d.error) || '挂载失败', 'error'); return; }
         el.value = '';
-        batchToast('已挂载到 mounts/', 'success');
+        batchToast('已挂载到 public/mounts/', 'success');
         loadList();
     }).catch(function () { batchToast('挂载失败', 'error'); });
 }
 
-var pickState = null;
-
-function openPicker() {
-    document.getElementById('pickBox').style.display = 'flex';
-    pickGo('');
-}
-
-function closePicker() {
-    document.getElementById('pickBox').style.display = 'none';
-}
-
-function pickGo(p) {
-    // path 为空 = 取可浏览的根列表（盘符）；否则列该目录一层
-    fetch('/api/mount/browse' + (p ? ('?path=' + encodeURIComponent(p)) : ''))
-        .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
-        .then(function (res) {
-            if (!res.ok) { batchToast((res.d && res.d.error) || '打不开这个位置', 'error'); return; }
-            pickState = res.d;
-            renderPicker();
-        }).catch(function () { batchToast('打不开这个位置', 'error'); });
-}
-
-function renderPicker() {
-    var st = pickState || {};
-    document.getElementById('pickPath').textContent = st.path || '选择一个位置（点上面的盘符）';
-    document.getElementById('pickSel').textContent = '';
-    var roots = document.getElementById('pickRoots');
-    roots.innerHTML = '';
-    (st.roots || []).forEach(function (r) {
-        var b = document.createElement('button');
-        b.className = 'btn-admin';
-        b.style.cssText = 'font-size:11px';
-        b.textContent = r.name;
-        b.onclick = function () { pickGo(r.path); };
-        roots.appendChild(b);
-    });
-    var box = document.getElementById('pickList');
-    box.innerHTML = '';
-    if (st.parent) {
-        var up = document.createElement('div');
-        up.style.cssText = 'padding:9px 14px;cursor:pointer;font-size:13px;color:var(--text)';
-        up.textContent = '↩︎ 上一级';
-        up.onclick = function () { pickGo(st.parent); };
-        box.appendChild(up);
+// 选路径一律走**系统**的选择框：桌面内嵌窗口用 pywebview 的原生对话框，安卓 App
+// 用系统的目录/文件选择器（经 leaffs:// 交给原生，选完由原生把路径填回来）。
+// 服务端不再自己爬目录 —— 系统对话框能进任何位置，也不用在网页里一层层点。
+function pickMount(isFile) {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.pick_mount_path) {
+        window.pywebview.api.pick_mount_path(!!isFile).then(function (p) {
+            if (p) usePick(p);
+        });
+        return;
     }
-    var entries = st.entries || [];
-    if (!entries.length) {
-        var em = document.createElement('div');
-        em.style.cssText = 'padding:16px 14px;font-size:12px;color:var(--text-light,#8a97bd)';
-        em.textContent = '这里没有可选的条目';
-        box.appendChild(em);
+    if (isAndroidApp) {
+        // 用户名一起带过去：服务端登记挂载要记属主，网页这边才知道自己是谁
+        location.href = 'leaffs://mountpick/' + (isFile ? 'file' : 'dir') +
+            '?u=' + encodeURIComponent(who);
+        return;
     }
-    entries.forEach(function (e) {
-        var row = document.createElement('div');
-        row.style.cssText = 'padding:8px 14px;display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;color:var(--text)';
-        var nm = document.createElement('span');
-        nm.style.cssText = 'flex:1;min-width:0;word-break:break-all';
-        nm.textContent = (e.dir ? '📁 ' : '📄 ') + e.name;
-        row.appendChild(nm);
-        var hint = document.createElement('span');
-        hint.style.cssText = 'font-size:11px;color:var(--text-light,#8a97bd)';
-        hint.textContent = e.dir ? '进入' : '选它';
-        row.appendChild(hint);
-        row.onclick = function () {
-            if (e.dir) { pickGo(e.path); } else { usePick(e.path); }
-        };
-        box.appendChild(row);
-    });
-}
-
-function pickHere() {
-    if (pickState && pickState.path) usePick(pickState.path);
+    batchToast('这个环境没有系统选择框，请手动填路径', 'error');
 }
 
 function usePick(p) {
     document.getElementById('mountPath').value = p;
-    closePicker();
     batchToast('已填入路径，点「挂载」即可', 'success');
 }
 

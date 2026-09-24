@@ -198,7 +198,7 @@ function handleWSMessage(msg) {
     switch (msg.type) {
         case 'list':
             files = msg.files || [];
-            _currentTotalFiles = msg.total_file_count || 0;
+            _currentTotalFiles = (msg.total_file_count == null) ? null : msg.total_file_count;
             render(); updateStats(); updateBreadcrumb(currentPath);
             break;
         case 'delete': toastDeleteResult(msg); loadFiles(); break;
@@ -214,28 +214,29 @@ function loadFiles() {
     if (sendWS({ type: 'list', path: currentPath })) return;
     apiList(currentPath, function (d) {
         files = d.files || [];
-        _currentTotalFiles = d.total_file_count || 0;
+        _currentTotalFiles = (d.total_file_count == null) ? null : d.total_file_count;
         render(); updateStats(); updateBreadcrumb(currentPath);
     });
 }
 
 function updateBreadcrumb(p) {
     var isPublic = p && p.indexOf('public') === 0;
-    var display = '';
-    if (p && p.indexOf('users/') === 0) { var parts = p.split('/'); display = parts.length > 2 ? parts.slice(2).join('/') : ''; }
-    else if (isPublic) { display = p.substring('public'.length).replace(/^\//,''); }
     var loc = isPublic ? '公共目录' : '我的目录';
     var h = '<span style="font-size:12px;font-weight:600;color:var(--text);margin-right:8px;padding:2px 8px;border-radius:4px;background:var(--bg);border:1px solid var(--border)">' + loc + '</span>';
-    if (p) h += '<a href="/browse/' + p.split('/').slice(0,2).join('/') + '">' + (p.split('/')[1] || '') + '</a>';
-    if (display) {
-        var parts = display.split('/'), acc = '';
-        var prefix = p.split('/').slice(0,2).join('/');
-        parts.forEach(function(part, i) {
-            acc += (i > 0 ? '/' : '') + part;
-            var rp = prefix + '/' + acc;
-            h += ' / ' + (i === parts.length - 1 ? '<span>' + esc(part) + '</span>' : '<a href="/browse/' + encodeURIComponent(rp) + '">' + esc(part) + '</a>');
-        });
-    }
+    // 层级：跳过第一段（`public` 或 `users`），其余逐级显示；链接前缀直接用**原始各段**拼
+    // —— 用户目录的第一段是用户名、公共目录的第一段是子目录，两者的前缀算法不一样，
+    //    自己另算必然算错一边。
+    // ⚠️ 别再把"第二段"单独显示一遍 —— `public/` 下不止一层（挂载区就在 `public/mounts/`），
+    //    那样会把第一层显示两遍，点它还会把路径越拼越深
+    //    （`public/mounts` → `public/mounts/mounts` → …）。
+    var parts = (p || '').split('/').filter(function(s) { return s; });
+    var shown = parts.slice(1);
+    shown.forEach(function(part, i) {
+        var rp = parts.slice(0, i + 2).join('/');
+        h += ' / ' + (i === shown.length - 1
+            ? '<span>' + esc(part) + '</span>'
+            : '<a href="/browse/' + encodeURIComponent(rp) + '">' + esc(part) + '</a>');
+    });
     // 游客只在公共目录：不显示“我的目录”切换入口（否则点了会进 users/游客 越权 403）
     if (myRole !== 'guest') {
         h += ' <span style="margin-left:10px">|</span> <a href="/browse/' + (isPublic ? '' : 'public') + '" style="color:var(--primary);font-size:12px">' + (isPublic ? '我的目录' : '公共目录') + '</a>';
@@ -245,11 +246,16 @@ function updateBreadcrumb(p) {
 }
 
 function updateStats() {
-    var fc = 0, foc = 0, ts = 0;
-    files.forEach(function(f) { if (f.type === 'folder') foc++; else fc++; ts += f.size; });
+    var fc = 0, foc = 0, ts = 0, pending = false;
+    files.forEach(function(f) {
+        if (f.type === 'folder') foc++; else fc++;
+        // 还没算完的（后台在补）不计入，并在"当前层"后面挂个「…」——
+        // 不挂的话这个数会悄悄偏小，看着像"总大小就这么点"
+        if (f.size == null) pending = true; else ts += f.size;
+    });
     // 当前层: 大小 文件夹数 文件数 | 总计: 文件总数
     //（总计只列文件数：文件夹的 size 本身就是递归值，"当前层"那个大小已经含了它）
-    document.getElementById('fileCount').textContent = '当前层: ' + formatSize(ts) + '  ' + foc + '文件夹 ' + fc + ' 文件 | 总计: ' + _currentTotalFiles + ' 个文件';
+    document.getElementById('fileCount').textContent = '当前层: ' + formatSize(ts) + (pending ? '…' : '') + '  ' + foc + '文件夹 ' + fc + ' 文件 | 总计: ' + (_currentTotalFiles == null ? '…' : _currentTotalFiles) + ' 个文件';
 }
 
 function getParent() { if (!currentPath) return ''; var p = currentPath.split('/'); p.pop(); return p.join('/'); }
@@ -291,9 +297,11 @@ function render() {
             continue;
         }
         var checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
-        // 服务器挂载的目录不报大小：它是映射出来的，不参与目录大小统计；
-        // 点进去那一层才逐个显示条目大小（判据是**来源** local，不是"虚拟条目"）
-        var sz = (isFolder && f.local) ? '&mdash;' : formatSize(f.size), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
+        // 大小是**后台在算**：还没算完就给「…」（服务端只给缓存里有的数，不再同步遍历
+        // 目录 —— 挂载点可能指向几十万文件的目录）。刷新一次通常就有了。
+        // 虚拟容器（`public/mounts` 那种映射出来的空壳）本来就是 0，显示「—」。
+        var sz = (f.size == null) ? '&hellip;'
+            : ((isFolder && f.local) ? '&mdash;' : formatSize(f.size)), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
         var ep = encodeURIComponent(f.path), en = esc(f.name), sp = jsAttr(f.path), ft = fileType(f.name);
         // 属性里要放 HTML 转义的路径；data-path 读回来是原始值，正好与 _thumbOk 的键一致
         // ⚠️ 必须用 escAttr：这是**属性位置**，esc 不转引号 ⇒ 路径含 `"` 就能闭合属性

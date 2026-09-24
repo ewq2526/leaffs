@@ -287,6 +287,31 @@ def _install_webview_guard(cwv2, win):
     cwv2.NewWindowRequested += _on_new_window_requested
 
 
+class _LocalBridge:
+    """内嵌窗口暴露给网页的本机能力（pywebview 的 `js_api`）。
+
+    目前只有一件：弹**系统**的文件/目录选择框，给「挂载本机路径」取路径。
+    为什么不让服务端自己爬目录：系统对话框能进任何位置、一步到位，而网页里一层层点
+    只能在服务端进程读得到的地方转，还得为它多维护一套接口与页面。
+    """
+
+    def pick_mount_path(self, is_file=False):
+        """返回选中的绝对路径；用户取消或对话框弹不出来时返回空串。"""
+        try:
+            import webview
+            win = webview.windows[0]
+            picked = win.create_file_dialog(
+                webview.OPEN_DIALOG if is_file else webview.FOLDER_DIALOG)
+        except Exception as e:
+            add_log('系统选择框失败: %s: %s' % (type(e).__name__, e), 'warn')
+            return ''
+        if not picked:
+            return ''
+        if isinstance(picked, (list, tuple)):
+            return picked[0] if picked else ''
+        return str(picked)
+
+
 def _start_webview_window():
     """pywebview 原生窗口（D4：URL 带一次性令牌 ?leaf=，本机自动登录走令牌而非无条件免密）
 
@@ -317,7 +342,8 @@ def _start_webview_window():
         webview.settings['ALLOW_DOWNLOADS'] = False
         webview.settings['IGNORE_SSL_ERRORS'] = True
         webview.create_window('LeafFS 文件传输', _local_url(),
-                              width=1200, height=800, resizable=True)
+                              width=1200, height=800, resizable=True,
+                              js_api=_LocalBridge())
 
         installed = threading.Event()
 

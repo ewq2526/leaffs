@@ -19,6 +19,7 @@
 """
 import json
 import os
+import time
 
 import pytest
 
@@ -103,6 +104,21 @@ def test_recursive_invalidation_clears_the_subtree(agg_env):
         '同名重建后仍看到上一任的聚合值（N-9 跨账号残留）：%r' % (fresh,)
 
 
+def _settle(UC, timeout=10):
+    """等后台把目录大小补完。
+
+    列表（`list_files`）现在**只查缓存、不算**：算大小是磁盘活，挂载点可能指向几十万
+    文件的目录，同步算会把列表卡死。没算过的排给后台，用户刷新一次就有 ——
+    测试要断真实数字，就在这里等一下。
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if UC.folder_agg_queue_idle():
+            return
+        time.sleep(0.02)
+    raise AssertionError('后台补算没排空（%ss）' % timeout)
+
+
 def test_list_files_totals_follow_the_files(agg_env):
     """黑盒报告里冻住的就是这两个字段，直接钉在 list_files 上"""
     from leaffs.files import core as FC
@@ -111,6 +127,10 @@ def test_list_files_totals_follow_the_files(agg_env):
     home = os.path.join(upload, 'users', 'zzw')
     _write(os.path.join(home, 'a.txt'), 507)
 
+    # 第一次列：还没算过 → 统计先给 None（列表不等它），同时排给了后台
+    got, err = FC.list_files('users/zzw')
+    assert err is None and got['total_size_sum'] is None, got
+    _settle(UC)
     got, err = FC.list_files('users/zzw')
     assert err is None and (got['total_file_count'], got['total_size_sum']) == (1, 507), got
 
@@ -119,7 +139,10 @@ def test_list_files_totals_follow_the_files(agg_env):
 
     got, err = FC.list_files('users/zzw')
     assert err is None
-    assert len(got['files']) == 2
+    assert len(got['files']) == 2                 # 文件数组是磁盘实况，立刻就是对的
+    assert got['total_size_sum'] is None, got     # 聚合值刚被失效，后台在补
+    _settle(UC)
+    got, err = FC.list_files('users/zzw')
     assert (got['total_file_count'], got['total_size_sum']) == (2, 630), \
         'files 数组对了但聚合值没跟上（N-9 的典型表现）：%r' % (got,)
 

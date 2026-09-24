@@ -639,19 +639,22 @@ account and sessions**. The reasoning is that the purge is irreversible but low-
 new code), whereas "account deleted, code still there" makes **a recreated account with the same name
 inherit the old code** — the share page still demands a code, and nobody knows it.
 
-### 8.7 Server mount area (`mounts/`, local path mappings)
+### 8.7 Server mount area (`public/mounts/`, local path mappings)
 
 The mapping table supports a second source: an **absolute path on the server machine** — a local
-folder (or a single file) is exposed with **nothing copied**. It sits **beside** ordinary sharing,
-not inside it:
+folder (or a single file) is exposed with **nothing copied**. It is a second source *in the same
+place* as ordinary sharing: both live under the public folder, shares are per user, mounts are not:
 
 ```
 shared_files/                 ← shared root (data root)
 ├── users/<name>/             ← per-user private folders
-├── public/                   ← public folder
-│   └── shares/<name>/<item>   ← ordinary shares (src): per user, access-code protected
-└── mounts/<name>              ← server mounts (fs): no user; code set from the server machine
+└── public/                   ← public folder
+    ├── shares/<name>/<item>   ← ordinary shares (src): per user, access-code protected
+    └── mounts/<name>          ← server mounts (fs): no user; code set from the server machine
 ```
+
+A mount has **no username level**: only the server machine can mount, so there is no "who mounted
+it" dimension and the path does not need one.
 
 **Two sources, two behaviours**:
 
@@ -660,15 +663,22 @@ shared_files/                 ← shared root (data root)
 | Source | path relative to the shared root | absolute path on the server machine |
 | Shape | files only | folder or file |
 | Ownership | **per user** (`shares/<user>/`) | **no owner** (it belongs to the machine) |
-| Created from | Browse → tick → Share | **server machine only** (local-token session) |
+| Created from | Browse → tick → Share | **server machine only**: the desktop window (local-token session) or the app on the phone |
 | Access | its own access code | **same level as the public folder** |
 | Size | normal logic (cached) | not part of the public folder's size accounting |
 
 Key points:
 
+- **Picking a path goes through the system dialog**: the desktop window uses pywebview's native
+  dialog (`js_api`), the Android app uses the system folder/file picker (SAF). **The server no
+  longer walks directories itself** — the system dialog reaches anywhere in one step instead of
+  clicking through a web page. On Android what comes back is a `content://` URI, restored to a
+  real path by native code (`primary:DCIM` → `/storage/emulated/0/DCIM`) before it reaches the
+  mapping layer: the server's file layer needs the path itself, and reading it **cannot rely on
+  the SAF grant** either — that is what "all files access" is for;
 - **The name is a projection of the path**: the entry is named after the source itself
-  (`E:\Movies` → `mounts/Movies`), never an alias — mounting can only be done at the server
-  machine, so the operator should see the very name he sees in Explorer. A name clash is
+  (`E:\Movies` → `public/mounts/Movies`), never an alias — mounting can only be done at the
+  server machine, so the operator should see the very name he sees in Explorer. A name clash is
   **rejected**, not auto-renamed (renaming would make the name disagree with the target);
 - **Resolution**: files *inside* a mounted folder are not registered one by one; they are
   resolved by joining the **virtual prefix with the remainder**, longest prefix winning
@@ -686,10 +696,14 @@ Key points:
   capability follows *presence at the machine*, not the account. The token itself is single-use
   and deleted once consumed, so the check lands on its product (that session), which is bound
   to a loopback origin;
-- **Size accounting**: the `mounts` folder itself **reports 0** and takes no part in folder-size
-  accounting (it is mapped in); **once inside**, entries report real sizes — that level uses the
-  existing folder statistics. The `shares` folder under `public` likewise reports 0: the share
-  area is entirely virtual and takes no part in the public folder's accounting;
+- **Size accounting**: the `mounts` folder inside the public folder **reports 0** and takes no
+  part in folder-size accounting (it is mapped in); **once inside**, entries report real sizes —
+  that level uses the existing folder statistics. The `shares` folder likewise reports 0: the
+  share area is entirely virtual. Both are **virtual areas**: a same-named entry on disk is never
+  shown (ordinary users can write into `public/`);
+- **Legacy records**: entries created while mounts sat at the root (`mounts/`, before
+  2026-09-23) are rewritten to `public/mounts/` when the mapping table is loaded, and saved back —
+  otherwise those mounts would vanish from every listing;
 - **Not followed**: search and recursive scans **never enter mount areas**;
 - **Expiry**: if the source is deleted or moved, the entry stays but shows "source is gone" —
   the same behaviour as ordinary shares, because what is registered is a reference, not a copy.

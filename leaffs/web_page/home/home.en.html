@@ -183,7 +183,7 @@ function handleWSMessage(msg) {
     switch (msg.type) {
         case 'list':
             files = msg.files || [];
-            _currentTotalFiles = msg.total_file_count || 0;
+            _currentTotalFiles = (msg.total_file_count == null) ? null : msg.total_file_count;
             render(); updateStats(); updateBreadcrumb(currentPath);
             break;
         case 'delete': toastDeleteResult(msg); loadFiles(); break;
@@ -201,28 +201,29 @@ function loadFiles() {
     if (sendWS({ type: 'list', path: currentPath })) return;
     apiList(currentPath, function (d) {
         files = d.files || [];
-        _currentTotalFiles = d.total_file_count || 0;
+        _currentTotalFiles = (d.total_file_count == null) ? null : d.total_file_count;
         render(); updateStats(); updateBreadcrumb(currentPath);
     });
 }
 
 function updateBreadcrumb(p) {
     var isPublic = p && p.indexOf('public') === 0;
-    var display = '';
-    if (p && p.indexOf('users/') === 0) { var parts = p.split('/'); display = parts.length > 2 ? parts.slice(2).join('/') : ''; }
-    else if (isPublic) { display = p.substring('public'.length).replace(/^\//, ''); }
     var loc = isPublic ? 'Public' : 'My folder';
     var h = '<span style="font-size:12px;font-weight:600;color:var(--text);margin-right:8px;padding:2px 8px;border-radius:4px;background:var(--bg);border:1px solid var(--border)">' + loc + '</span>';
-    if (p) h += '<a href="/browse/' + p.split('/').slice(0,2).join('/') + '">' + (p.split('/')[1] || '') + '</a>';
-    if (display) {
-        var parts = display.split('/'), acc = '';
-        var prefix = p.split('/').slice(0,2).join('/');
-        parts.forEach(function(part, i) {
-            acc += (i > 0 ? '/' : '') + part;
-            var rp = prefix + '/' + acc;
-            h += ' / ' + (i === parts.length - 1 ? '<span>' + esc(part) + '</span>' : '<a href="/browse/' + encodeURIComponent(rp) + '">' + esc(part) + '</a>');
-        });
-    }
+    // Levels: skip the first segment (`public` or `users`), show the rest; the link prefix is
+    // built straight from the **original segments** — the first segment is a user name in one
+    // case and a folder name in the other, so a hand-rolled prefix gets one of them wrong.
+    // ⚠️ Do not render the second segment separately again — `public/` has more than one level
+    // now (mounts live in `public/mounts/`), which showed the first level twice and made each
+    // click dig one level deeper (`public/mounts` → `public/mounts/mounts` → …).
+    var parts = (p || '').split('/').filter(function(s) { return s; });
+    var shown = parts.slice(1);
+    shown.forEach(function(part, i) {
+        var rp = parts.slice(0, i + 2).join('/');
+        h += ' / ' + (i === shown.length - 1
+            ? '<span>' + esc(part) + '</span>'
+            : '<a href="/browse/' + encodeURIComponent(rp) + '">' + esc(part) + '</a>');
+    });
     // Guests only ever see the public folder: hide the switcher (users/guest would 403)
     if (myRole !== 'guest') {
         h += ' <span style="margin-left:10px">|</span> <a href="/browse/' + (isPublic ? '' : 'public') + '" style="color:var(--primary);font-size:12px">' + (isPublic ? 'My folder' : 'Public') + '</a>';
@@ -232,11 +233,16 @@ function updateBreadcrumb(p) {
 }
 
 function updateStats() {
-    var fc = 0, foc = 0, ts = 0;
-    files.forEach(function(f) { if (f.type === 'folder') foc++; else fc++; ts += f.size; });
+    var fc = 0, foc = 0, ts = 0, pending = false;
+    files.forEach(function(f) {
+        if (f.type === 'folder') foc++; else fc++;
+        // Sizes still being computed in the background are left out, with a "…" after the
+        // "Here" figure — otherwise the number quietly comes out too small.
+        if (f.size == null) pending = true; else ts += f.size;
+    });
     // Here: size, folders, files | Total: file count
     // (no total size: a folder's size is already recursive, so the "Here" size covers it)
-    document.getElementById('fileCount').textContent = 'Here: ' + formatSize(ts) + '  ' + foc + ' folders ' + fc + ' files | Total: ' + _currentTotalFiles + ' files';
+    document.getElementById('fileCount').textContent = 'Here: ' + formatSize(ts) + (pending ? '…' : '') + '  ' + foc + ' folders ' + fc + ' files | Total: ' + (_currentTotalFiles == null ? '…' : _currentTotalFiles) + ' files';
 }
 
 function getParent() { if (!currentPath) return ''; var p = currentPath.split('/'); p.pop(); return p.join('/'); }
@@ -279,9 +285,12 @@ function render() {
         }
         var checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
         // A mounted folder reports no size: it is mapped in and takes no part in folder-size
-        // accounting; sizes appear once you enter it (keyed on the **source** flag local,
-        // not on "virtual entry")
-        var sz = (isFolder && f.local) ? '&mdash;' : formatSize(f.size), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
+        // Sizes are computed **in the background**: an uncomputed one shows "…" (the server
+        // only returns what is cached, it no longer walks folders mid-request — a mount can
+        // point at a folder with hundreds of thousands of files). One refresh usually has it.
+        // A virtual container (the `public/mounts` shell) really is 0 and shows "—".
+        var sz = (f.size == null) ? '&hellip;'
+            : ((isFolder && f.local) ? '&mdash;' : formatSize(f.size)), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
         var ep = encodeURIComponent(f.path), en = esc(f.name), sp = jsAttr(f.path), ft = fileType(f.name);
         // Attributes need the HTML-escaped path; getAttribute() reads the raw value back,
         // which is exactly the key _thumbOk uses

@@ -63,11 +63,14 @@ CACHE_DIR = os.path.join(PROJECT_DIR, '.cache')          # 缩略图/文件夹�
 THUMB_DIR = os.path.join(CACHE_DIR, 'thumbs')
 CONFIG_DIR = os.path.join(PROJECT_DIR, 'config')         # 服务端/下载器/账号等运行配置
 
-# 服务器挂载区：与 `public/`（公共目录）同级的一级目录，磁盘上是空壳 ——
-# 里面的每个条目由分享映射表登记（本机路径映射，见 share/mappings.py）。
+# 服务器挂载区：**公共目录里的一个虚拟区**（`public/mounts/`），与普通分享
+# （`public/shares/`）同一个位置口径 —— 磁盘上是空壳，里面的每个条目由分享映射表登记
+# （本机路径映射，见 share/mappings.py）。挂载**不分用户**：只有服务端本机能挂，
+# 没有"谁挂的"这一维，所以路径里没有用户名那一层，名字就是源路径自己的名字。
 # 它是只读来源：内容在 LeafFS 之外，写操作一律拒（resolve_rel 的只读位）。
 MOUNT_DIRNAME = 'mounts'
-MOUNT_DIR = os.path.join(UPLOAD_DIR, MOUNT_DIRNAME)
+MOUNT_REL = 'public/' + MOUNT_DIRNAME    # 共享根内的相对路径（映射表与权限判断共用）
+MOUNT_DIR = os.path.join(UPLOAD_DIR, 'public', MOUNT_DIRNAME)
 
 # 数据根运行目录即时确保存在（原 ut_core import 期行为，语义不变）
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -76,6 +79,16 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(THUMB_DIR, exist_ok=True)
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(MOUNT_DIR, exist_ok=True)
+
+# 挂载区搬进公共目录（2026-09-23）之后，根层那个旧 `mounts/` 只剩空壳 —— 留着会在浏览页
+# 根层多一个空目录，看着像挂载还在那儿。**只在确实为空时**删掉：里面但凡有东西，就说明
+# 那是别的东西，不碰（登记表里的老记录另有迁移，见 share/mappings.py 的 _load_locked）。
+_legacy_mount_dir = os.path.join(UPLOAD_DIR, MOUNT_DIRNAME)
+try:
+    if os.path.isdir(_legacy_mount_dir) and not os.listdir(_legacy_mount_dir):
+        os.rmdir(_legacy_mount_dir)
+except OSError:
+    pass
 
 
 def is_upload_tmp_entry(name):
