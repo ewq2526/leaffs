@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- 局域网访问：Android 17(API 37) 起由 ACCESS_LOCAL_NETWORK（"本地网络"）管 -->
@@ -21,6 +22,14 @@
     <!-- API 28 及以下：DownloadManager 写入公共下载目录需要存储权限（29 起免申请） -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <!-- 挂载本机路径：服务端的文件层走的是 os.path，读不了 SAF 的 content://，
+         所以必须拿到**真实路径**上的读权限。30 起只有「所有文件访问权限」能给
+         （系统不给弹窗，用户在设置里手动开一次）；29 及以下用普通读权限，
+         那种老系统上分区存储拦得严，能挂到什么全看系统给不给。 -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
 
     <!-- PyApplication：进程启动即初始化 Chaquopy Python 运行时 -->
     <application

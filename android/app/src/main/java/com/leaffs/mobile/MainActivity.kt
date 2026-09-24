@@ -13,7 +13,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.storage.StorageManager
+import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -268,6 +271,13 @@ class MainActivity : ComponentActivity() {
                         certErrorPagePending = false
                         pyLog("证书放行失败: " +
                             android.net.Uri.decode(rest.removePrefix("certfail/")))
+                        return GeckoResult.fromValue(AllowOrDeny.DENY)
+                    }
+                    // 挂载本机路径：网页把"取路径"交给原生（系统选择器），选完由这里登记
+                    if (rest.startsWith("mountpick")) {
+                        val wantFile = rest.substringBefore('?').endsWith("/file")
+                        val user = Uri.decode(rest.substringAfter("u=", "").substringBefore('&'))
+                        runOnUiThread { startMountPick(wantFile, user) }
                         return GeckoResult.fromValue(AllowOrDeny.DENY)
                     }
                     when (rest.trimEnd('/')) {
@@ -1158,6 +1168,10 @@ class MainActivity : ComponentActivity() {
     @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_MOUNT_DIR || requestCode == REQ_MOUNT_FILE) {
+            onMountPicked(resultCode, data)
+            return
+        }
         if (requestCode != REQ_PICK_FILE && requestCode != REQ_PICK_FOLDER) return
         val prompt = pendingFile
         val result = pendingFileResult
@@ -1286,6 +1300,12 @@ class MainActivity : ComponentActivity() {
         // 权限页还开着、权限却已经拿到了 → 直接进 app，不用用户再点一次
         if (permissionPageShowing && !needLocalNetworkPermission()) {
             bootAndOpen()
+        }
+        // 刚从「所有文件访问权限」的设置页回来 → 接着把挂载的取路径做完
+        // （30 起的设置页返回没有回调，只能在这里看权限到手没有；没到手就留着，下次点还会问）
+        if (waitingFileAccess && hasFileAccess()) {
+            waitingFileAccess = false
+            startMountPick(pendingMountFile, pendingMountUser)
         }
         // 刚从系统设置回来：问一句后台权限开了没（用户自己确认才算数，不自动标记）
         if (bgReturnedFromSettings) {
@@ -1683,7 +1703,180 @@ class MainActivity : ComponentActivity() {
     private var pendingAction: (() -> Unit)? = null
     private var pendingBody: WebResponse? = null
 
+    /** 等用户去系统设置开「所有文件访问权限」：开完回来接着把取路径做完 */
+    private var waitingFileAccess = false
+    private var pendingMountFile = false
+    private var pendingMountUser = ""
+
     /** 老系统先拿存储权限：挂起本次下载，授权后自动接着存 */
+    // ---------- 挂载本机路径：取路径走系统选择器，选完直接登记 ----------
+
+    /**
+     * 「挂载本机路径」的取路径：弹**系统**的选择器（目录或文件）。
+     *
+     * 为什么不用服务端自己爬目录：那套只能在网页里一层层点，而且服务端进程读不到的地方
+     * 它也没辙。系统选择器一步到位，代价是拿回来的是 content:// —— 这里把它还原成真实
+     * 路径（见 realPathOf），服务端的文件层要的是路径本身，不是 URI。
+     */
+    private fun startMountPick(wantFile: Boolean, username: String) {
+        if (!hasFileAccess()) {
+            waitingFileAccess = true
+            pendingMountFile = wantFile
+            pendingMountUser = username
+            withWebColors {
+                LfDialog.confirm(
+                    this, "需要「所有文件访问权限」",
+                    "挂载的是手机上的目录/文件，服务端要按真实路径去读它们 —— " +
+                        "安卓上只有这个权限能给。系统不给弹窗，接下来的设置页里打开它，回来接着选。",
+                    okText = "去打开", cancelText = "算了",
+                    onOk = { askFileAccess() }
+                    // onCancel：什么都不做，下次点「选目录」还会问
+                )
+            }
+            return
+        }
+        val intent = if (wantFile) {
+            Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("*/*")
+        } else {
+            Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addCategory(Intent.CATEGORY_DEFAULT)
+        }
+        pendingMountUser = username
+        try {
+            startActivityForResult(intent, if (wantFile) REQ_MOUNT_FILE else REQ_MOUNT_DIR)
+        } catch (t: Throwable) {
+            pyLog("打开系统选择器失败: $t")
+            Toast.makeText(this, "打不开系统选择器", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** 「所有文件访问权限」在不在（30 起才有）；29 及以下退到普通读权限 */
+    private fun hasFileAccess(): Boolean =
+        if (Build.VERSION.SDK_INT >= 30) {
+            Environment.isExternalStorageManager()
+        } else {
+            // ⚠️ `==` 必须留在行尾：块里换行后的行首 `==` 接不上上一行
+            // （函数调用本身就能独立成句），else 的值会变成那个 Int，
+            // 与 then 的 Boolean 求公共父类型 → 报 Comparable<*> & Serializable
+            checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE) ==
+                android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
+    /** 去要权限：30 起没有运行时弹窗，只有系统设置页里那一处开关 */
+    @Suppress("InlinedApi")
+    private fun askFileAccess() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            val app = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:$packageName"))
+            try {
+                startActivity(app)
+            } catch (t: Throwable) {
+                // 有的 ROM 没有"只给本应用"的那一页，退到总列表
+                try {
+                    startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                } catch (t2: Throwable) {
+                    pyLog("打开所有文件访问权限设置失败: $t2")
+                    Toast.makeText(this,
+                        "打不开系统设置，请手动到「设置 → 应用 → LeafFS → 权限」里开",
+                        Toast.LENGTH_LONG).show()
+                }
+            }
+        } else {
+            requestPermissions(
+                arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE), REQ_ALL_FILES)
+        }
+    }
+
+    /**
+     * 系统选择器回来：content:// → 真实路径 → 交给服务端登记挂载。
+     *
+     * 走进程内调用（与「导入」同一条路），不再绕回网页发 HTTP —— 内容选择器是原生弹的，
+     * 网页插不上手，只负责把"用户点了哪一下"带过来。登记完刷新页面，挂载列表与
+     * `mounts/` 一起出来。
+     */
+    private fun onMountPicked(resultCode: Int, data: Intent?) {
+        if (resultCode != RESULT_OK || data?.data == null) return
+        val uri = data.data!!
+        val path = realPathOf(uri)
+        pyLog("挂载取路径: $uri → ${path ?: "（给不出本机路径）"}")
+        if (path.isNullOrEmpty()) {
+            Toast.makeText(this, "这个位置给不出本机路径，换一个再试", Toast.LENGTH_LONG).show()
+            return
+        }
+        val res = try {
+            Python.getInstance().getModule("leaffs_mobile")
+                .callAttr("mount_path", path, pendingMountUser)
+                .toJava(String::class.java)
+        } catch (t: Throwable) {
+            pyLog("挂载调用失败: $t")
+            null
+        }
+        val obj = try {
+            JSONObject(res ?: "")
+        } catch (t: Throwable) {
+            null
+        }
+        if (obj == null || !obj.optBoolean("ok")) {
+            val err = obj?.optString("error").orEmpty()
+            Toast.makeText(this, err.ifBlank { "挂载失败" }, Toast.LENGTH_LONG).show()
+            return
+        }
+        Toast.makeText(this, "已挂载 $path", Toast.LENGTH_LONG).show()
+        session.reload()
+    }
+
+    /**
+     * 把 SAF 的 URI 还原成本机绝对路径。
+     *
+     * 结构是固定的：`content://<provider>/{tree|document}/<docId>`，docId 形如
+     * `primary:DCIM/子目录`（内置存储）或 `1A2B-3C4D:Movies`（可移除卷用卷的 UUID），
+     * 也见过 Downloads provider 给的 `raw:/storage/...`。
+     * 这里只要**路径字符串**：读文件靠「所有文件访问权限」，不靠这个 URI 的持久化授权，
+     * 所以不必 takePersistableUriPermission。
+     * 第三方网盘之类的 provider 给不出本机路径，返回 null，由调用方提示换一个。
+     */
+    private fun realPathOf(uri: Uri): String? {
+        val segs = uri.pathSegments
+        val docId = try {
+            when {
+                segs.size >= 2 && segs[0] == "tree" -> DocumentsContract.getTreeDocumentId(uri)
+                segs.size >= 2 && segs[0] == "document" -> DocumentsContract.getDocumentId(uri)
+                else -> null
+            }
+        } catch (t: Throwable) {
+            null
+        } ?: return null
+        if (docId.startsWith("raw:")) return docId.removePrefix("raw:").ifEmpty { null }
+        val i = docId.indexOf(':')
+        if (i <= 0) return null
+        val vol = docId.substring(0, i)
+        val rel = docId.substring(i + 1).trim('/')
+        val base = if (vol.equals("primary", ignoreCase = true)) {
+            Environment.getExternalStorageDirectory().absolutePath
+        } else {
+            volumePath(vol) ?: return null
+        }
+        return (if (rel.isEmpty()) base else "$base/$rel").ifEmpty { null }
+    }
+
+    /** 可移除卷（SD 卡）的挂载点：按卷的 UUID 找 */
+    private fun volumePath(uuid: String): String? {
+        val sm = getSystemService(Context.STORAGE_SERVICE) as? StorageManager ?: return null
+        for (v in sm.storageVolumes) {
+            try {
+                if (!uuid.equals(v.uuid, ignoreCase = true)) continue
+                // getDirectory() 是 30 起才有的；再往下没有能问出挂载点的接口，
+                // 只能按系统给可移除卷的命名约定（挂在 /storage/<UUID>）试，存在才算数
+                val dir = if (Build.VERSION.SDK_INT >= 30) v.directory?.absolutePath else null
+                if (dir != null) return dir
+                val guess = "/storage/$uuid"
+                return if (File(guess).isDirectory) guess else null
+            } catch (_: Throwable) {
+            }
+        }
+        return null
+    }
+
     private fun withStoragePermission(action: () -> Unit, response: WebResponse) {
         if (!needStoragePermission()) {
             action()
@@ -1706,6 +1899,15 @@ class MainActivity : ComponentActivity() {
             } else {
                 showPermissionPage(denied = true)
             }
+            return
+        }
+        if (requestCode == REQ_ALL_FILES) {
+            // 29 及以下那条路上的运行时授权：拿到就接着选，没拿到不再追问
+            if (grantResults.isNotEmpty() &&
+                grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                startMountPick(pendingMountFile, pendingMountUser)
+            }
+            waitingFileAccess = false
             return
         }
         if (requestCode != REQ_STORAGE) return
@@ -1829,6 +2031,10 @@ class MainActivity : ComponentActivity() {
         private const val REQ_PICK_FOLDER = 1003
         private const val REQ_STORAGE = 1004
         private const val REQ_LOCAL_NET = 1005
+    // 挂载本机路径：系统选择器（目录 / 文件）+ 29 及以下的读权限
+    private const val REQ_MOUNT_DIR = 1006
+    private const val REQ_MOUNT_FILE = 1007
+    private const val REQ_ALL_FILES = 1008
         /** 自己记"局域网权限申请过没有"：安卓在"不再询问"和"从没申请过"时
          *  shouldShowRequestPermissionRationale() 都是 false，分不清 */
         private const val PREFS = "leaffs_prefs"

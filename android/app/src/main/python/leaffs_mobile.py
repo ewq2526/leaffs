@@ -473,6 +473,22 @@ def share_unpublish(path, username, is_admin=False):
         return _json(ok=False, error='%s: %s' % (type(e).__name__, e))
 
 
+# ---------- 本机路径挂载（与桌面共用：登记到 public/mounts/，只读引用，不复制文件） ----------
+# 桌面走 HTTP /api/share/mount；安卓 App 直接进程内调用同一映射模块。
+# 桌面那边靠"本机一次性令牌会话"判定"操作者人就坐在服务端这台机器前"；安卓上 App
+# 本身就是那台机器，取路径也是 App 自己弹的系统选择器，没有第二条路能走到这里。
+
+def mount_path(fs_path, username):
+    """把手机上的绝对路径挂到 public/mounts/ 下。返回 JSON {ok, path, name, error}"""
+    try:
+        vp, err = _mapping.publish_fs(str(fs_path or ''), str(username or '') or 'mobile')
+    except Exception as e:
+        return _json(ok=False, error='%s: %s' % (type(e).__name__, e))
+    if not vp:
+        return _json(ok=False, error=err or '挂载失败')
+    return _json(ok=True, path=vp, name=vp.rsplit('/', 1)[-1])
+
+
 # ---------- 原生导入前的配额检查 ----------
 # 与 HTTP 上传同一套三层规则（总空间 / public / 用户目录），只差"在途字节"那一项
 # （那是 HTTP 并发上传的预留，本机导入是串行的，不需要）。
