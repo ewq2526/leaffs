@@ -299,9 +299,10 @@ function render() {
         var checked = selected.has(f.path) ? 'checked' : '', isFolder = f.type === 'folder';
         // 大小是**后台在算**：还没算完就给「…」（服务端只给缓存里有的数，不再同步遍历
         // 目录 —— 挂载点可能指向几十万文件的目录）。刷新一次通常就有了。
-        // 虚拟容器（`public/mounts` 那种映射出来的空壳）本来就是 0，显示「—」。
+        // 虚拟容器（`public/mounts`、`public/shares` 那种映射出来的空壳）大小栏**留空** ——
+        // 它们本来就没有大小：写「0 B」是假数字，「—」也不好看。
         var sz = (f.size == null) ? '&hellip;'
-            : ((isFolder && f.local) ? '&mdash;' : formatSize(f.size)), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
+            : ((isFolder && f.local) ? '' : formatSize(f.size)), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
         var ep = encodeURIComponent(f.path), en = esc(f.name), sp = jsAttr(f.path), ft = fileType(f.name);
         // 属性里要放 HTML 转义的路径；data-path 读回来是原始值，正好与 _thumbOk 的键一致
         // ⚠️ 必须用 escAttr：这是**属性位置**，esc 不转引号 ⇒ 路径含 `"` 就能闭合属性

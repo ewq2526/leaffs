@@ -671,11 +671,11 @@ def merge_into_list(rel_path, result, unlocked=None, perm_check=None):
             if not subs:
                 continue
             entry = {'name': dname, 'path': drel, 'type': 'folder',
-                     'size': 0, 'mtime': max(s[1] for s in subs), 'virtual': True}
-            # 容器目录标 `local`：列表里文件夹的大小栏据此显示"—"——它是个映射出来的**空壳**，
-            # 自己没有大小；里面那些挂载点则各自报真实大小
-            if dname == MOUNT_DIRNAME:
-                entry['local'] = True
+                     'size': 0, 'mtime': max(s[1] for s in subs), 'virtual': True,
+                     # `local` = 虚拟**容器**（映射出来的空壳，自己没有大小）→ 前端大小栏留空。
+                     # ⚠️ 两个容器都要带：以前只有 mounts 带，shares 那边显示成"0 B"，
+                     #    同一类东西两种显示。
+                     'local': True}
             files.append(entry)
             merged = True
         return merged

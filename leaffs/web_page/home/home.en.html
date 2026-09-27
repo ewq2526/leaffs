@@ -288,9 +288,11 @@ function render() {
         // Sizes are computed **in the background**: an uncomputed one shows "…" (the server
         // only returns what is cached, it no longer walks folders mid-request — a mount can
         // point at a folder with hundreds of thousands of files). One refresh usually has it.
-        // A virtual container (the `public/mounts` shell) really is 0 and shows "—".
+        // A virtual container (the `public/mounts` / `public/shares` shell) leaves the size
+        // cell **blank** — it genuinely has no size: "0 B" would be a fake number and "—"
+        // does not look good either.
         var sz = (f.size == null) ? '&hellip;'
-            : ((isFolder && f.local) ? '&mdash;' : formatSize(f.size)), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
+            : ((isFolder && f.local) ? '' : formatSize(f.size)), icon = isFolder ? '&#128193;' : getFileIcon(f.name);
         var ep = encodeURIComponent(f.path), en = esc(f.name), sp = jsAttr(f.path), ft = fileType(f.name);
         // Attributes need the HTML-escaped path; getAttribute() reads the raw value back,
         // which is exactly the key _thumbOk uses
