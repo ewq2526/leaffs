@@ -60,6 +60,29 @@ def _check_path_safe(upload_dir, save_dir):
     return abs_dir.startswith(upload_dir + os.sep) or abs_dir == upload_dir
 
 
+def _readonly_mount_target(rel, upload_dir):
+    """`save_dir` 是否落在**只读映射**（本机路径挂载点，含其内部任意层级）里 —— 是则禁写。
+
+    判据与文件侧**同一处**：`files/core.resolve_rel()` 的第三个返回值就是"这是映射"，
+    upload / mkdir / delete 都靠它。下载器原来只看"字符串有没有拼在共享根里"，
+    于是成了唯一能往挂载点写的入口 —— 落点是 `UPLOAD_DIR + save_dir`，会在共享根里
+    造出一个与挂载点同名的实体目录，反过来把挂载点遮蔽掉（2026-09-27 实测）。
+
+    惰性导入：`files` 那边不依赖 `dl`，这里也不在导入期互相牵扯。
+    判不了 = 拒（与 `ws_write_allowed` 同一立场，绝不读成"可以写"）。
+    """
+    try:
+        from leaffs.files.api import _normalize_rel_path
+        from leaffs.files.core import resolve_rel
+    except Exception:
+        return True
+    norm = _normalize_rel_path(rel)
+    if norm is None:
+        return True
+    resolved = resolve_rel(norm, upload_dir)
+    return bool(resolved) and bool(resolved[2])
+
+
 # ========== 配置 ==========
 def handle_get_config(user='', role=''):
     """下载器全局配置 —— **只有管理员能读**（与 handle_set_config 对称，B4）。
@@ -139,6 +162,11 @@ def handle_start(data, check_path_permission=None, upload_dir='', user='', quota
     if upload_dir:
         if not _check_path_safe(upload_dir, save_dir):
             return {'error': '目录不安全'}, 403
+        # 挂载区只读：与 upload / mkdir / delete 走同一道闸（`resolve_rel` 的映射标记）。
+        # 少了这一步，下载器就是唯一能往挂载点里写的入口 —— 而它写完还会在共享根里
+        # 留下一个同名的实体目录，把挂载点挡住（见 `_readonly_mount_target` 的说明）。
+        if _readonly_mount_target(save_dir, upload_dir):
+            return {'error': '映射区只读，不能下载到此目录'}, 403
         save_dir = os.path.join(upload_dir, save_dir)
 
     # 明确拒绝 ed2k 协议

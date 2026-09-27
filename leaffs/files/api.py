@@ -160,8 +160,9 @@ def build_listing(rel_path, perm_check, list_files, share_filter=None):
       ② LF-22：`.uploads` **点名进入也不给看** → 'bad_path'
          （`list_files` 自己只是"不列出它"，挡不住直接走进去）
       ③ 权限判定 → 不过 = 'denied'
-      ④ 扫描磁盘 → 读不了 = 'io'；返回 None 又没原因 = 'unknown'
-      ⑤ 合并虚拟分享映射（分享码没解锁的由 share_filter 挡掉；`public` 下那两个虚拟区
+      ④ 分享码闸：**被列的这个路径本身**属于某条设了码的分享、而当前人没过码 → 'denied'
+      ⑤ 扫描磁盘 → 读不了 = 'io'；返回 None 又没原因 = 'unknown'
+      ⑥ 合并虚拟分享映射（分享码没解锁的由 share_filter 挡掉；`public` 下那两个虚拟区
          目录名还要过 perm_check —— 进不去的人连名字都不给）
 
     调用方各自把 err_kind 翻成自己的响应形状（HTTP 状态码 / WS 消息），
@@ -181,6 +182,19 @@ def build_listing(rel_path, perm_check, list_files, share_filter=None):
         allowed = False
     if not allowed:
         return None, 'denied', None
+    # ④ 分享码（2026-09-27 补）：**被列的这个路径本身**也要过码闸，不能只在条目层过滤。
+    # 只在条目层过滤挡不住"直取"：挂载点的条目名就是源目录自己的名字（`config`、`DCIM`、
+    # `电影`……），猜中一个 `?path=public/mounts/<名字>` 就能把里面的条目（名字/大小/时间）
+    # 全列出来，而"设了码就连名字都不给"正是这道闸要保的东西（当时实测：容器列表只给占位，
+    # 直取路径却 200 全列）。传 None = 调用方声明"不做码过滤"（现有两个调用点都传真回调）。
+    if share_filter is not None:
+        try:
+            unlocked_here = bool(share_filter(p))
+        except Exception as e:
+            _log_exc('列表路径分享码判定', e)
+            unlocked_here = False
+        if not unlocked_here:
+            return None, 'denied', None
     result, err = list_files(p)
     if err:
         return None, 'io', err
