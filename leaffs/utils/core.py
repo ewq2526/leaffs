@@ -10,6 +10,7 @@ import queue
 import time
 import threading
 import shutil
+import stat
 import subprocess
 import mimetypes
 import errno
@@ -495,6 +496,50 @@ def _migrate_folder_db_keys():
 _migrate_folder_db_keys()
 
 
+def is_link_entry(entry):
+    """这个目录条目是不是"链接"（symlink / Windows junction）—— 一律**不跟随、不列、不算**。
+
+    ⚠️ 为什么不能用 `follow_symlinks=False`（2026-09-27 实测，Windows）：
+    junction 带 DIRECTORY 属性，所以
+      · `entry.is_dir(follow_symlinks=False)` 对它返回 **True**（照旧当目录）
+      · `entry.is_symlink()` 与 `os.path.islink()` 对它返回 **False**
+      · `os.walk(followlinks=False)` 也照样走进去
+    唯一认得出来的是 `stat(follow_symlinks=False).st_file_attributes` 里的
+    `FILE_ATTRIBUTE_REPARSE_POINT`。跟随它的后果实测过两条：列表把它当目录列出来，
+    目录大小扫描走出共享根去统计根外目录（把 `C:\\Windows\\System32\\drivers\\etc`
+    的真实字节数报给了匿名访客）。
+
+    判定失败（拿不到属性）时**当成链接**：宁可少列一个，也不要跟出去。
+    """
+    return is_link_path(entry.path)
+
+
+def is_link_path(path):
+    """按**路径**判同一件事 —— `os.walk` 的剪枝只有拼出来的路径，没有 DirEntry。
+
+    `os.path.islink()` 认 symlink，重解析点属性认 junction（见上）；判定失败一律当链接。
+    """
+    try:
+        st = os.lstat(path)
+        return os.path.islink(path) or bool(
+            getattr(st, 'st_file_attributes', 0)
+            & getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0))
+    except OSError:
+        return True
+
+
+def prune_walk_dirs(root, dirs):
+    """`os.walk` 的剪枝：把"上传临时目录"与"链接（symlink / junction）"从 dirs 里剔掉。
+
+    ⚠️ 必须在这里剔，**指望不了 `followlinks=False`** —— 实测（2026-09-27）它对 junction
+    无效：junction 带 DIRECTORY 属性，而 `os.walk` 只检查 `is_symlink()`（对 junction 是 False），
+    所以照样走进去（搜索就这么把共享根**外**的文件名列进了结果）。
+    "搜索（两条实现）/ 打包 / 清缩略图"原来各写一遍过滤，等于养几份判据，收在这一处。
+    """
+    return [d for d in dirs
+            if not is_upload_tmp_entry(d) and not is_link_path(os.path.join(root, d))]
+
+
 def _scan_folder_agg(path):
     """扫描单个目录并递归加和子目录缓存条目（不持有 db 锁）
 
@@ -509,6 +554,8 @@ def _scan_folder_agg(path):
                 try:
                     if is_upload_tmp_entry(entry.name):
                         continue
+                    if is_link_entry(entry):
+                        continue      # 链接不跟随：否则会走出共享根去统计根外目录
                     if entry.is_file(follow_symlinks=False):
                         agg['size'] += entry.stat(follow_symlinks=False).st_size
                         agg['files'] += 1

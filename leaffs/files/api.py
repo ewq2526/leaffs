@@ -17,6 +17,9 @@ from leaffs.paths import is_upload_tmp_entry, is_upload_tmp_relpath
 # LF-23：删除失败原因的精确翻译（"被占用"与"权限不足"必须分开说，处置方式不同）
 from leaffs.utils.core import (
     delete_fail_reason,
+    # `os.walk` 的剪枝（上传临时目录 + 链接/symlink/junction）——搜索、打包、清缩略图共用。
+    # 链接**不能**靠 `followlinks=False` 挡：junction 带 DIRECTORY 属性，os.walk 照样进去。
+    prune_walk_dirs,
     # 相对路径 → 绝对路径的**唯一入口**（解析与越界判定都在里面）；
     # 本文件原来各处自己 os.path.join + is_path_safe，散着写必然漏掉某一处。
     resolve_rel,
@@ -872,7 +875,8 @@ def handle_delete(handler, UPLOAD_DIR, is_path_safe, _delete_thumb,
                     invalidate_file_cache(full)
                     invalidate_folder_cache(os.path.dirname(full))
                 else:
-                    for root, _, files in os.walk(full):
+                    for root, dirs, files in os.walk(full):
+                        dirs[:] = prune_walk_dirs(root, dirs)
                         for f in files:
                             _delete_thumb(os.path.join(root, f))
                     shutil.rmtree(full)
@@ -995,8 +999,9 @@ def search_files(handler, UPLOAD_DIR):
             handler.send_json({'files': [], 'query': query}); return
         truncated = False
         for root, dirs, files in os.walk(search_root):
-            # LF-22：剪枝，不进上传临时目录
-            dirs[:] = [d for d in dirs if not is_upload_tmp_entry(d)]
+            # LF-22：剪枝，不进上传临时目录；2026-09-27：链接（symlink/junction）也剪 ——
+            # 否则会走出共享根，把根外文件的名字/大小列进搜索结果（与 files/core 同一判据）
+            dirs[:] = prune_walk_dirs(root, dirs)
             for fname in files:
                 if query in fname.lower():
                     full = os.path.join(root, fname)
@@ -1172,7 +1177,9 @@ def zip_download(handler, UPLOAD_DIR, COPY_BUFFER_SIZE, is_path_safe, DISCONNECT
             elif os.path.isdir(full):
                 for root, dirs, files in os.walk(full):
                     # LF-22：打包整个目录时也不进上传临时目录
-                    dirs[:] = [d for d in dirs if not is_upload_tmp_entry(d)]
+                    # 2026-09-27：链接（symlink/junction）也剪 —— 内容本来就被下面的
+                    # `is_path_safe` 逐个挡掉，但剪掉能省掉对根外整棵树的白遍历
+                    dirs[:] = prune_walk_dirs(root, dirs)
                     for file in files:
                         fp = os.path.join(root, file)
                         # 对子文件也校验路径安全性 —— 同样按**这个目录所属的根**判，

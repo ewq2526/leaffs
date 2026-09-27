@@ -20,6 +20,7 @@ from leaffs.paths import (
 from leaffs.utils.core import (
     COPY_BUFFER_SIZE,
     resolve_rel, safe_path, abs_path, get_mime, esc_html,
+    is_link_entry, prune_walk_dirs,
     read_file_cached, invalidate_file_cache,
     get_folder_size, get_folder_stats,
     peek_folder_agg, request_folder_agg,
@@ -163,6 +164,8 @@ def _count_files_recursive(path):
     try:
         for entry in os.scandir(path):
             try:
+                if is_link_entry(entry):
+                    continue      # 链接不跟随（与 list_files / 目录聚合同一判据）
                 if entry.is_dir(follow_symlinks=False):
                     sub_files, sub_size = _count_files_recursive(entry.path)
                     total_files += sub_files
@@ -192,6 +195,11 @@ def list_files(rel_path):
             for entry in it:
                 # LF-22：上传临时目录不对用户可见（它装的是"写到一半"的数据）
                 if is_upload_tmp_entry(entry.name):
+                    continue
+                # 链接（symlink / junction）不列：它指向共享根**外**，内容访问本来就被
+                # realpath 挡住（`safe_path`），列出来只会把根外的名字与体积露出去 ——
+                # junction 还会被当成目录，进而让"目录大小"走去统计根外目录（2026-09-27 实测）。
+                if is_link_entry(entry):
                     continue
                 rp = os.path.join(rel_path, entry.name).replace('\\', '/') if rel_path else entry.name
                 try:
@@ -264,7 +272,8 @@ def delete_paths(paths):
                 invalidate_file_cache(full)
                 invalidate_folder_cache(parent)
             else:
-                for root, _, files in os.walk(full):
+                for root, dirs, files in os.walk(full):
+                    dirs[:] = prune_walk_dirs(root, dirs)
                     for f in files: _delete_thumb(os.path.join(root, f))
                 shutil.rmtree(full)
                 invalidate_folder_cache(full, recursive=True)
@@ -307,7 +316,9 @@ def search_files(query):
     try:
         for root, dirs, files in os.walk(UPLOAD_DIR):
             # LF-22：直接剪枝，不进上传临时目录（省得白遍历一遍再过滤）
-            dirs[:] = [d for d in dirs if not is_upload_tmp_entry(d)]
+            # 2026-09-27：连同链接（symlink/junction）一起剪 —— 否则会走出共享根，
+            # 把根外文件的名字/大小列进搜索结果（实测过）。
+            dirs[:] = prune_walk_dirs(root, dirs)
             for fname in files:
                 if query in fname.lower():
                     full = os.path.join(root, fname)
