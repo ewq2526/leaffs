@@ -13,7 +13,11 @@ import threading
 from leaffs.runtime_log import log_exception as _log_exc
 # LF-22：上传临时目录对用户不可见 —— 判定收在 leaffs.paths 里（说明见那里），
 # 列表/搜索/下载/缩略图/大小统计统一调它，免得各处各写一份条件而漏掉某一处。
-from leaffs.paths import is_upload_tmp_entry, is_upload_tmp_relpath
+from leaffs.paths import (
+    is_upload_tmp_entry, is_upload_tmp_relpath,
+    # 虚拟容器（`public/mounts` / `public/shares`）：里面只放映射条目，不许新增真实文件
+    is_virtual_container_rel, is_inside_virtual_container,
+)
 # LF-23：删除失败原因的精确翻译（"被占用"与"权限不足"必须分开说，处置方式不同）
 from leaffs.utils.core import (
     delete_fail_reason,
@@ -54,11 +58,19 @@ def write_allowed(handler, sub_path, op):
 
     admin/super_admin/user 放行（自身目录越界由 _check_path_permission 另行把关）；
     guest 按 R1 规则收敛（见上）；未登录一律拒写。
+
+    **虚拟容器**（`public/mounts` / `public/shares`）另有一条与角色无关的规矩：里面**只放
+    映射条目**，真实文件一个都不许新增（详见 `paths.is_inside_virtual_container` 的说明）。
+    删除要放行 —— 已经存在的那种"列表看不见"的隐藏文件，只剩删除这一条路能清掉它。
     """
     try:
         role = handler._get_effective_role()
     except Exception:
         role = None
+    if is_virtual_container_rel(sub_path):
+        return False            # 容器本身：不许新建，也不许删（删了挂载区/分享区就没了）
+    if op != 'delete' and is_inside_virtual_container(sub_path):
+        return False            # 容器内部：只许删（清既有隐藏文件），不许新增
     if role in ('admin', 'super_admin', 'user'):
         return True
     if role != 'guest':
@@ -79,7 +91,12 @@ def ws_write_allowed(role, username, path, op, guest_mode=True):
     与 write_allowed 同规则（R1）：guest 默认禁写；guest_public_write 开启时仅允许
     public[/子目录] 的 'upload'（新建，覆盖走 fs_core 自动改名）；guest 的
     delete/mkdir/overwrite、guest 模式关闭、未登录一律拒绝。
+    虚拟容器的规矩同 HTTP 侧（容器本身全拒；容器内部只许删）—— 两条路径必须同一口径。
     """
+    if is_virtual_container_rel(path):
+        return False
+    if op != 'delete' and is_inside_virtual_container(path):
+        return False
     if role in ('admin', 'super_admin', 'user'):
         return True
     if role != 'guest' or not guest_mode:

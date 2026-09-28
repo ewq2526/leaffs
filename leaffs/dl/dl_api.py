@@ -24,6 +24,8 @@ from .dl_http import get_file_size, _get_filename
 from .dl_probe import probe_magnet
 from .dl_rpc import get_rpc_client
 from leaffs.runtime_log import log_exception
+# 虚拟容器（`public/mounts` / `public/shares`）里只放映射条目 —— 下载器的落点也不能往里指
+from leaffs.paths import is_inside_virtual_container
 
 
 def _url_blocked_error(url):
@@ -162,6 +164,10 @@ def handle_start(data, check_path_permission=None, upload_dir='', user='', quota
     if upload_dir:
         if not _check_path_safe(upload_dir, save_dir):
             return {'error': '目录不安全'}, 403
+        # 虚拟容器（`public/mounts` / `public/shares`）：里面只放映射条目，真实文件一个都不许
+        # 新增 —— 下载器与 upload / mkdir 同一口径（判据见 `paths.is_inside_virtual_container`）。
+        if is_inside_virtual_container(save_dir):
+            return {'error': '不能下载到映射区（public/mounts、public/shares）'}, 403
         # 挂载区只读：与 upload / mkdir / delete 走同一道闸（`resolve_rel` 的映射标记）。
         # 少了这一步，下载器就是唯一能往挂载点里写的入口 —— 而它写完还会在共享根里
         # 留下一个同名的实体目录，把挂载点挡住（见 `_readonly_mount_target` 的说明）。

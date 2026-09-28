@@ -107,6 +107,28 @@ def is_upload_tmp_relpath(rel):
     return r == UPLOAD_TMP_DIRNAME or r.startswith(UPLOAD_TMP_DIRNAME + '/')
 
 
+# ---- 虚拟容器（2026-09-27）----
+# `public/mounts` 与 `public/shares` 在磁盘上只是**空壳**：里面的条目全由 share/mappings.py
+# 登记（映射表），本体不复制任何文件。所以真实文件不该出现在它们里面。
+# 实测（用普通用户账号）过放它们进去的后果：**列表三方都看不见**（界面上根本选不中、
+# 删不掉，只能上服务器按路径删）、**目录统计却算它**（"空的却占 14 字节"）、
+# 名字还会跟同名挂载点纠缠。⇒ 写入口一律拒"往容器里新增"。
+SHARES_REL = 'public/shares'             # 普通分享区（虚拟：按用户分 public/shares/<用户名>/）
+VIRTUAL_CONTAINER_RELS = (MOUNT_REL, SHARES_REL)
+
+
+def is_virtual_container_rel(rel):
+    """这个相对路径是不是**虚拟容器本身**（`public/mounts` 或 `public/shares`）"""
+    r = (rel or '').replace('\\', '/').strip('/')
+    return r in VIRTUAL_CONTAINER_RELS
+
+
+def is_inside_virtual_container(rel):
+    """这个相对路径是不是落在某个虚拟容器**里面**（含容器本身）"""
+    r = (rel or '').replace('\\', '/').strip('/')
+    return any(r == c or r.startswith(c + '/') for c in VIRTUAL_CONTAINER_RELS)
+
+
 def find_bundled_exe(name):
     """按通用顺序定位内置依赖可执行文件（如 aria2c.exe / ffmpeg.exe）
 
