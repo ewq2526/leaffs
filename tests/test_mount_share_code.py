@@ -286,10 +286,13 @@ def test_url_downloader_refuses_a_mount_target(inst):
                 '下载器收下了指向挂载点的 save_dir（%s）：%s' % (sd, r.text)
             assert '映射区只读' in (body.get('error') or ''), r.text
     # 对照：普通目录不该被这道闸一起拒掉（否则"挂载点收不了"就可能是别的原因）
+    # ⚠️ 这里用 `file://` 当 URL：它在 URL 校验那一步就被拒，**不会走到下载管理器**
+    # —— 拿 `https://example.com/...` 做对照会真的去建下载任务、启 aria2c，
+    # 沙箱里冷启动偶发超时（实测 25s 后 ReadTimeout），那与被测的那道闸无关。
     with httpx.Client(base_url=inst.base, timeout=20) as c:
         c.cookies.set('wifi_session', inst.local_cookie)
         r = c.post('/api/url-download/start',
-                   json={'url': 'https://example.com/x.txt', 'save_dir': 'public'})
+                   json={'url': 'file:///x.txt', 'save_dir': 'public'})
         assert '映射区只读' not in r.text, '普通目录也被当成挂载区拒了：%s' % r.text
     # 磁盘：挂载点那个虚拟路径下不该多出实体目录
     shadow = os.path.join(inst.root, 'shared_files', 'public', 'mounts', MOUNT_SRC)

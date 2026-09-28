@@ -164,15 +164,18 @@ def handle_start(data, check_path_permission=None, upload_dir='', user='', quota
     if upload_dir:
         if not _check_path_safe(upload_dir, save_dir):
             return {'error': '目录不安全'}, 403
-        # 虚拟容器（`public/mounts` / `public/shares`）：里面只放映射条目，真实文件一个都不许
-        # 新增 —— 下载器与 upload / mkdir 同一口径（判据见 `paths.is_inside_virtual_container`）。
-        if is_inside_virtual_container(save_dir):
-            return {'error': '不能下载到映射区（public/mounts、public/shares）'}, 403
         # 挂载区只读：与 upload / mkdir / delete 走同一道闸（`resolve_rel` 的映射标记）。
         # 少了这一步，下载器就是唯一能往挂载点里写的入口 —— 而它写完还会在共享根里
         # 留下一个同名的实体目录，把挂载点挡住（见 `_readonly_mount_target` 的说明）。
+        # ⚠️ 放在下面的"虚拟容器"之前：挂载点落在容器里，**更具体的原因是"这是只读映射"**，
+        # 先判它会回那句更准的话（老用例与前端文案都按它写的）。
         if _readonly_mount_target(save_dir, upload_dir):
             return {'error': '映射区只读，不能下载到此目录'}, 403
+        # 虚拟容器本身/内部（`public/mounts` / `public/shares`）：里面只放映射条目，
+        # 真实文件一个都不许新增 —— 下载器与 upload / mkdir 同一口径
+        # （判据见 `paths.is_inside_virtual_container`）。
+        if is_inside_virtual_container(save_dir):
+            return {'error': '不能下载到映射区（public/mounts、public/shares）'}, 403
         save_dir = os.path.join(upload_dir, save_dir)
 
     # 明确拒绝 ed2k 协议

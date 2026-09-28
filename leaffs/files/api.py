@@ -14,6 +14,7 @@ from leaffs.runtime_log import log_exception as _log_exc
 # LF-22：上传临时目录对用户不可见 —— 判定收在 leaffs.paths 里（说明见那里），
 # 列表/搜索/下载/缩略图/大小统计统一调它，免得各处各写一份条件而漏掉某一处。
 from leaffs.paths import (
+    UPLOAD_DIR,
     is_upload_tmp_entry, is_upload_tmp_relpath,
     # 虚拟容器（`public/mounts` / `public/shares`）：里面只放映射条目，不许新增真实文件
     is_virtual_container_rel, is_inside_virtual_container,
@@ -229,6 +230,18 @@ def build_listing(rel_path, perm_check, list_files, share_filter=None):
         _mp.merge_into_list(p, result, unlocked=share_filter, perm_check=perm_check)
     except Exception as e:
         _log_exc('合并分享虚拟条目', e)
+    # ⑤ 界面用的两个目录级标志（2026-09-28）：这个目录能不能**新增** / 能不能**删里面的东西**。
+    # 页面据此隐藏"上传/上传文件夹/新建文件夹"与拖拽区、以及不该出现的删除按钮 ——
+    # 免得按钮都在、点了才被拒（体验问题）。**判据与写策略同一套**（`paths` 的虚拟容器 +
+    # `resolve_rel` 的只读映射位），而且服务端写入口照样自己判，**安全边界不靠前端**。
+    # ⚠️ 两者问的**不是同一件事**：`can_write` 问"这个目录本身能不能新增"（虚拟容器与映射区都不行）；
+    # `can_delete` 问"**它里面的条目**能不能删" —— 虚拟容器**内部**必须能删（那是清理历史上
+    # 混进来的隐藏文件的唯一出口），所以这里**不能**把 `is_virtual_container_rel(p)` 算进去；
+    # "容器那一行本身不能删"由前端按条目的 `f.local` 处理。
+    _resolved_here = resolve_rel(p, UPLOAD_DIR)
+    _readonly_here = bool(_resolved_here) and bool(_resolved_here[2])
+    result['can_write'] = not (_readonly_here or is_inside_virtual_container(p))
+    result['can_delete'] = not _readonly_here
     return result, None, None
 
 

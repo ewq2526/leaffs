@@ -127,3 +127,40 @@ def test_url_downloader_cannot_target_container(client):
         body = r.json() if r.headers.get('content-type', '').startswith('application/json') else {}
         assert not body.get('success'), '%s 竟然收下了下载任务：%s' % (sd, r.text)
         assert '映射区' in (body.get('error') or ''), r.text
+
+
+def test_list_and_ws_carry_dir_permission_flags(client, server):
+    """列表要带 `can_write` / `can_delete`（首页据此藏写入口），HTTP 与 WS 两条通道都要有
+
+    这两个标志与写策略**同一套判据**：虚拟容器里不能新增（`can_write=False`），但容器本身
+    不能删、容器**内部**要能删 —— 所以容器目录 `can_delete=True`（清理隐藏垃圾的出口）。
+    普通目录两个都为真（对照）。
+    """
+    _login_admin(client)
+    for path, cw, cd in (('public/mounts', False, True),
+                         ('public/shares', False, True),
+                         ('public', True, True)):
+        r = client.get('/api/files', params={'path': path})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d.get('can_write') is cw, '%s：can_write=%r（期望 %r）' % (path, d.get('can_write'), cw)
+        assert d.get('can_delete') is cd, '%s：can_delete=%r（期望 %r）' % (path, d.get('can_delete'), cd)
+
+    # WS 那条路必须同口径（首页用 WS 渲染时也据此藏入口）
+    import json
+    from conftest import WS_PORT
+    from websockets.sync.client import connect
+    ck = client.cookies.get('wifi_session')
+    assert ck, '登录后应拿到会话 Cookie'
+    with connect('ws://127.0.0.1:%d' % WS_PORT,
+                 additional_headers={'Cookie': 'wifi_session=%s' % ck}, open_timeout=10) as ws:
+        ws.send(json.dumps({'type': 'list', 'path': 'public/mounts'}))
+        msg = None
+        for _ in range(6):
+            m = json.loads(ws.recv(timeout=5))
+            if m.get('type') in ('list', 'error'):
+                msg = m
+                break
+    assert msg and msg.get('type') == 'list', msg
+    assert msg.get('can_write') is False, 'WS 列表没带 can_write：%s' % msg
+    assert msg.get('can_delete') is True, 'WS 列表没带 can_delete：%s' % msg

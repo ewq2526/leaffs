@@ -74,6 +74,7 @@
     <div class="breadcrumb" id="breadcrumb"><a href="/browse/">Home</a></div>
     <div class="progress-wrap" id="progressWrap"><div class="bar" id="progressBar"></div></div>
 
+    <div class="readonly-tip" id="readonlyTip" style="display:none;margin:0 0 10px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text-light);font-size:12px">Read-only here: this folder is a mapped area or a virtual container — uploading and creating folders are disabled.</div>
     <div class="upload-zone" id="dropZone">
         <div class="label" id="uploadLimitLabel">Click to upload</div>
         <div class="sub">Drag files or folders here</div>
@@ -92,7 +93,7 @@
         <button class="btn btn-sm btn-outline" onclick="selectAll(true)">Select all</button>
         <button class="btn btn-sm btn-outline" onclick="selectAll(false)">Clear</button>
         <button class="btn btn-sm btn-success" onclick="downloadSelected()">Download</button>
-        <button class="btn btn-sm btn-danger" onclick="deleteSelected()">Delete</button>
+        <button class="btn btn-sm btn-danger" id="bulkDeleteBtn" onclick="deleteSelected()">Delete</button>
         <button class="btn btn-sm share-btn" id="shareBtn" onclick="shareSelected()" style="display:none">Share</button>
         <button class="btn btn-sm refresh-btn" onclick="loadFiles()">Refresh</button>
         <span class="count">Selected <strong id="selectedCount">0</strong></span>
@@ -176,6 +177,25 @@ var viewMode = localStorage.getItem('viewMode') || 'grid';
 function onWSConnected() { if (files.length === 0) loadFiles(); }
 
 var _currentTotalFiles = 0;
+// 目录级权限（服务端给 `can_write` / `can_delete`）：映射区、虚拟容器里不该出现写入口 ——
+// 服务端本来就会拒，这里只是别让人白点。⚠️ 安全边界仍在服务端，前端只是藏入口。
+var canWriteHere = true, canDeleteHere = true;
+
+function applyDirPerms() {
+    var zone = document.getElementById('dropZone');
+    if (zone) zone.style.display = canWriteHere ? '' : 'none';
+    var tip = document.getElementById('readonlyTip');
+    if (tip) tip.style.display = canWriteHere ? 'none' : '';
+    var del = document.getElementById('bulkDeleteBtn');
+    if (del) del.disabled = !canDeleteHere;
+}
+
+// 删除按钮的**唯一写点**：只读目录（映射区、容器本身）与虚拟容器条目（f.local）都不渲染。
+// 两处各写一遍必然漂移（LF-28 的教训）。
+function delBtnHtml(sp, isLocal) {
+    if (!canDeleteHere || isLocal) return '';
+    return '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">Delete</button>';
+}
 var _searchOverlay = null;
 
 // WebSocket push for the current folder (list / delete / mkdir)
@@ -184,6 +204,9 @@ function handleWSMessage(msg) {
         case 'list':
             files = msg.files || [];
             _currentTotalFiles = (msg.total_file_count == null) ? null : msg.total_file_count;
+            canWriteHere = msg.can_write !== false;
+            canDeleteHere = msg.can_delete !== false;
+            applyDirPerms();
             render(); updateStats(); updateBreadcrumb(currentPath);
             break;
         case 'delete': toastDeleteResult(msg); loadFiles(); break;
@@ -202,6 +225,9 @@ function loadFiles() {
     apiList(currentPath, function (d) {
         files = d.files || [];
         _currentTotalFiles = (d.total_file_count == null) ? null : d.total_file_count;
+        canWriteHere = d.can_write !== false;
+        canDeleteHere = d.can_delete !== false;
+        applyDirPerms();
         render(); updateStats(); updateBreadcrumb(currentPath);
     });
 }
@@ -299,8 +325,8 @@ function render() {
         var eh = escAttr(f.path);   // only used in data-path="..." ⇒ quotes must be escaped
         var pv = (!isFolder && ['image', 'video', 'audio', 'text', 'pdf'].indexOf(ft) >= 0)
             ? '<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();openPreview(\'' + sp + '\', files)">Preview</button>' : '';
-        var acts = isFolder ? '<a href="/browse/' + ep + '" class="btn btn-sm btn-primary">Open</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">Delete</button>'
-            : pv + '<a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">Download</a><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteFile(\'' + sp + '\')">Delete</button>';
+        var acts = isFolder ? '<a href="/browse/' + ep + '" class="btn btn-sm btn-primary">Open</a>' + delBtnHtml(sp, f.local)
+            : pv + '<a href="/download/' + ep + '" class="btn btn-sm btn-success" onclick="event.stopPropagation()">Download</a>' + delBtnHtml(sp, f.local);
         var thumb = '';
         if (!isFolder && (ft === 'image' || ft === 'video')) {
             thumb = '<span class="thumb-wrap"><span class="icon">' + icon + '</span><img class="preview-thumb' + (_thumbOk[f.path] ? ' loaded' : '') + '" src="/api/thumb?path=' + ep + '" alt="" loading="lazy" data-path="' + eh + '" onload="thumbLoaded(this)" onerror="retryThumbOnce(this, thumbGiveUpBlank)"></span>';
@@ -452,7 +478,7 @@ document.getElementById('folderInput').onchange = function() { if (this.files.le
 var drop = document.getElementById('dropZone');
 drop.ondragover = function(e) { e.preventDefault(); drop.classList.add('dragover'); };
 drop.ondragleave = function() { drop.classList.remove('dragover'); };
-drop.ondrop = function(e) { e.preventDefault(); drop.classList.remove('dragover'); if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files); };
+drop.ondrop = function(e) { e.preventDefault(); drop.classList.remove('dragover'); if (!canWriteHere) { batchToast('Read-only folder — upload disabled', 'error'); return; } if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files); };
 
 function downloadSelected() {
     var sel = Array.from(selected), files_s = sel.filter(function(p) { var f = files.find(function(f) { return f.path === p; }); return f && f.type !== 'folder'; });
