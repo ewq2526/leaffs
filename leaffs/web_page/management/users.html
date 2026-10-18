@@ -5,79 +5,31 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>用户管理</title>
 <link rel="stylesheet" href="/static/style.css">
-<style>
-.user-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
-.user-actions { display: grid; grid-template-columns: 1fr; gap: 12px; max-width: 500px; }
-.action-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.action-form input { flex: 1; min-width: 0; padding: 7px 10px; border: 2px solid var(--border); border-radius: 6px; font-size: 13px; outline: none; background: var(--card-bg); color: var(--text); max-width: 150px; }
-.action-form input:focus { border-color: var(--primary); }
-.user-list-card { min-height: 300px; margin-top: 14px; }
-.user-list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 2px solid var(--border); font-size: 13px; color: var(--text); }
-.user-search { margin-bottom: 10px; }
-.user-search input { width: 100%; padding: 9px 14px; border: 2px solid var(--border); border-radius: 8px; font-size: 13px; outline: none; background: var(--card-bg); color: var(--text); }
-.user-search input:focus { border-color: var(--primary); }
-.user-card { border: 2px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--card-bg); }
-.user-card:hover { border-color: var(--primary); }
-.user-card.expanded { border-color: var(--primary); }
-.user-summary { display: flex; align-items: center; padding: 14px 16px; gap: 12px; cursor: pointer; user-select: none; }
-.user-avatar { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; background: var(--primary); color: #fff; }
-.user-avatar.super { background: var(--danger); }
-.user-avatar.admin { background: var(--primary); }
-.user-avatar.user { background: var(--muted-deep); }
-.user-summary-info { flex: 1; min-width: 0; }
-.user-summary-info .user-name { font-size: 15px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.user-summary-info .user-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-.user-tag { font-size: 11px; padding: 3px 10px; border-radius: 6px; background: var(--bg); border: 1.5px solid var(--border); color: var(--text); font-weight: 600; }
-.user-summary-actions { display: flex; gap: 6px; flex-shrink: 0; align-items: center; }
-/* 窄屏（手机）：操作区另起一行，把横向宽度让给用户名与身份徽章。
-   此前操作区 flex-shrink:0 不缩，宽度被它吃光后徽章会被压成一字一行（中文没有词边界）。 */
-@media (max-width: 500px) { .user-summary { flex-wrap: wrap; } .user-summary-actions { width: 100%; justify-content: flex-end; } }
-/* 按钮样式已统一在全局 style.css 通用按钮（.btn-sm.primary/danger/.btn-edit.* 语义亦在全局） */
-.expand-arrow { font-size: 12px; color: var(--text); margin-left: 2px; transition: transform 0.2s; }
-.user-card.expanded .expand-arrow { transform: rotate(180deg); }
-.user-edit-panel { display: none; padding: 0 14px 14px; border-top: 2px solid var(--border); }
-.user-card.expanded .user-edit-panel { display: block; }
-.edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; padding: 12px; margin: 8px 0 2px; border: 2px solid var(--border); border-radius: var(--radius-sm); background: var(--card-bg); }
-@media (max-width: 500px) { .edit-grid { grid-template-columns: 1fr; } }
-.edit-row { display: flex; gap: 10px; align-items: center; padding: 6px 0; }
-.edit-label { font-size: 13px; font-weight: 700; color: var(--text); min-width: 56px; flex-shrink: 0; white-space: nowrap; }
-.edit-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex: 1; }
-.edit-controls input[type=number] { width: 72px; padding: 5px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; text-align: center; background: var(--card-bg); color: var(--text); }
-.edit-controls input[type=text] { width: 80px; padding: 5px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; background: var(--card-bg); color: var(--text); }
-.edit-controls input:focus { border-color: var(--primary); }
-.current-val { font-size: 12px; color: var(--text); background: var(--bg); border: 1.5px solid var(--border); padding: 3px 8px; border-radius: 4px; cursor: pointer; font-weight: 600; }
-.pwd-hint { font-size: 11px; color: var(--text); font-weight: 600; margin-right: 2px; }
-.role-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
-.role-badge.super { background: var(--danger); color: #fff; }
-.role-badge.admin { background: var(--primary); color: #fff; }
-.role-badge.user { background: var(--muted-deep); color: #fff; }
-.admin-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
-.admin-card h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-</style>
 <script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
 </head>
 <body>
 <div class="app">
-    <div class="header">
-        <h1><span class="ht">用户管理</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">连接中...</span></span></h1>
-        <div class="info">
-            <!--THEME_TOGGLE-->
+    <header class="top">
+        <span class="top-logo">🍃</span>
+        <div class="top-main">
+            <h1 class="top-title">用户管理</h1>
+            <div class="top-meta"><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">连接中...</span></span></div>
         </div>
-    </div>
+        <div class="top-side"><button class="nav-back" onclick="window.location.href='/admin'">返回管理</button>
+            <!--THEME_TOGGLE--></div>
+    </header>
 
-    <div class="nav-bar">
+    <nav class="tabs">
         <a href="/browse/">浏览</a>
         <a href="/gallery">预览</a>
         <a href="/url-download">下载器</a>
         <a href="/share">分享</a>
         <a href="/admin">管理</a>
         <a href="/me">我的</a>
-        <span style="flex:1"></span>
-        <button class="nav-back" onclick="window.location.href='/admin'">返回管理</button>
-    </div>
+    </nav>
 
     <div class="user-actions" style="margin-top:14px">
-        <div class="admin-card">
+        <div class="panel">
             <h3>新增用户</h3>
             <div class="action-form">
                 <input type="text" id="newUserName" placeholder="用户名" maxlength="20">
@@ -87,25 +39,25 @@
         </div>
     </div>
 
-    <div class="admin-card user-list-card">
+    <div class="panel user-list-card">
         <h3>用户列表</h3>
         <div class="user-search">
             <input type="text" id="userSearchInput" placeholder="搜索用户..." oninput="filterUsers()">
         </div>
         <div class="user-list-header">
             <span>共 <span class="count" id="userTotalCount">0</span> 个用户</span>
-            <button class="btn-admin outline" onclick="refreshUsers()" style="padding:3px 10px;font-size:11px">刷新</button>
+            <button class="btn-admin outline t-xs py-3 px-10" onclick="refreshUsers()">刷新</button>
         </div>
-        <div id="userList" class="user-grid"><div style="color:var(--text);font-size:13px;padding:40px 0;text-align:center;grid-column:1/-1">加载中...</div></div>
+        <div id="userList" class="user-grid"><div class="c-body t-md text-center" style="padding:40px 0;grid-column:1/-1">加载中...</div></div>
     </div>
 
-    <div class="admin-card user-list-card">
+    <div class="panel user-list-card">
         <h3>已删除用户的归档</h3>
         <div class="user-list-header">
             <span>共 <span class="count" id="archiveTotal">0</span> 项 · 占用 <span class="count" id="archiveSize">0 B</span></span>
             <span>
-                <button class="btn-admin outline" onclick="loadArchives()" style="padding:3px 10px;font-size:11px">刷新</button>
-                <button class="btn-admin outline" onclick="purgeAllArchives()" style="padding:3px 10px;font-size:11px">全部清空</button>
+                <button class="btn-admin outline t-xs py-3 px-10" onclick="loadArchives()">刷新</button>
+                <button class="btn-admin outline t-xs py-3 px-10" onclick="purgeAllArchives()">全部清空</button>
             </span>
         </div>
         <div class="archive-hint">删除用户时，他的文件只是被改名归档到这里，并没有被删掉。清理是<b>不可恢复</b>的：确认里面的东西不再需要，再删。</div>
@@ -120,14 +72,13 @@ var myRole = '__MY_ROLE__';
 var myUsername = '__MY_USERNAME__';
 var startTime = Date.now();
 
-
 function batchToast(msg,type){var c=document.querySelector('.toast-container');if(!c){c=document.createElement('div');c.className='toast-container';document.body.appendChild(c);}var e=document.createElement('div');e.className='toast '+(type||'info');e.textContent=msg;c.appendChild(e);setTimeout(function(){e.remove();},2800);}
 
 var _allUsers=[],_expandedSet={};
 function toggleUser(idx){var card=document.querySelector('[data-card-idx="'+idx+'"]');if(!card)return;var expanded=card.classList.toggle('expanded');var txt=card.querySelector('.expand-text');if(txt)txt.textContent=expanded?'收起':'展开';if(expanded)_expandedSet[idx]=true;else delete _expandedSet[idx];}
 function filterUsers(){var q=document.getElementById('userSearchInput').value.toLowerCase().trim();var container=document.getElementById('userList');var visible=0;_allUsers.forEach(function(u){var match=!q||u.name.indexOf(q)!==-1;var el=container.querySelector('[data-card-idx="'+u.idx+'"]');if(el)el.style.display=match?'':'none';if(match)visible++;});document.getElementById('userTotalCount').textContent=_allUsers.length+(q?'，显示 '+visible:'');}
 
-function refreshUsers(users){if(arguments.length===0){return fetch('/api/users').then(function(r){return r.json();}).then(function(d){refreshUsers(d.users||{});});}var prevExpanded={};for(var k in _expandedSet)prevExpanded[k]=true;_allUsers=[];var html='',idx=0;for(var name in users){var role=users[name].role;var roleTxt={'super_admin':'超级管理员','admin':'管理员','user':'用户'}[role]||role;var badgeClass={'super_admin':'super','admin':'admin','user':'user'}[role]||'user';var speed=users[name].speed_limit||0;var speedKB=speed>0?Math.round(speed/1024):0;var speedTxt=speedKB>0?speedKB+' KB/s':'不限速';var userQuota=users[name].quota||0;var userQuotaMB=userQuota>0?Math.round(userQuota/1048576):0;var quotaTxt=userQuotaMB>0?userQuotaMB+' MB':'默认';var sn=name.replace(/'/g,"\\'");var canManage=myRole==='super_admin'||(myRole==='admin'&&(role==='user'||name===myUsername));var canDelete=canManage&&role!=='super_admin';var canQR=myRole==='super_admin'||(myRole==='admin'&&role==='user');var actionBtns='';if(canQR)actionBtns+='<button class="btn-sm primary" onclick="event.stopPropagation();genQR(\''+sn+'\')">扫码登录</button>';if(canDelete)actionBtns+='<button class="btn-sm danger" onclick="event.stopPropagation();deleteUser(\''+sn+'\')">删除</button>';actionBtns+='<span class="expand-arrow">&#9660;</span> <span class="expand-text" style="font-size:12px;color:var(--text)">'+(prevExpanded[idx]?'收起':'展开')+'</span>';var editPanel='<div class="edit-grid">';if(canManage){editPanel+='<div class="edit-row"><span class="edit-label">密码</span><div class="edit-controls"><input type="text" id="pwd_'+name+'" placeholder="新密码" maxlength="50" style="width:80px"><input type="text" id="pwd2_'+name+'" placeholder="确认" maxlength="50" style="width:80px"><button class="btn-edit primary" onclick="setUserPassword(\''+sn+'\')">修改</button></div></div>';editPanel+='<div class="edit-row"><span class="edit-label">限速</span><div class="edit-controls"><span class="current-val">目前: '+speedTxt+'</span><input type="number" id="speed_'+name+'" value="'+speedKB+'" min="0" placeholder="KB/s"><button class="btn-edit success" onclick="setUserSpeed(\''+sn+'\')">应用</button></div></div>';editPanel+='<div class="edit-row"><span class="edit-label">配额</span><div class="edit-controls"><span class="current-val">目前: '+quotaTxt+'</span><input type="number" id="quota_'+name+'" value="'+userQuotaMB+'" min="0" placeholder="MB"><button class="btn-edit warning" onclick="setUserQuota(\''+sn+'\')">应用</button></div></div>';if(canManage&&role!=='super_admin'){var roleLabel=role==='user'?'提升为管理员':'降级为用户';editPanel+='<div class="edit-row"><span class="edit-label">角色</span><div class="edit-controls"><span class="current-val">'+roleTxt+'</span><button class="btn-edit outline" onclick="changeRole(\''+sn+'\',\''+role+'\')">'+roleLabel+'</button></div></div>';}if(myRole==='super_admin'||(myRole==='admin'&&role!=='super_admin')){editPanel+='<div class="edit-row"><span class="edit-label">改名</span><div class="edit-controls"><span class="current-val">当前: '+esc(name)+'</span><input type="text" id="rename_'+name+'" placeholder="新用户名" maxlength="20" style="width:90px"><button class="btn-edit primary" onclick="renameUser(\''+sn+'\')">改名</button></div></div>';}}else{editPanel+='<div style="text-align:center;padding:8px 0;color:var(--text-light);font-size:12px">无操作权限</div>';}editPanel+='</div>';html+='<div class="user-card'+(prevExpanded[idx]?' expanded':'')+'" data-card-idx="'+idx+'"><div class="user-summary" onclick="toggleUser('+idx+')"><div class="user-avatar '+badgeClass+'">'+(role==='super_admin'?'&#128274;':role==='admin'?'&#128737;':'&#128100;')+'</div><div class="user-summary-info"><div class="user-name">'+esc(name)+' <span class="role-badge '+badgeClass+'">'+roleTxt+'</span></div><div class="user-tags"><span class="user-tag">限速 '+speedTxt+'</span><span class="user-tag">配额 '+quotaTxt+'</span></div></div><div class="user-summary-actions">'+actionBtns+'</div></div><div class="user-edit-panel">'+editPanel+'</div></div>';_allUsers.push({name:name.toLowerCase(),idx:idx,role:role});idx++;}document.getElementById('userList').innerHTML=html||'<div class="empty" style="grid-column:1/-1;padding:40px 20px;text-align:center"><p style="color:var(--text)">暂无用户</p></div>';document.getElementById('userTotalCount').textContent=Object.keys(users).length;filterUsers();}
+function refreshUsers(users){if(arguments.length===0){return fetch('/api/users').then(function(r){return r.json();}).then(function(d){refreshUsers(d.users||{});});}var prevExpanded={};for(var k in _expandedSet)prevExpanded[k]=true;_allUsers=[];var html='',idx=0;for(var name in users){var role=users[name].role;var roleTxt={'super_admin':'超级管理员','admin':'管理员','user':'用户'}[role]||role;var badgeClass={'super_admin':'super','admin':'admin','user':'user'}[role]||'user';var speed=users[name].speed_limit||0;var speedKB=speed>0?Math.round(speed/1024):0;var speedTxt=speedKB>0?speedKB+' KB/s':'不限速';var userQuota=users[name].quota||0;var userQuotaMB=userQuota>0?Math.round(userQuota/1048576):0;var quotaTxt=userQuotaMB>0?userQuotaMB+' MB':'默认';var sn=name.replace(/'/g,"\\'");var canManage=myRole==='super_admin'||(myRole==='admin'&&(role==='user'||name===myUsername));var canDelete=canManage&&role!=='super_admin';var canQR=myRole==='super_admin'||(myRole==='admin'&&role==='user');var actionBtns='';if(canQR)actionBtns+='<button class="btn-sm primary" onclick="event.stopPropagation();genQR(\''+sn+'\')">扫码登录</button>';if(canDelete)actionBtns+='<button class="btn-sm danger" onclick="event.stopPropagation();deleteUser(\''+sn+'\')">删除</button>';actionBtns+='<span class="expand-arrow">&#9660;</span> <span class="expand-text t-sm c-body">'+(prevExpanded[idx]?'收起':'展开')+'</span>';var editPanel='<div class="edit-grid">';if(canManage){editPanel+='<div class="edit-row"><span class="edit-label">密码</span><div class="edit-controls"><input class="w-80" type="text" id="pwd_'+name+'" placeholder="新密码" maxlength="50"><input class="w-80" type="text" id="pwd2_'+name+'" placeholder="确认" maxlength="50"><button class="btn-edit primary" onclick="setUserPassword(\''+sn+'\')">修改</button></div></div>';editPanel+='<div class="edit-row"><span class="edit-label">限速</span><div class="edit-controls"><span class="current-val">目前: '+speedTxt+'</span><input type="number" id="speed_'+name+'" value="'+speedKB+'" min="0" placeholder="KB/s"><button class="btn-edit success" onclick="setUserSpeed(\''+sn+'\')">应用</button></div></div>';editPanel+='<div class="edit-row"><span class="edit-label">配额</span><div class="edit-controls"><span class="current-val">目前: '+quotaTxt+'</span><input type="number" id="quota_'+name+'" value="'+userQuotaMB+'" min="0" placeholder="MB"><button class="btn-edit warning" onclick="setUserQuota(\''+sn+'\')">应用</button></div></div>';if(canManage&&role!=='super_admin'){var roleLabel=role==='user'?'提升为管理员':'降级为用户';editPanel+='<div class="edit-row"><span class="edit-label">角色</span><div class="edit-controls"><span class="current-val">'+roleTxt+'</span><button class="btn-edit outline" onclick="changeRole(\''+sn+'\',\''+role+'\')">'+roleLabel+'</button></div></div>';}if(myRole==='super_admin'||(myRole==='admin'&&role!=='super_admin')){editPanel+='<div class="edit-row"><span class="edit-label">改名</span><div class="edit-controls"><span class="current-val">当前: '+esc(name)+'</span><input class="w-90" type="text" id="rename_'+name+'" placeholder="新用户名" maxlength="20"><button class="btn-edit primary" onclick="renameUser(\''+sn+'\')">改名</button></div></div>';}}else{editPanel+='<div class="text-center c-dim t-sm" style="padding:8px 0">无操作权限</div>';}editPanel+='</div>';html+='<div class="user-card'+(prevExpanded[idx]?' expanded':'')+'" data-card-idx="'+idx+'"><div class="user-summary" onclick="toggleUser('+idx+')"><div class="user-avatar '+badgeClass+'">'+(role==='super_admin'?'&#128274;':role==='admin'?'&#128737;':'&#128100;')+'</div><div class="user-summary-info"><div class="user-name">'+esc(name)+' <span class="role-badge '+badgeClass+'">'+roleTxt+'</span></div><div class="user-tags"><span class="user-tag">限速 '+speedTxt+'</span><span class="user-tag">配额 '+quotaTxt+'</span></div></div><div class="user-summary-actions">'+actionBtns+'</div></div><div class="user-edit-panel">'+editPanel+'</div></div>';_allUsers.push({name:name.toLowerCase(),idx:idx,role:role});idx++;}document.getElementById('userList').innerHTML=html||'<div class="empty text-center" style="grid-column:1/-1;padding:40px 20px"><p class="c-body">暂无用户</p></div>';document.getElementById('userTotalCount').textContent=Object.keys(users).length;filterUsers();}
 
 function addUser(){var name=document.getElementById('newUserName').value.trim();var pass=document.getElementById('newUserPass').value.trim();if(!name||!pass){batchToast('请输入用户名和密码','info');return;}if(pass.length<8){batchToast('密码至少 8 个字符','error');return;}fetch('/api/users/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,password:pass})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已新增用户: '+name,'success');document.getElementById('newUserName').value='';document.getElementById('newUserPass').value='';refreshUsers();}else batchToast(d.error||'添加失败','error');});}
 function setUserPassword(name){var pass=document.getElementById('pwd_'+name).value.trim();var pass2=document.getElementById('pwd2_'+name).value.trim();if(!pass){batchToast('请输入新密码','info');return;}if(pass.length<8){batchToast('密码至少 8 个字符','error');return;}if(pass!==pass2){batchToast('两次输入的密码不一致','error');return;}fetch('/api/users/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:name,password:pass})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已修改 '+name+' 的密码','success');document.getElementById('pwd_'+name).value='';document.getElementById('pwd2_'+name).value='';refreshUsers();}else batchToast(d.error||'修改失败','error');});}
@@ -220,7 +171,7 @@ function _usersEditing() { var a = document.activeElement; return !!(a && (a.tag
 //    「网页不能进入归档目录」—— 后端和浏览页一直是通的，是这里没给入口）。
 function openArchive(name){window.location.href='/browse/'+encodeURIComponent('users/.deleted/'+name);}
 function loadArchives(){return fetch('/api/users/archive').then(function(r){return r.json();}).then(function(d){renderArchives(d);}).catch(function(){batchToast('读取归档失败','error');});}
-function renderArchives(d){var items=(d&&d.archives)||[];document.getElementById('archiveTotal').textContent=items.length;document.getElementById('archiveSize').textContent=formatSize((d&&d.total_size)||0);var box=document.getElementById('archiveList');if(!items.length){box.innerHTML='<div class="archive-empty">没有归档</div>';return;}box.innerHTML=items.map(function(a){var sn=a.name.replace(/'/g,"\\'");return '<div class="archive-row"><div class="archive-meta"><b>'+esc(a.name)+'</b><span>'+a.files+' 个文件 · '+formatSize(a.size)+' · '+formatTime(a.mtime)+'</span></div><span class="archive-btns"><button class="btn-admin outline" onclick="openArchive(\''+sn+'\')" style="padding:3px 10px;font-size:11px">打开</button><button class="btn-admin outline" onclick="purgeArchive(\''+sn+'\')" style="padding:3px 10px;font-size:11px">删除</button></span></div>';}).join('');}
+function renderArchives(d){var items=(d&&d.archives)||[];document.getElementById('archiveTotal').textContent=items.length;document.getElementById('archiveSize').textContent=formatSize((d&&d.total_size)||0);var box=document.getElementById('archiveList');if(!items.length){box.innerHTML='<div class="archive-empty">没有归档</div>';return;}box.innerHTML=items.map(function(a){var sn=a.name.replace(/'/g,"\\'");return '<div class="archive-row"><div class="archive-meta"><b>'+esc(a.name)+'</b><span>'+a.files+' 个文件 · '+formatSize(a.size)+' · '+formatTime(a.mtime)+'</span></div><span class="archive-btns"><button class="btn-admin outline t-xs py-3 px-10" onclick="openArchive(\''+sn+'\')">打开</button><button class="btn-admin outline t-xs py-3 px-10" onclick="purgeArchive(\''+sn+'\')">删除</button></span></div>';}).join('');}
 function purgeArchive(name){if(!confirm('永久删除归档 "'+name+'" ？'))return;if(!confirm('里面的文件会被真正删掉，无法恢复。确定继续？'))return;fetch('/api/users/archive/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names:[name]})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已删除归档 '+name,'success');loadArchives();}else batchToast((d.failed&&d.failed[0]&&d.failed[0].error)||d.error||'删除失败','error');});}
 function purgeAllArchives(){var n=parseInt(document.getElementById('archiveTotal').textContent)||0;if(!n){batchToast('没有归档可清理','info');return;}if(!confirm('永久删除全部 '+n+' 个归档？'))return;if(!confirm('里面的文件会被真正删掉，无法恢复。确定继续？'))return;fetch('/api/users/archive/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({all:true})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已清空 '+d.deleted+' 个归档','success');loadArchives();}else batchToast(d.error||'清空失败','error');});}
 function _applyUsers(users) {
@@ -237,16 +188,5 @@ connectWS();
 setTimeout(_applyUsers, 500);
 loadArchives();
 </script>
-<style>
-/* 按钮样式已统一在全局 style.css 通用按钮 */
-.archive-hint{font-size:12px;color:var(--text);opacity:.8;margin:2px 0 10px;line-height:1.6}
-.archive-list{display:flex;flex-direction:column;gap:8px}
-.archive-empty{font-size:13px;color:var(--text);padding:24px 0;text-align:center}
-.archive-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm)}
-.archive-btns{flex:0 0 auto;display:flex;gap:6px}
-.archive-meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.archive-meta b{font-size:13px;word-break:break-all}
-.archive-meta span{font-size:11px;color:var(--text);opacity:.75}
-</style>
 </body>
 </html>

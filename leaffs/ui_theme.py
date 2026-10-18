@@ -2,10 +2,10 @@
 """原生 UI 配色桥 —— 让安卓壳的原生控件与网页设计完全同源。
 
 网页的全部配色都定义在 web_page/common/style.css（唯一真源）：
-    :root                                            基础（浅色 + 默认蓝）
-    [data-theme="dark"]                              暗色覆盖
-    :root:not([data-theme="dark"])[data-accent="X"]  浅色 + 自选主色
-    [data-theme="dark"][data-accent="X"]             暗色 + 自选主色
+    :root                                            基础（深底白字 + 默认蓝）
+    [data-theme="light"]                             亮色覆盖
+    [data-accent="X"]                                深底 + 自选主色
+    [data-theme="light"][data-accent="X"]            亮底 + 自选主色
 
 本模块按当前 (theme, accent) 做一次「层叠合并」，得到网页此刻真实生效的颜色，
 再折算成原生控件可直接使用的不透明 ARGB（半透明的 card-bg / border 会与背景合成，
@@ -21,7 +21,7 @@ from leaffs.runtime_log import add_log
 _CSS_PATH = os.path.join(BASE_DIR, 'web_page', 'common', 'style.css')
 
 # 可换的主题主色（空字符串 = 默认蓝）；网页侧的白名单也用它（render._cookie_accent）
-ACCENTS = ('green', 'purple', 'orange', 'red')
+ACCENTS = ('green', 'purple', 'orange', 'red', 'plain')
 
 _BLOCK_RE = re.compile(r'([^{}]+)\{([^{}]*)\}', re.S)
 _VAR_RE = re.compile(r'(--[\w-]+)\s*:\s*([^;]+);')
@@ -57,14 +57,11 @@ def _one_applies(sel, dark, accent):
     if not sel:
         return False
     s = sel
-    # :not([data-theme="dark"]) —— 仅浅色生效（要先剥掉，否则会被下面的 dark 判定误伤）
-    if ':not([data-theme="dark"])' in s:
+    # [data-theme="light"] —— 只有亮色才生效（默认就是深底，属性只用来标亮色）
+    if '[data-theme="light"]' in s:
         if dark:
             return False
-        s = s.replace(':not([data-theme="dark"])', '')
-    # 明示暗色块
-    if '[data-theme="dark"]' in s and not dark:
-        return False
+        s = s.replace('[data-theme="light"]', '')
     m = _ACCENT_SEL_RE.search(s)
     if m:
         return m.group(1) == accent
@@ -75,9 +72,9 @@ def _selector_applies(sel, dark, accent):
     return any(_one_applies(part.strip(), dark, accent) for part in sel.split(','))
 
 
-def palette(theme='light', accent=''):
+def palette(theme='dark', accent=''):
     """按当前主题/主色合并出 CSS 变量表（后出现的块覆盖先出现的，与 CSS 层叠一致）"""
-    dark = (theme == 'dark')
+    dark = (theme != 'light')
     accent = accent if accent in ACCENTS else ''
     text = _css_text()
     if not text:
@@ -203,7 +200,7 @@ def _palette_colors(theme, accent):
 
     return {
         'ok': True,
-        'theme': 'dark' if theme == 'dark' else 'light',
+        'theme': 'light' if theme == 'light' else 'dark',
         'accent': accent if accent in ACCENTS else '',
         'primary': _argb(primary[:3] if primary else (14, 165, 233)),
         'primaryHover': _argb(primary_hover[:3] if primary_hover else
@@ -246,7 +243,7 @@ def _palette_colors(theme, accent):
     }
 
 
-def native_colors(theme='light', accent=''):
+def native_colors(theme='dark', accent=''):
     """给原生控件的配色（ARGB 字符串）+ 圆角（dp）。
 
     返回 None 表示样式文件不可用（调用方应回退到内置的 values/themes.xml 配色）。
@@ -255,17 +252,17 @@ def native_colors(theme='light', accent=''):
     "亮主题配暗卡、暗主题配亮卡"的明暗反差把自己从页面里拎出来，所以卡片上的
     每个颜色都取反主题那一套（值仍来自同一份 style.css，不另造色）。
     """
-    theme = 'dark' if theme == 'dark' else 'light'
+    theme = 'light' if theme == 'light' else 'dark'
     colors = _palette_colors(theme, accent)
     if not colors:
         return None
-    other = _palette_colors('light' if theme == 'dark' else 'dark', accent)
+    other = _palette_colors('dark' if theme == 'light' else 'light', accent)
     if other:
         colors['cardPalette'] = other
     return colors
 
 
-def current(theme='light', accent=''):
+def current(theme='dark', accent=''):
     """当前应使用的原生配色 = 样式真源 + 网页此刻的主题（亮暗 + 主色）。
 
     主题的真源是网页的客户端本地存储（cookie）；安卓壳由内置扩展读到
@@ -273,7 +270,7 @@ def current(theme='light', accent=''):
     网页还没加载时用 App 上次记住的值。非法 accent 由 palette() 自动忽略。
     返回 None 表示样式文件不可用（调用方回退到内置配色）。
     """
-    return native_colors('dark' if theme == 'dark' else 'light', accent)
+    return native_colors('light' if theme == 'light' else 'dark', accent)
 
 
 def error_page(title='页面加载失败', message='共享服务可能还没就绪，或网络已断开。',
@@ -284,12 +281,12 @@ def error_page(title='页面加载失败', message='共享服务可能还没就�
     因此背景的星点光晕、玻璃卡片、按钮样式与网页同源，不会出现"另一个世界"的观感。
     由 App 以 data: URL 展示（不依赖服务是否已经起来）。
     """
+    theme = theme or 'dark'
     colors = current(theme, accent) or {}
-    theme = theme or colors.get('theme', 'light')
     accent = accent or colors.get('accent', '')
     attrs = ''
-    if theme == 'dark':
-        attrs += ' data-theme="dark"'
+    if theme != 'dark':
+        attrs += ' data-theme="light"'
     if accent:
         attrs += ' data-accent="%s"' % accent
     return (

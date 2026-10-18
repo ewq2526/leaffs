@@ -9,62 +9,83 @@
 </head>
 <body>
 <div class="app">
-    <div class="header">
-        <h1><span class="ht">Share</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting...</span></span></h1>
-        <div class="info">
-            <!--THEME_TOGGLE-->
+    <header class="top">
+        <span class="top-logo">🍃</span>
+        <div class="top-main">
+            <h1 class="top-title">Shares</h1>
+            <div class="top-meta">
+                <span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting...</span></span>
+            </div>
         </div>
-    </div>
+        <div class="top-side"><!--THEME_TOGGLE--></div>
+    </header>
 
-    <div class="nav-bar">
+    <nav class="tabs">
         <a href="/browse/">Browse</a>
         <a href="/gallery">Gallery</a>
         <a href="/url-download" id="navDownloader">Downloader</a>
         <a href="/share" class="active">Share</a>
         <a href="/admin" id="navAdmin">Admin</a>
         <a href="/me">Me</a>
-        <span style="flex:1"></span>
-        <button class="nav-back" onclick="window.location.href='/browse/'">Back to Browse</button>
-    </div>
+    </nav>
 
-    <div style="max-width:980px;margin:0 auto;padding:0 16px">
-        <div class="admin-grid">
-            <div class="admin-card" style="grid-column:1/-1">
-                <h3>My shares</h3>
-                <div class="config-group">
-                    <label>Select files in <b>Browse</b> and press <b>Share</b> in the toolbar: they are <b>mapped</b> into the
-                        public folder <code style="background:var(--chip-bg,#eef3fd);border-radius:5px;padding:1px 6px">public/shares/<span id="whoami"></span>/</code> —
-                        visitors can browse and download them without login; the original files are never moved, so <b>a share stops working the moment its source file is deleted, renamed or moved</b> — and a file published from the public folder <code style="background:var(--chip-bg,#eef3fd);border-radius:5px;padding:1px 6px">public/</code> can be deleted by other users too.
-                        Copy direct links or remove shares below.</label>
-                    <div style="margin:10px 0 4px">
-                        <a class="btn-admin primary" href="/browse/" style="font-size:12px">Pick files in Browse →</a>
-                        <button class="btn-admin" onclick="loadList()" style="font-size:12px">Refresh</button>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:8px;margin:6px 0 2px;flex-wrap:wrap">
-                        <span style="font-size:12px;color:var(--text-light,#8a97bd)">Visitor page:</span>
-                        <input readonly id="visitorUrl" style="flex:1;min-width:170px;font-size:12px;padding:6px 9px;border:1px solid var(--border,#dbe4f5);border-radius:8px;background:var(--bg,#f4f7fd);color:var(--text)">
-                        <button class="btn-admin" onclick="copyVisitor()" style="font-size:11px">Copy page link</button>
-                        <span id="visitorLanWarn" style="display:none;font-size:11px;color:#b03a50">No LAN available — this address only works on this device</span>
-                    </div>
-                    <div style="border-top:1px solid var(--border,#eef1f8);margin-top:12px;padding-top:12px">
-                        <div style="font-size:13px;font-weight:650;color:var(--text);margin-bottom:6px">Access code <span id="codeState" style="font-weight:500;font-size:11.5px;color:var(--text-light,#8a97bd)"></span></div>
-                        <div style="font-size:11px;color:var(--text-light,#a3aed0)">The code is <b>per share</b> — use “Set code / View code” on each row below. Visitors who enter it are remembered for 1 hour; wrong attempts trigger brute-force protection (see the alert below).</div>
-                    </div>
-                    <div id="attackTip" style="display:none;margin-top:10px;padding:9px 12px;border-radius:10px;background:rgba(208,86,107,.10);border:1px solid rgba(208,86,107,.35);font-size:12px;color:#b03a50;line-height:1.7"></div>
-                    <div id="mountBox" style="display:none;margin:12px 0">
-                        <div style="font-size:13px;font-weight:650;color:var(--text);margin-bottom:6px">Mount a local path <span style="font-weight:500;font-size:11.5px;color:var(--text-light,#8a97bd)">read-only</span></div>
-                        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                            <input id="mountPath" type="text" autocomplete="off" placeholder="Absolute path on this machine, e.g. E:\Movies"
-                                   style="flex:1;min-width:220px;font-size:12px;padding:7px 10px;border:1px solid var(--border,#dbe4f5);border-radius:8px;background:var(--bg,#f4f7fd);color:var(--text)">
-                            <button class="btn-admin" onclick="pickMount(false)" style="font-size:11px">Folder…</button>
-                            <button class="btn-admin" onclick="pickMount(true)" style="font-size:11px">File…</button>
-                            <button class="btn-admin primary" onclick="doMount()" style="font-size:11px">Mount</button>
-                        </div>
-                        <div style="font-size:11px;color:var(--text-light,#a3aed0);margin-top:5px">A folder or a single file — <b>nothing is copied</b>; it is mounted <b>read-only</b>. It shows up under <code>public/mounts/</code> (inside the public folder, not per user), keeping the name it has on this machine — only the machine itself (the desktop window or the phone app) can do this.</div>
-                    </div>
-                    <div id="shareList"></div>
-                    <div id="emptyTip" style="display:none;font-size:12px;color:var(--text-light);padding:18px 0;text-align:center">No shares yet — select files in Browse and hit "Share"</div>
-                </div>
+    <div class="sect">
+        <div class="sect-head">
+            <h2 class="sect-title">My shares</h2>
+            <p class="sect-lead">
+                Select files in <strong>Browse</strong> and press <strong>Share</strong> in the toolbar: they are
+                <strong>mapped</strong> into <code>public/shares/<span id="whoami"></span>/</code> — visitors can
+                browse and download them without signing in. The original files are never moved, so
+                <strong>a share stops working the moment its source file is deleted, renamed or moved</strong>;
+                a file published from the public folder <code>public/</code> can be deleted by other users too.
+            </p>
+        </div>
+
+        <div class="box">
+            <div class="box-head">
+                <div class="box-title">Visitor page</div>
+                <div class="box-sub">Send this address to anyone who should browse the public folder</div>
+            </div>
+            <div class="row">
+                <input class="inp" id="visitorUrl" readonly>
+                <button class="btn-admin t-sm" onclick="copyVisitor()">Copy link</button>
+            </div>
+            <div class="warn-line" id="visitorLanWarn" style="display:none">No LAN available — this address only works on this device</div>
+        </div>
+
+        <div class="box">
+            <div class="box-head">
+                <div class="box-title">Access code <span class="box-note" id="codeState"></span></div>
+                <div class="box-sub">One code per share; leave it empty to turn it off</div>
+            </div>
+            <p class="box-text">Use “Set code / View code” on each row below. Visitors who enter it are remembered for 1 hour; wrong attempts trigger brute-force protection (see the alert below).</p>
+            <div class="tip-danger" id="attackTip" style="display:none"></div>
+        </div>
+
+        <div class="box" id="mountBox" style="display:none">
+            <div class="box-head">
+                <div class="box-title">Mount a local path <span class="box-note">read-only</span></div>
+            </div>
+            <div class="row">
+                <input class="inp" id="mountPath" type="text" autocomplete="off" placeholder="Absolute path on this machine, e.g. E:\Movies">
+                <button class="btn-admin t-sm" onclick="pickMount(false)">Folder…</button>
+                <button class="btn-admin t-sm" onclick="pickMount(true)">File…</button>
+                <button class="btn-admin primary t-sm" onclick="doMount()">Mount</button>
+            </div>
+            <p class="box-text">A folder or a single file — <b>nothing is copied</b>; it is mounted <b>read-only</b>.
+                It shows up under <code>public/mounts/</code> (inside the public folder, not per user), keeping the
+                name it has on this machine — only the machine itself (the desktop window or the phone app) can do this.</p>
+        </div>
+
+        <div class="box">
+            <div class="box-head">
+                <div class="box-title">Published shares</div>
+                <button class="btn-admin t-sm" onclick="loadList()">Refresh</button>
+            </div>
+            <div id="shareList"></div>
+            <div class="empty" id="emptyTip" style="display:none">
+                <span class="icon">🔗</span>
+                <p>No shares yet — select files in Browse and hit "Share"</p>
             </div>
         </div>
     </div>
@@ -183,7 +204,7 @@ function renderAttackTip(st) {
     if (st.global_active) parts.push('⚠️ Possible brute-force attack — your share page is globally locked (until ' + fmtTs(st.global_locked_until) + ')');
     if (st.ip_locked) parts.push(st.ip_locked + ' IP(s) locked');
     if (st.failed_today) parts.push(st.failed_today + ' failed attempt(s) today');
-    var html = parts.join(' · ') + '　<a href="javascript:void(0)" onclick="resetAttempts()" style="color:#b03a50;font-weight:700">Reset now</a>';
+    var html = parts.join(' · ') + '　<a class="c-danger-strong" href="javascript:void(0)" onclick="resetAttempts()" style="font-weight:700">Reset now</a>';
     tip.innerHTML = html;
     tip.style.display = '';
 }
@@ -279,26 +300,25 @@ function loadList() {
             var full = visitorBase + it.url;
             var row = document.createElement('div');
             row.className = 'srow';
-            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 2px;border-bottom:1px solid var(--border,#eef1f8);font-size:13px;flex-wrap:wrap';
             var nm = document.createElement('span');
-            nm.style.cssText = 'font-weight:600;color:var(--text);flex:1 1 140px;min-width:0;word-break:break-all';
+            nm.className = 'srow-name';
             nm.textContent = it.name;
             var st = document.createElement('span');
             // The path has no spaces, so it must be breakable — otherwise this column
             // overflows the card (min-width overrides flex's automatic minimum size)
-            st.style.cssText = 'font-size:11.5px;color:var(--text-light,#8a97bd);flex:1;min-width:180px;word-break:break-all';
+            st.className = 'srow-path';
             var parts = [];
             if (it.created) parts.push(fmtTs(it.created));
             if (it.by && it.by !== who) parts.push(it.by);
             st.textContent = (parts.length ? parts.join(' · ') + ' · ' : '') + it.src;
             if (it.local && it.exists) {
                 var loc = document.createElement('span');
-                loc.style.cssText = 'font-size:11px;color:#2f6b4f;background:rgba(60,150,110,.12);border-radius:999px;padding:1px 8px';
+                loc.className = 'tag tag-local';
                 loc.textContent = 'Local path';
                 row.appendChild(loc);
             }
             var cp = document.createElement('button');
-            cp.className = 'btn-admin'; cp.style.cssText = 'font-size:11px';
+            cp.className = 'btn-admin';
             if (it.type === 'folder') {
                 // A mapped folder has no "download" — this button opens the browse view
                 cp.textContent = 'Open';
@@ -308,23 +328,23 @@ function loadList() {
                 cp.onclick = function () { copyText(full); };
             }
             var cd = document.createElement('button');
-            cd.className = 'btn-admin'; cd.style.cssText = 'font-size:11px';
+            cd.className = 'btn-admin';
             cd.textContent = it.coded ? 'View/change code' : 'Set code';
             cd.onclick = function () { editCode(it.path, cd); };
             var rm = document.createElement('button');
-            rm.className = 'btn-admin danger'; rm.style.cssText = 'font-size:11px';
+            rm.className = 'btn-admin danger';
             rm.textContent = 'Remove';
             rm.onclick = function () { removeMap(it.path, rm); };
             row.appendChild(nm); row.appendChild(st);
             if (it.coded) {
                 var lk = document.createElement('span');
-                lk.style.cssText = 'font-size:11px;color:#7a5b2f;background:rgba(200,150,60,.14);border-radius:999px;padding:1px 8px';
+                lk.className = 'tag tag-coded';
                 lk.textContent = 'code set';
                 row.appendChild(lk);
             }
             if (!it.exists) {
                 var gone = document.createElement('span');
-                gone.style.cssText = 'font-size:11px;color:#b3542e;background:rgba(200,110,60,.12);border-radius:999px;padding:1px 8px';
+                gone.className = 'tag tag-gone';
                 gone.textContent = 'source missing';
                 row.appendChild(gone);
             }
@@ -332,7 +352,7 @@ function loadList() {
             box.appendChild(row);
         });
     }).catch(function () {
-        box.innerHTML = '<div style="font-size:12.5px;color:var(--danger,#c0556a);padding:12px 0">Failed to load — please sign in</div>';
+        box.innerHTML = '<div class="tip-danger">Failed to load — please sign in</div>';
     });
 }
 loadList();

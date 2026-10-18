@@ -300,7 +300,7 @@ def status():
 # 主题的真源是网页的客户端本地存储（cookie），原生读不到 cookie —— 内置扩展在页面里读到
 # <html data-theme / data-accent> 就上报 App，App 调 set_theme 转到这里。
 # 这是原生侧唯一能看到主题的地方；网页还没加载时（权限页、错误页）用 App 上次记住的值。
-_theme_state = {'dark': False, 'accent': ''}
+_theme_state = {'dark': True, 'accent': ''}
 
 
 def jlog(msg):
@@ -376,19 +376,19 @@ def permission_page(label='附近的设备', since='Android 16', denied=False):
     denied=True：上一次申请没拿到 → 直接换成"去系统设置"的说明与按钮。
     """
     css = ''
-    theme = 'light'
+    theme = 'dark'
     accent = ''
     try:
         import leaffs.ui_theme as _ut
         css = _ut._css_text()
         colors = _web_colors() or {}
-        theme = colors.get('theme', 'light')
+        theme = colors.get('theme', 'dark')
         accent = colors.get('accent', '')
     except Exception as e:
         add_log('permission_page 取样式失败: %s: %s' % (type(e).__name__, e), 'warn')
     attrs = ''
-    if theme == 'dark':
-        attrs += ' data-theme="dark"'
+    if theme != 'dark':
+        attrs += ' data-theme="light"'
     if accent:
         attrs += ' data-accent="%s"' % accent
     # 按钮都撑满宽度上下排（.btn 本身是 inline-flex，宽度会随文字长短不一）

@@ -4,7 +4,7 @@
 **现象**（用户报的）：「文件选中状态的描边与左上角的勾状态不一致」。
 
 **根因**：两处视觉由**不同的东西**决定 ——
-  · **描边** = 卡片上的 `.sel` class（`style.css` 的 `.file-card.sel{border-color…}`）；
+  · **描边** = 卡片上的 `.sel` class（`style.css` 的 `.tile.sel{border-color…}`）；
   · **左上角的勾** = `<input type="checkbox" checked>` 的 `checked` **属性**（渲染时一次性生成）。
 而两个点击入口当时各只更新一半：
   · 点卡片空白 → `toggleCardSelect` 只 `classList.toggle('sel')` ⇒ **描边变、勾不变**；
@@ -55,7 +55,7 @@ def test_selected_state_is_painted_in_one_place():
                        % (name, n_toggle))
         if 'paintCardSel(el, selected.has(p));' not in t:
             bad.append('%s：toggleCardSelect 没调 paintCardSel（点卡片会变成"描边变、勾不变"）' % name)
-        if "paintCardSel(el ? el.closest('.file-card') : null" not in t:
+        if "paintCardSel(el ? el.closest('.tile') : null" not in t:
             bad.append('%s：toggleSelect 没调 paintCardSel（点勾会变成"勾变、描边不变"）' % name)
     assert not bad, '选中态写点没收干净：\n  ' + '\n  '.join(bad)
 

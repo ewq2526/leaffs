@@ -6,72 +6,25 @@
 <title>我的</title>
 <link rel="stylesheet" href="/static/style.css">
 <script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
-<style>
-.acc-card { max-width: 920px; margin: 26px auto 40px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; padding: 28px; }
-.acc-avatar { width: 64px; height: 64px; border-radius: 50%; background: linear-gradient(135deg,#0ea5e9,#38bdf8); color:#fff; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 700; margin: 0 auto 10px; }
-.acc-name { text-align: center; font-size: 17px; font-weight: 700; color: var(--text); }
-.acc-role { text-align: center; font-size: 12px; color: var(--primary); margin: 4px 0 16px; }
-.acc-sec { margin-top: 18px; }
-.acc-sec-title { font-size: 12px; font-weight: 700; color: var(--text-light); margin-bottom: 6px; letter-spacing: .5px; }
-.acc-row { display: flex; justify-content: space-between; align-items: center; padding: 11px 2px; border-bottom: 1px dashed var(--border); font-size: 14px; }
-.acc-row:last-of-type { border-bottom: none; }
-.acc-row .k { color: var(--text-light); flex-shrink: 0; margin-right: 12px; }
-.acc-row .v { color: var(--text); font-weight: 600; word-break: break-all; text-align: right; }
-.acc-sub { font-size: 12px; color: var(--text-light); margin-top: 4px; line-height: 1.6; }
-.acc-warn { display: none; margin: 14px 0 4px; padding: 9px 12px; border-radius: 10px; font-size: 12px; line-height: 1.6; color:#8a6a00; background: rgba(234,179,8,.14); border: 1px solid rgba(234,179,8,.55); }
-.acc-warn a { color: #0ea5e9; font-weight: 600; text-decoration: none; cursor: pointer; }
-.usg-wrap { padding: 4px 2px; }
-.usg-top { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
-.usg-top b { color: var(--text); }
-.usg-bar { height: 8px; border-radius: 5px; background: var(--border); overflow: hidden; }
-.usg-fill { height: 100%; border-radius: 5px; background: linear-gradient(90deg,#0ea5e9,#38bdf8); transition: width .4s; }
-.usg-fill.warn { background: linear-gradient(90deg,#eab308,#f59e0b); }
-.sess-item { display: flex; justify-content: space-between; align-items: center; padding: 9px 2px; border-bottom: 1px dashed var(--border); font-size: 13px; gap: 10px; }
-.sess-item:last-of-type { border-bottom: none; }
-.sess-item .si-info { min-width: 0; }
-.sess-item .si-ip { color: var(--text); font-weight: 600; word-break: break-all; }
-.sess-item .si-time { font-size: 12px; color: var(--text-light); margin-top: 2px; }
-.badge-cur { font-size: 11px; color: var(--success); border: 1px solid var(--success); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
-/* 用 flex + gap 而不是 margin-right：窄屏放不下换行时，两行各自居中、左边缘才对得齐
-   （原来第一个按钮带 margin-right，换行后两行内容宽度不同，居中位置差几像素，看着歪） */
-.danger-zone { margin-top: 22px; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-.danger-zone .btn { min-width: 150px; justify-content: center; }
-.acc-hint { font-size: 12px; color: var(--text-light); text-align: center; margin-top: 10px; line-height: 1.6; }
-.acc-modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 99; }
-.acc-modal-box { width: 320px; max-width: 92vw; background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
-.acc-modal-box h3 { margin: 0 0 12px; font-size: 15px; color: var(--text); }
-.acc-modal-box input { width: 100%; box-sizing: border-box; margin-bottom: 10px; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; background: var(--card-bg); color: var(--text); }
-.acc-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-/* 两列网格：宽屏左右分区，窄屏回退单列 */
-.acc-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 26px; margin-top: 18px; align-items: start; }
-.acc-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.acc-col > .acc-sec { margin-top: 0; }
-.acc-sec { background: rgba(127,127,127,.06); border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px; }
-.acc-warn { margin: 18px 0 0; }
-@media (max-width: 780px) {
-    .acc-grid { grid-template-columns: 1fr; }
-    .acc-warn { margin-top: 16px; }
-}
-</style>
 </head>
 <body>
 <div class="app">
-    <div class="header">
-        <h1><span class="ht">我的</span></h1>
-        <div class="info">
-            <!--THEME_TOGGLE-->
+    <header class="top">
+        <span class="top-logo">🍃</span>
+        <div class="top-main">
+            <h1 class="top-title">我的</h1>
         </div>
-    </div>
+        <div class="top-side"><!--THEME_TOGGLE--></div>
+    </header>
 
-    <div class="nav-bar">
+    <nav class="tabs">
         <a href="/browse/">浏览</a>
         <a href="/gallery">预览</a>
         <a href="/url-download" id="accNavDownloader">下载器</a>
         <a href="/share">分享</a>
         <a href="/admin" id="accNavAdmin">管理</a>
         <a href="/me" class="active">我的</a>
-        <span style="flex:1"></span>
-    </div>
+    </nav>
 
     <div class="acc-card">
         <div class="acc-avatar" id="accAvatar">?</div>
@@ -86,12 +39,12 @@
             <div class="acc-row"><span class="k">角色</span><span class="v" id="rowRole">-</span></div>
             <div class="acc-row"><span class="k">游客模式</span><span class="v" id="rowGuest">-</span></div>
             <!-- 地址独占一行：挤在提示和按钮中间会被压窄，word-break 一断就是好几行 -->
-            <div class="acc-row" style="align-items:flex-start">
+            <div class="acc-row items-start">
                 <span class="k">服务器地址</span>
-                <span class="v" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:0">
+                <span class="v flex flex-col items-end gap-6 min-w-0">
                     <span id="rowServer">-</span>
-                    <span style="display:flex;align-items:center;gap:8px">
-                        <span id="rowServerLanWarn" style="display:none;font-size:11px;color:#b03a50">无可用局域网</span>
+                    <span class="flex items-center gap-8">
+                        <span class="t-xs c-danger-strong" id="rowServerLanWarn" style="display:none">无可用局域网</span>
                         <button class="btn btn-sm btn-primary" onclick="copyServer()" id="copyBtn">复制</button>
                     </span>
                 </span>
@@ -102,8 +55,8 @@
             <div class="acc-sec-title">偏好</div>
             <div class="acc-row">
                 <span class="k">界面语言</span>
-                <span class="v" style="display:flex;align-items:center;gap:8px">
-                    <select id="langSel" onchange="onLangChange()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:var(--card-bg);color:var(--text)">
+                <span class="v flex items-center gap-8">
+                    <select class="t-md c-body r-6 bg-card pad-4-8 bd" id="langSel" onchange="onLangChange()">
                         <option value="zh" selected>中文</option>
                         <option value="en">English</option>
                     </select>
@@ -111,12 +64,13 @@
             </div>
             <div class="acc-row">
                 <span class="k">主题颜色</span>
-                <span class="v" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap" id="accentBox">
-                    <button type="button" title="默认蓝" data-a="" onclick="setAccent('')" style="width:22px;height:22px;border-radius:50%;border:2px solid var(--border);cursor:pointer;background:#0ea5e9"></button>
-                    <button type="button" title="绿色" data-a="green" onclick="setAccent('green')" style="width:22px;height:22px;border-radius:50%;border:2px solid var(--border);cursor:pointer;background:#17a673"></button>
-                    <button type="button" title="紫色" data-a="purple" onclick="setAccent('purple')" style="width:22px;height:22px;border-radius:50%;border:2px solid var(--border);cursor:pointer;background:#8b5cf6"></button>
-                    <button type="button" title="橙色" data-a="orange" onclick="setAccent('orange')" style="width:22px;height:22px;border-radius:50%;border:2px solid var(--border);cursor:pointer;background:#f59e0b"></button>
-                    <button type="button" title="红色" data-a="red" onclick="setAccent('red')" style="width:22px;height:22px;border-radius:50%;border:2px solid var(--border);cursor:pointer;background:#ef4444"></button>
+                <span class="v flex items-center gap-8 flex-wrap" id="accentBox">
+                    <button class="swatch" type="button" data-a="" onclick="setAccent('')"></button>
+                    <button class="swatch" type="button" data-a="green" onclick="setAccent('green')"></button>
+                    <button class="swatch" type="button" data-a="purple" onclick="setAccent('purple')"></button>
+                    <button class="swatch" type="button" data-a="orange" onclick="setAccent('orange')"></button>
+                    <button class="swatch" type="button" data-a="red" onclick="setAccent('red')"></button>
+                    <button class="swatch" type="button" data-a="plain" onclick="setAccent('plain')" title="白板"></button>
                 </span>
             </div>
             <div class="acc-hint">英文界面由 AI 翻译，可能与中文存在差异。English UI is AI-translated and may differ from Chinese.</div>
@@ -140,7 +94,7 @@
         </div>
 
         <div class="acc-sec" id="sessSec" style="display:none">
-            <div class="acc-sec-title" style="display:flex;justify-content:space-between;align-items:center">
+            <div class="acc-sec-title flex justify-between items-center">
                 <span>登录设备</span>
                 <button class="btn btn-sm" id="revokeBtn" onclick="revokeOthers()">退出其它设备</button>
             </div>
@@ -180,7 +134,7 @@ var myRole = __MY_ROLE__;
     var isGuest = myRole === 'guest' || !myRole;
     var navDl = document.getElementById('accNavDownloader');
     var navAd = document.getElementById('accNavAdmin');
-    var navShare = document.querySelector('.nav-bar a[href="/share"]');
+    var navShare = document.querySelector('.tabs a[href="/share"]');
     if (navDl) navDl.style.display = isGuest ? 'none' : '';
     if (navAd) navAd.style.display = (myRole === 'admin' || myRole === 'super_admin') ? '' : 'none';
     if (navShare) navShare.style.display = isGuest ? 'none' : '';

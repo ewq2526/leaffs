@@ -10,220 +10,221 @@
 <script>window.__LANG__='en';</script></head>
 <body>
 <div class="app">
-    <div class="header">
-        <h1><span class="ht">Deep Config</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting…</span></span></h1>
-        <div class="info">
-            <!--THEME_TOGGLE-->
+    <header class="top">
+        <span class="top-logo">🍃</span>
+        <div class="top-main">
+            <h1 class="top-title">Deep Config</h1>
+            <div class="top-meta"><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting…</span></span></div>
         </div>
-    </div>
+        <div class="top-side"><button class="nav-back" onclick="window.location.href='/admin'">Back to Admin</button>
+            <!--THEME_TOGGLE--></div>
+    </header>
 
-    <div class="nav-bar">
+    <nav class="tabs">
         <a href="/browse/">Browse</a>
         <a href="/gallery">Gallery</a>
         <a href="/url-download">Downloader</a>
         <a href="/share">Share</a>
         <a href="/admin">Admin</a>
         <a href="/me">My Account</a>
-        <span style="flex:1"></span>
-        <button class="nav-back" onclick="window.location.href='/admin'">Back to Admin</button>
-    </div>
+    </nav>
 
     <!-- Config read status (real values are loaded from the server on page open, avoiding stale defaults) -->
-    <div id="cfgStatus" style="display:none;margin:10px 0;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5"></div>
+    <div class="t-sm lh-15 r-6 my-10 pad-8-12" id="cfgStatus" style="display:none"></div>
 
     <div class="admin-grid">
         <!-- Password hash iterations -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Password Hash Iterations</h3>
             <div class="config-group">
-                <label>How many times hashing is repeated when deriving a password; higher is more secure but makes sign-in slower. <span style="color:var(--danger)">Security minimum <span id="pbkdf2MinHint">100000</span></span>, 100000~1000000 recommended</label>
+                <label>How many times hashing is repeated when deriving a password; higher is more secure but makes sign-in slower. <span class="c-danger">Security minimum <span id="pbkdf2MinHint">100000</span></span>, 100000~1000000 recommended</label>
                 <div class="config-row">
-                    <input type="number" id="pbkdf2IterationsInput" min="100000" value="600000" step="50000" style="width:110px">
-                    <span style="font-size:11px;color:var(--text-light)">iterations</span>
-                    <button class="btn-admin primary" onclick="applyPbkdf2Iterations()" style="font-size:11px">Apply</button>
+                    <input class="w-110" type="number" id="pbkdf2IterationsInput" min="100000" value="600000" step="50000">
+                    <span class="t-xs c-dim">iterations</span>
+                    <button class="btn-admin primary t-xs" onclick="applyPbkdf2Iterations()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Password salt length -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Password Salt Length</h3>
             <div class="config-group">
-                <label>Length of the random data mixed in when hashing; longer is more secure. Only applies to passwords created after a restart. <span style="color:var(--danger)">Security minimum <span id="saltMinHint">16</span></span> (16~64 bytes recommended)</label>
+                <label>Length of the random data mixed in when hashing; longer is more secure. Only applies to passwords created after a restart. <span class="c-danger">Security minimum <span id="saltMinHint">16</span></span> (16~64 bytes recommended)</label>
                 <div class="config-row">
-                    <input type="number" id="saltLengthInput" min="16" value="32" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">bytes</span>
-                    <button class="btn-admin primary" onclick="applySaltLength()" style="font-size:11px">Apply</button>
+                    <input class="w-90" type="number" id="saltLengthInput" min="16" value="32">
+                    <span class="t-xs c-dim">bytes</span>
+                    <button class="btn-admin primary t-xs" onclick="applySaltLength()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Thumbnail sampling ratio -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Thumbnail Startup Sampling Ratio</h3>
             <div class="config-group">
                 <label>How much of the thumbnail index is checked at startup. Lower values start faster but detect issues less accurately</label>
                 <div class="config-row">
-                    <input type="number" id="thumbSampleRatioInput" min="0.001" max="1" value="0.1" step="0.05" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">(0.001~1, 0.05~0.5 recommended)</span>
-                    <button class="btn-admin primary" onclick="applyThumbSampleRatio()" style="font-size:11px">Apply</button>
+                    <input class="w-90" type="number" id="thumbSampleRatioInput" min="0.001" max="1" value="0.1" step="0.05">
+                    <span class="t-xs c-dim">(0.001~1, 0.05~0.5 recommended)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyThumbSampleRatio()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Missing source file threshold -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Thumbnail Missing-Source Threshold</h3>
             <div class="config-group">
                 <label>If more than this ratio of source files is found missing during sampling, a full background cleanup starts. Lower values catch it sooner</label>
                 <div class="config-row">
-                    <input type="number" id="thumbMissThresholdInput" min="0.001" max="1" value="0.05" step="0.01" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">(0.001~1, 0.02~0.1 recommended)</span>
-                    <button class="btn-admin primary" onclick="applyThumbMissThreshold()" style="font-size:11px">Apply</button>
+                    <input class="w-90" type="number" id="thumbMissThresholdInput" min="0.001" max="1" value="0.05" step="0.01">
+                    <span class="t-xs c-dim">(0.001~1, 0.02~0.1 recommended)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyThumbMissThreshold()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Cleanup batch size -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Background Cleanup Batch Size</h3>
             <div class="config-group">
                 <label>How many entries each batch handles during background thumbnail cleanup. Larger values clean faster but cause higher momentary I/O load</label>
                 <div class="config-row">
-                    <input type="number" id="thumbScanBatchInput" min="1" max="10000" value="100" step="10" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">entries/batch (1~10000, 50~500 recommended)</span>
-                    <button class="btn-admin primary" onclick="applyThumbScanBatch()" style="font-size:11px">Apply</button>
+                    <input class="w-90" type="number" id="thumbScanBatchInput" min="1" max="10000" value="100" step="10">
+                    <span class="t-xs c-dim">entries/batch (1~10000, 50~500 recommended)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyThumbScanBatch()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Cleanup batch interval -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Background Cleanup Batch Interval</h3>
             <div class="config-group">
                 <label>Wait time between cleanup batches. Larger values affect normal requests less but clean more slowly</label>
                 <div class="config-row">
-                    <input type="number" id="thumbScanIntervalInput" min="0.01" max="60" value="0.5" step="0.1" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">s (0.01~60, 0.1~2 recommended)</span>
-                    <button class="btn-admin primary" onclick="applyThumbScanInterval()" style="font-size:11px">Apply</button>
+                    <input class="w-90" type="number" id="thumbScanIntervalInput" min="0.01" max="60" value="0.5" step="0.1">
+                    <span class="t-xs c-dim">s (0.01~60, 0.1~2 recommended)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyThumbScanInterval()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Session lifetime -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Sign-in Session Lifetime</h3>
             <div class="config-group">
                 <label>Days a sign-in session stays valid; after expiry you must sign in again (guest sessions included)</label>
                 <div class="config-row">
-                    <input type="number" id="sessionExpiryInput" min="1" max="3650" value="30" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">days (1~3650)</span>
-                    <button class="btn-admin primary" onclick="applySessionExpiry()" style="font-size:11px">Apply</button>
+                    <input class="w-80" type="number" id="sessionExpiryInput" min="1" max="3650" value="30">
+                    <span class="t-xs c-dim">days (1~3650)</span>
+                    <button class="btn-admin primary t-xs" onclick="applySessionExpiry()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Guest upload switch -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Guest Upload to Public Folder</h3>
             <div class="config-group">
                 <label>When enabled, guests can create new files in public (duplicate names are renamed automatically); guests can <b>never</b> delete/overwrite existing content or create folders</label>
                 <div class="config-row">
-                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
-                        <input type="checkbox" id="guestWriteInput" style="width:auto">
+                    <label class="flex items-center gap-6 m-0 t-sm c-body">
+                        <input class="w-auto" type="checkbox" id="guestWriteInput">
                         <span>Allow guests to upload new files to the public folder</span>
                     </label>
-                    <span style="flex:1"></span>
-                    <button class="btn-admin primary" onclick="applyGuestWrite()" style="font-size:11px">Apply</button>
+                    <span class="flex-1"></span>
+                    <button class="btn-admin primary t-xs" onclick="applyGuestWrite()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Guest downloader switch -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Guests Can Use URL Downloader</h3>
             <div class="config-group">
                 <label>Whether guests may use the "URL Downloader". When off, only users / admins and above can use it</label>
                 <div class="config-row">
-                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
-                        <input type="checkbox" id="dlGuestInput" style="width:auto">
+                    <label class="flex items-center gap-6 m-0 t-sm c-body">
+                        <input class="w-auto" type="checkbox" id="dlGuestInput">
                         <span>Allow guests to use the downloader</span>
                     </label>
-                    <span style="flex:1"></span>
-                    <button class="btn-admin primary" onclick="applyDlGuest()" style="font-size:11px">Apply</button>
+                    <span class="flex-1"></span>
+                    <button class="btn-admin primary t-xs" onclick="applyDlGuest()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Request access log switch -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Request-Level Access Log</h3>
             <div class="config-group">
                 <label>Logs every HTTP request (with date and time). Turning it off reduces log volume but weakens auditing</label>
                 <div class="config-row">
-                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
-                        <input type="checkbox" id="accessLogInput" style="width:auto">
+                    <label class="flex items-center gap-6 m-0 t-sm c-body">
+                        <input class="w-auto" type="checkbox" id="accessLogInput">
                         <span>Log access requests</span>
                     </label>
-                    <span style="flex:1"></span>
-                    <button class="btn-admin primary" onclick="applyAccessLog()" style="font-size:11px">Apply</button>
+                    <span class="flex-1"></span>
+                    <button class="btn-admin primary t-xs" onclick="applyAccessLog()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Idle disconnect time -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Idle Disconnect Time</h3>
             <div class="config-group">
                 <label>Connections with no data sent or received for the set time are dropped automatically, freeing the connection and thread resources they hold. Too small a value may interrupt slow transfers or real connections that briefly pause; too large a value lets idle connections hold resources longer (default 120 s)</label>
                 <div class="config-row">
-                    <input type="number" id="deepIdleTimeoutInput" min="1" step="any" value="120" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">s (≥ 1, decimals allowed)</span>
-                    <button class="btn-admin primary" onclick="applyIdleTimeout()" style="font-size:11px">Apply</button>
+                    <input class="w-90" type="number" id="deepIdleTimeoutInput" min="1" step="any" value="120">
+                    <span class="t-xs c-dim">s (≥ 1, decimals allowed)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyIdleTimeout()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- keep-alive idle timeout -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>keep-alive Idle Timeout</h3>
             <div class="config-group">
                 <label>Under HTTP/1.1 a single connection can serve several requests in a row. This value is how long it waits for the next request before dropping the connection and giving the thread back. It is far shorter than "Idle Disconnect Time" above, because one connection occupies one thread. Too small a value makes reused connections churn; too large a value lets idle connections hold resources longer (default 15 s)</label>
                 <div class="config-row">
-                    <input type="number" id="deepKeepaliveInput" min="1" max="300" step="any" value="15" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">s (1–300, decimals allowed)</span>
-                    <button class="btn-admin primary" onclick="applyKeepalive()" style="font-size:11px">Apply</button>
+                    <input class="w-90" type="number" id="deepKeepaliveInput" min="1" max="300" step="any" value="15">
+                    <span class="t-xs c-dim">s (1–300, decimals allowed)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyKeepalive()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Guest sign-in rate limit -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Guest Sign-in Rate Limit</h3>
             <div class="config-group">
                 <label>How many "Continue as Guest" sign-ins a single IP may make per minute (default 10). Raising it is usually for load testing or automation; in production a higher value makes the guest entry easier to abuse</label>
                 <div class="config-row">
-                    <input type="number" id="deepGuestRateInput" min="1" max="100000" step="1" value="10" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">per minute (1–100000, integer)</span>
-                    <button class="btn-admin primary" onclick="applyGuestRate()" style="font-size:11px">Apply</button>
+                    <input class="w-90" type="number" id="deepGuestRateInput" min="1" max="100000" step="1" value="10">
+                    <span class="t-xs c-dim">per minute (1–100000, integer)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyGuestRate()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Certificate info page bind address -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Certificate Info Page Bind Address</h3>
             <div class="config-group">
                 <label>Bind address of the HTTPS certificate info page (a plain-text notice page; its port is set under "Advanced Settings"): <code>0.0.0.0</code> = listen on all interfaces (default); a specific IP such as <code>127.0.0.1</code> is also allowed. Only takes effect when HTTPS is enabled</label>
                 <div class="config-row">
-                    <input type="text" id="trustBindHostInput" value="0.0.0.0" maxlength="64" style="width:140px">
-                    <button class="btn-admin primary" onclick="applyTrustBindHost()" style="font-size:11px">Apply</button>
+                    <input class="w-140" type="text" id="trustBindHostInput" value="0.0.0.0" maxlength="64">
+                    <button class="btn-admin primary t-xs" onclick="applyTrustBindHost()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Compatibility archive (read-only): self-signed certificate / ACL mechanisms were removed with the distribution policy -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Compatibility Archive (self-signed certificate/ACL mechanisms removed)</h3>
             <div class="config-group">
                 <label>The "self-signed CA / auto-trust / folder ACL" features behind the keys below were removed with the distribution security policy and no longer take effect; the values are kept as an archive only, so old config files stay compatible. For HTTPS, configure a proper certificate (see the Advanced Settings notes)</label>
@@ -461,21 +462,5 @@ function applyMbKey(key, el, label) {
 loadDeepConfig();
 connectWS();
 </script>
-<style>
-.admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
-.admin-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
-.admin-card h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-.config-group { margin-bottom: 10px; }
-.config-group label { display: block; font-size: 11px; color: var(--text-light); margin-bottom: 4px; line-height: 1.6; }
-.config-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.config-row .row-label { font-size: 12px; color: var(--text); min-width: 150px; flex-shrink: 0; }
-.config-row .row-unit { font-size: 11px; color: var(--text-light); }
-.config-row input[type=number], .config-row input[type=text] { padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; background: var(--card-bg); color: var(--text); }
-.config-row input:focus { border-color: var(--primary); }
-.info-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 12px; }
-.info-label { color: var(--text-light); }
-.info-value { color: var(--text); font-weight: 500; word-break: break-all; }
-code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
-</style>
 </body>
 </html>

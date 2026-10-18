@@ -5,125 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>下载器</title>
 <link rel="stylesheet" href="/static/style.css">
-<style>
-.dl-page { margin-top: 14px; }
-.dl-input-area {
-    background-color: var(--card-bg); border-radius: var(--radius); padding: 20px;
-    border: 1px solid var(--border); margin-bottom: 14px;
-}
-.dl-input-area h3 { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: var(--text); }
-.dl-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.dl-row input[type=text] { flex: 1; min-width: 240px; padding: 10px 14px; border: 2px solid var(--border); border-radius: 8px; font-size: 14px; outline: none; background: var(--card-bg); color: var(--text); }
-.dl-row input:focus { border-color: var(--primary); }
-.dl-dir-selector {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 8px 14px; border: 2px solid var(--border); border-radius: 8px;
-    font-size: 13px; cursor: pointer; color: var(--text); background: var(--card-bg);
-    max-width: 320px; overflow: hidden;
-}
-.dl-dir-selector:hover { border-color: var(--primary); }
-.dl-dir-selector .path-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dl-btn-start:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.dl-settings {
-    background-color: var(--card-bg); border-radius: var(--radius); padding: 14px 20px;
-    border: 1px solid var(--border); margin-bottom: 14px;
-    display: flex; gap: 20px; align-items: center; flex-wrap: wrap;
-}
-.dl-settings label { font-size: 13px; color: var(--text-light); }
-.dl-settings input[type=number] {
-    width: 80px; padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px;
-    font-size: 13px; outline: none; background: var(--card-bg); color: var(--text); text-align: center;
-}
-.dl-settings input:focus { border-color: var(--primary); }
-.dl-settings .unit { font-size: 12px; color: var(--text-light); margin-right: 4px; }
-
-.dl-task-card {
-    background-color: var(--card-bg); border-radius: var(--radius); padding: 14px 18px;
-    border: 1px solid var(--border); margin-bottom: 10px;
-}
-.dl-task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 8px; }
-.dl-task-header > div:last-child { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
-.dl-task-name { font-size: 14px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
-.dl-task-status { font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
-.dl-task-status.waiting { background: var(--chip-bg); color: var(--muted); }
-.dl-task-status.downloading { background: var(--tint-info); color: var(--primary); }
-.dl-task-status.completed { background: var(--tint-ok); color: var(--success); }
-.dl-task-status.partial { background: var(--tint-warn); color: var(--warn); }
-.dl-task-status.error { background: var(--tint-err); color: var(--danger); }
-.dl-task-status.cancelled { background: var(--chip-bg); color: var(--muted); }
-.dl-task-status.paused { background: var(--chip-bg); color: var(--muted); }
-.dl-task-bar { height: 6px; background: var(--border); border-radius: 3px; margin: 6px 0; overflow: hidden; }
-.dl-task-progress { height: 100%; background: var(--primary); border-radius: 3px; transition: width 0.3s; }
-.dl-task-meta { display: flex; gap: 12px; font-size: 11px; color: var(--text-light); flex-wrap: wrap; align-items: center; }
-.dl-task-meta > span { white-space: nowrap; }
-.dl-task-type { font-size: 10px; padding: 1px 6px; border-radius: 3px; background: var(--border); color: var(--text-light); margin-right: 4px; flex-shrink: 0; }
-/* 任务操作按钮样式统一在全局 style.css（.dl-cancel-btn 语义 success/warn/danger） */
-
-/* 未知大小时流动进度条 */
-.dl-bar-flow { position: relative; overflow: hidden; }
-.dl-progress-flow {
-    width: 30% !important;
-    background: linear-gradient(90deg, var(--primary) 0%, #7eb8ff 50%, var(--primary) 100%);
-    background-size: 200% 100%;
-    animation: flowBar 1.5s ease-in-out infinite;
-}
-@keyframes flowBar {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
-}
-
-/* 元数据下载进度条 - 橙色表示 */
-.dl-progress-metadata {
-    background: var(--warn) !important;
-}
-
-.dir-overlay {
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 99999;
-    background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
-}
-.dir-card {
-    background-color: var(--card-bg); border-radius: 12px; padding: 24px; max-width: 500px;
-    width: 90%; box-shadow: 0 8px 40px rgba(0,0,0,0.2); max-height: 85vh; display: flex; flex-direction: column;
-}
-.dir-card h3 { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
-.dir-breadcrumb { font-size: 11px; color: var(--text-light); margin-bottom: 10px; padding: 6px 10px; background: var(--bg); border-radius: 6px; word-break: break-all; border: 1px solid var(--border); }
-.dir-list { flex: 1; overflow-y: auto; min-height: 120px; }
-.dir-item {
-    display: flex; align-items: center; gap: 8px; padding: 8px 10px;
-    border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text);
-}
-.dir-item:hover { background: var(--hover-bg); }
-.dir-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px; }
-.empty { text-align: center; padding: 40px 20px; color: var(--text-light); font-size: 13px; }
-</style>
 <script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
 </head>
 <body>
 <div class="app">
-    <div class="header">
-        <h1><span class="ht">下载器</span><span class="ws-status" style="margin-right:8px"><span class="dot" id="dlWsDot"></span><span id="dlWsLabel" style="font-size:11px">连接中...</span></span><span class="ws-status" style="margin-right:8px"><span class="dot" id="dlAriaDot" style="background:var(--warn)"></span><span id="dlAriaLabel" style="font-size:11px">aria2c 启动中…</span></span></h1>
-        <div class="info">
-            <!--THEME_TOGGLE-->
+    <header class="top">
+        <span class="top-logo">🍃</span>
+        <div class="top-main">
+            <h1 class="top-title">下载器</h1>
+            <div class="top-meta"><span class="ws-status mr-8"><span class="dot" id="dlWsDot"></span><span class="t-xs" id="dlWsLabel">连接中...</span></span><span class="ws-status mr-8"><span class="dot bg-warn" id="dlAriaDot"></span><span class="t-xs" id="dlAriaLabel">aria2c 启动中…</span></span></div>
         </div>
-    </div>
+        <div class="top-side"><!--THEME_TOGGLE--></div>
+    </header>
 
-    <div class="nav-bar">
+    <nav class="tabs">
         <a href="/browse/">浏览</a>
         <a href="/gallery">预览</a>
         <a href="/url-download" class="active">下载器</a>
         <a href="/share">分享</a>
         <a href="/admin">管理</a>
         <a href="/me">我的</a>
-        <span style="flex:1"></span>
-    </div>
+    </nav>
 
     <div class="dl-page">
         <!-- 下载器警告：功能本身就不正常（不保证能完成），这里明示、不承诺可用 -->
-        <div style="margin-bottom:12px;padding:10px 14px;border-radius:var(--radius);background:rgba(242,101,139,.10);border:1px solid var(--danger);font-size:12.5px;line-height:1.75;color:var(--danger)">
+        <div class="mb-12 c-danger pad-10-14 bd-danger" style="border-radius:var(--radius);background:rgba(242,101,139,.10);font-size:12.5px;line-height:1.75">
             ⚠️ <b>下载器几乎无法正常使用，目前仅用于占位</b>。<b>不要依赖它</b>，也不要用它存唯一副本。
         </div>
-        <div id="dlDaemonTip" style="display:none;background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;font-size:12px;margin-bottom:12px;color:var(--text)"></div>
+        <div class="t-sm mb-12 c-body bg-card bd pad-10-14" id="dlDaemonTip" style="display:none;border-radius:var(--radius)"></div>
         <div class="dl-input-area">
             <h3>粘贴下载链接</h3>
             <div class="dl-row">
@@ -134,20 +43,20 @@
                 </div>
                 <button class="dl-btn-start" id="startBtn" onclick="startDownload()">下载</button>
             </div>
-            <div style="font-size:11px;color:var(--text-light);margin-top:6px">支持 HTTP/HTTPS 直链、磁力链接、m3u8 流视频、.torrent 种子链接 &nbsp;|&nbsp; <span style="color:var(--danger);font-weight:600">不支持 ed2k（电驴）协议</span></div>
+            <div class="t-xs c-dim mt-6">支持 HTTP/HTTPS 直链、磁力链接、m3u8 流视频、.torrent 种子链接 &nbsp;|&nbsp; <span class="c-danger fw-600">不支持 ed2k（电驴）协议</span></div>
         </div>
 
-        <div class="dl-input-area" style="padding:12px 16px">
+        <div class="dl-input-area pad-12-16">
             <h3>上传种子文件</h3>
             <div class="dl-row">
                 <input type="file" id="torrentFileInput" accept=".torrent" style="display:none" onchange="uploadTorrent()">
-                <div class="dl-dir-selector" id="uploadDirSelector" onclick="openDirPicker()" style="flex:1">
+                <div class="dl-dir-selector flex-1" id="uploadDirSelector" onclick="openDirPicker()">
                     <span class="path-text" id="uploadSelectedDir">选择保存目录</span>
                     <span>&#9662;</span>
                 </div>
-                <button class="dl-btn-start" id="uploadTorrentBtn" onclick="document.getElementById('torrentFileInput').click()" style="padding:6px 16px;font-size:12px">选择种子</button>
+                <button class="dl-btn-start t-sm pad-6-16" id="uploadTorrentBtn" onclick="document.getElementById('torrentFileInput').click()">选择种子</button>
             </div>
-            <div style="font-size:11px;color:var(--text-light);margin-top:6px">先选择保存目录，再选择本地的 .torrent 种子文件，自动解析后选择要下载的文件</div>
+            <div class="t-xs c-dim mt-6">先选择保存目录，再选择本地的 .torrent 种子文件，自动解析后选择要下载的文件</div>
         </div>
 
         <div class="dl-settings">
@@ -159,9 +68,9 @@
                 <label>限速</label>
                 <input type="number" id="speedInput" min="0" max="999999" value="0" step="100">
                 <span class="unit">KB/s</span>
-                <span style="font-size:11px;color:var(--text-light)">（0=不限速）</span>
+                <span class="t-xs c-dim">（0=不限速）</span>
             </div>
-            <button class="btn btn-sm btn-outline" onclick="applySettings()" style="padding:4px 14px">应用</button>
+            <button class="btn btn-sm btn-outline pad-4-14" onclick="applySettings()">应用</button>
         </div>
 
         <div id="taskList"></div>
@@ -220,7 +129,6 @@ function batchToast(msg, type) {
 }
 
 var _selectedDir = '';
-
 
 var API = '/api/url-download';
 var _currentUser = '';
@@ -443,7 +351,7 @@ function showTorrentFilePicker(files, torrentUrl, initialDir) {
     var card = document.createElement('div'); card.className = 'dir-card'; card.style.maxWidth = '520px';
     var title = document.createElement('h3'); title.textContent = '选择要下载的文件（共 ' + files.length + ' 个）';
     var dirRow = document.createElement('div'); dirRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px';
-    dirRow.innerHTML = '<span style="font-size:13px;font-weight:500;white-space:nowrap;color:var(--text)">保存到:</span>';
+    dirRow.innerHTML = '<span class="t-md fw-500 nowrap c-body">保存到:</span>';
     var dirPathSpan = document.createElement('span');
     dirPathSpan.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--primary);cursor:pointer;font-weight:500';
     dirPathSpan.textContent = pickerDir;
@@ -458,10 +366,10 @@ function showTorrentFilePicker(files, torrentUrl, initialDir) {
     var info = document.createElement('div'); info.style.cssText = 'font-size:11px;color:var(--text-light);margin-bottom:6px'; info.textContent = '取消勾选的文件将不会下载';
     var list = document.createElement('div'); list.className = 'dir-list'; var html = '';
     for (var i = 0; i < files.length; i++) {
-        html += '<div class="dir-item" onclick="toggleTorrentItem(' + files[i].index + ', this)" data-idx="' + files[i].index + '" style="font-size:12px">';
-        html += '<input type="checkbox" checked onclick="event.stopPropagation()" style="pointer-events:none">';
-        html += '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(files[i].path) + '</span>';
-        html += '<span style="color:var(--text-light);flex-shrink:0;margin-left:8px">' + files[i].size_display + '</span></div>';
+        html += '<div class="dir-item t-sm" onclick="toggleTorrentItem(' + files[i].index + ', this)" data-idx="' + files[i].index + '">';
+        html += '<input class="pe-none" type="checkbox" checked onclick="event.stopPropagation()">';
+        html += '<span class="flex-1 overflow-hidden nowrap ellipsis">' + esc(files[i].path) + '</span>';
+        html += '<span class="c-dim shrink-0 ml-8">' + files[i].size_display + '</span></div>';
     }
     list.innerHTML = html;
     var actions = document.createElement('div'); actions.className = 'dir-actions';
@@ -544,13 +452,13 @@ function deleteTask(id) {
     if (btTask) {
         // 磁力/种子：按钮只删除任务记录，已下载文件保留在保存目录
         msg.innerHTML = '<p>磁力/种子任务仅删除任务记录，已下载文件不受影响。</p>' +
-            '<p style="font-size:12px;color:var(--warn)">已下载文件请到「共享文件」目录中手动清理。</p>';
+            '<p class="t-sm c-warn">已下载文件请到「共享文件」目录中手动清理。</p>';
         var delBtn = document.createElement('button'); delBtn.className = 'dir-btn danger'; delBtn.textContent = '删除任务（文件请手动清理）';
         delBtn.onclick = function() { document.body.removeChild(overlay); deleteTaskWithFile(id, false); };
         actions.appendChild(cancelBtn); actions.appendChild(delBtn);
     } else {
         msg.innerHTML = '<p>删除该下载任务。是否同时删除已下载的文件？</p>' +
-            '<p style="font-size:12px;color:var(--text-light)">「仅删除任务」：保留已下载文件；<br>「删除任务和文件」：只清理本任务自身下载的文件。</p>';
+            '<p class="t-sm c-dim">「仅删除任务」：保留已下载文件；<br>「删除任务和文件」：只清理本任务自身下载的文件。</p>';
         var keepBtn = document.createElement('button'); keepBtn.className = 'dir-btn outline'; keepBtn.textContent = '仅删除任务（保留文件）';
         keepBtn.onclick = function() { document.body.removeChild(overlay); deleteTaskWithFile(id, false); };
         var deleteBtn = document.createElement('button'); deleteBtn.className = 'dir-btn danger'; deleteBtn.textContent = '删除任务和文件';
@@ -597,12 +505,12 @@ function showPeerDetails(taskId) {
         }
         if (!task) return;
         document.getElementById('peerInfo').innerHTML =
-            '<div style="display:flex;padding:4px 0"><span style="color:var(--text-light);width:90px;flex-shrink:0">下行速度:</span><span>' + esc(task.speed || '0 B/s') + '</span></div>' +
-            '<div style="display:flex;padding:4px 0"><span style="color:var(--text-light);width:90px;flex-shrink:0">上行速度:</span><span>' + esc(task.upload_speed || '0 B/s') + '</span></div>' +
-            '<div style="display:flex;padding:4px 0"><span style="color:var(--text-light);width:90px;flex-shrink:0">种子数:</span><span>' + (task.seeds || 0) + '</span></div>' +
-            '<div style="display:flex;padding:4px 0"><span style="color:var(--text-light);width:90px;flex-shrink:0">对等节点:</span><span>' + (task.peers || 0) + '</span></div>' +
-            '<div style="display:flex;padding:4px 0"><span style="color:var(--text-light);width:90px;flex-shrink:0">总连接:</span><span>' + (task.connections || 0) + '</span></div>' +
-            '<div style="display:flex;padding:4px 0"><span style="color:var(--text-light);width:90px;flex-shrink:0">DHT 节点:</span><span>' + (task.dht_nodes || 0) + '</span></div>';
+            '<div class="flex py-4"><span class="c-dim w-90 shrink-0">下行速度:</span><span>' + esc(task.speed || '0 B/s') + '</span></div>' +
+            '<div class="flex py-4"><span class="c-dim w-90 shrink-0">上行速度:</span><span>' + esc(task.upload_speed || '0 B/s') + '</span></div>' +
+            '<div class="flex py-4"><span class="c-dim w-90 shrink-0">种子数:</span><span>' + (task.seeds || 0) + '</span></div>' +
+            '<div class="flex py-4"><span class="c-dim w-90 shrink-0">对等节点:</span><span>' + (task.peers || 0) + '</span></div>' +
+            '<div class="flex py-4"><span class="c-dim w-90 shrink-0">总连接:</span><span>' + (task.connections || 0) + '</span></div>' +
+            '<div class="flex py-4"><span class="c-dim w-90 shrink-0">DHT 节点:</span><span>' + (task.dht_nodes || 0) + '</span></div>';
     }
     refreshPeerInfo();
     // 每秒刷新一次
@@ -672,13 +580,13 @@ function renderTasks(tasks) {
                     if (t.status === 'downloading' && t.speed) parts.push('<span>' + t.speed + '</span>');
                     if (t.status === 'downloading' && (t.type === 'torrent' || t.type === 'magnet')) {
                         var conn = t.connections || 0;
-                        parts.push('<span>节点: ' + conn + ' <a href="/url-download/peers?task_id=' + encodeURIComponent(t.id) + '" target="_blank" style="color:var(--primary);font-weight:600;text-decoration:none">详情</a></span>');
+                        parts.push('<span>节点: ' + conn + ' <a class="c-primary fw-600 no-underline" href="/url-download/peers?task_id=' + encodeURIComponent(t.id) + '" target="_blank">详情</a></span>');
                     }
                     if ((t.type === 'torrent' || t.type === 'magnet') && t.status === 'downloading' && t.progress === 0 && t.total_size > 0)
-                        parts.push('<span style="color:var(--warn)">⏳ 正在连接对等网络...</span>');
+                        parts.push('<span class="c-warn">⏳ 正在连接对等网络...</span>');
                 }
-                if (t.save_dir) parts.push('<span>保存到: ' + esc(t.save_dir) + ' <a href="/browse/' + encodeURIComponent(t.save_dir) + '" target="_blank" style="color:var(--primary);font-weight:600;text-decoration:none">跳转</a></span>');
-                if (t.error_msg) parts.push('<span style="color:var(--danger)">' + esc(t.error_msg) + '</span>');
+                if (t.save_dir) parts.push('<span>保存到: ' + esc(t.save_dir) + ' <a class="c-primary fw-600 no-underline" href="/browse/' + encodeURIComponent(t.save_dir) + '" target="_blank">跳转</a></span>');
+                if (t.error_msg) parts.push('<span class="c-danger">' + esc(t.error_msg) + '</span>');
                 meta.innerHTML = parts.join('');
             }
             // 更新按钮状态
@@ -688,7 +596,7 @@ function renderTasks(tasks) {
                 var html = '<span class="dl-task-status ' + t.status + '">' + statusText + '</span>';
                 // 磁力/种子任务始终显示节点详情入口
                 if (t.type === 'torrent' || t.type === 'magnet') {
-                    html += '<a href="/url-download/peers?task_id=' + encodeURIComponent(t.id) + '" target="_blank" style="color:var(--primary);font-weight:600;font-size:11px;text-decoration:none;padding:0 6px">查看节点</a>';
+                    html += '<a class="c-primary fw-600 t-xs no-underline pad-0-6" href="/url-download/peers?task_id=' + encodeURIComponent(t.id) + '" target="_blank">查看节点</a>';
                 }
                 if (t.status === 'downloading') {
                     html += '<button class="dl-cancel-btn warn" onclick="pauseTask(\'' + t.id + '\')">暂停</button>';
@@ -711,7 +619,7 @@ function renderTasks(tasks) {
             var cardHtml = '<div class="dl-task-card" id="task_' + t.id + '">';
             cardHtml += '<div class="dl-task-header">';
             cardHtml += '<div class="dl-task-name" title="' + escAttr(t.url) + '"><span class="dl-task-type">' + typeLabel + '</span>' + esc(displayName) + '</div>';
-            cardHtml += '<div style="display:flex;gap:6px;align-items:center">';
+            cardHtml += '<div class="flex gap-6 items-center">';
             cardHtml += '<span class="dl-task-status ' + t.status + '">' + statusText + '</span>';
             if (t.status === 'downloading') {
                 cardHtml += '<button class="dl-cancel-btn warn" onclick="pauseTask(\'' + t.id + '\')">暂停</button>';
@@ -748,12 +656,12 @@ function renderTasks(tasks) {
                 if (t.status === 'downloading' && t.speed) cardHtml += '<span>' + t.speed + '</span>';
                 if (t.status === 'downloading' && (t.type === 'torrent' || t.type === 'magnet')) {
                     var conn = t.connections || 0;
-                    cardHtml += '<span>节点: ' + conn + ' <a href="/url-download/peers?task_id=' + encodeURIComponent(t.id) + '" target="_blank" style="color:var(--primary);font-weight:600;text-decoration:none">详情</a></span>';
+                    cardHtml += '<span>节点: ' + conn + ' <a class="c-primary fw-600 no-underline" href="/url-download/peers?task_id=' + encodeURIComponent(t.id) + '" target="_blank">详情</a></span>';
                 }
                 if ((t.type === 'torrent' || t.type === 'magnet') && t.status === 'downloading' && t.progress === 0 && t.total_size > 0)
-                    cardHtml += '<span style="color:var(--warn)">⏳ 正在连接对等网络...</span>';
+                    cardHtml += '<span class="c-warn">⏳ 正在连接对等网络...</span>';
             }
-            if (t.save_dir) cardHtml += '<span>保存到: ' + esc(t.save_dir) + ' <a href="/browse/' + encodeURIComponent(t.save_dir) + '" target="_blank" style="color:var(--primary);font-weight:600;text-decoration:none">跳转</a></span>';
+            if (t.save_dir) cardHtml += '<span>保存到: ' + esc(t.save_dir) + ' <a class="c-primary fw-600 no-underline" href="/browse/' + encodeURIComponent(t.save_dir) + '" target="_blank">跳转</a></span>';
             cardHtml += '</div></div>';
             container.insertAdjacentHTML('afterbegin', cardHtml);
         }

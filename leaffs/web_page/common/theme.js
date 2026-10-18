@@ -16,14 +16,15 @@ function setThemeLabel(isDark) {
 }
 
 // 应用亮暗：写 <html> + 留存 cookie + 同步按钮文案
+// 默认是深底（无属性），只有亮色才写 data-theme="light"
 function applyTheme(isDark) {
     var html = document.documentElement;
-    if (isDark) html.setAttribute('data-theme', 'dark');
-    else html.removeAttribute('data-theme');
+    if (isDark) html.removeAttribute('data-theme');
+    else html.setAttribute('data-theme', 'light');
     try { document.cookie = 'leaf_theme=' + (isDark ? 'dark' : 'light') + '; path=/; max-age=31536000'; } catch (e) {}
     setThemeLabel(isDark);
 }
 
 function toggleDark() {
-    applyTheme(document.documentElement.getAttribute('data-theme') !== 'dark');
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'light');
 }

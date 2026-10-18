@@ -9,220 +9,221 @@
 </head>
 <body>
 <div class="app">
-    <div class="header">
-        <h1><span class="ht">深度配置</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">连接中...</span></span></h1>
-        <div class="info">
-            <!--THEME_TOGGLE-->
+    <header class="top">
+        <span class="top-logo">🍃</span>
+        <div class="top-main">
+            <h1 class="top-title">深度配置</h1>
+            <div class="top-meta"><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">连接中...</span></span></div>
         </div>
-    </div>
+        <div class="top-side"><button class="nav-back" onclick="window.location.href='/admin'">返回管理</button>
+            <!--THEME_TOGGLE--></div>
+    </header>
 
-    <div class="nav-bar">
+    <nav class="tabs">
         <a href="/browse/">浏览</a>
         <a href="/gallery">预览</a>
         <a href="/url-download">下载器</a>
         <a href="/share">分享</a>
         <a href="/admin">管理</a>
         <a href="/me">我的</a>
-        <span style="flex:1"></span>
-        <button class="nav-back" onclick="window.location.href='/admin'">返回管理</button>
-    </div>
+    </nav>
 
     <!-- 配置读取状态（打开页面即从服务端加载真实值，避免显示陈旧默认值） -->
-    <div id="cfgStatus" style="display:none;margin:10px 0;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5"></div>
+    <div class="t-sm lh-15 r-6 my-10 pad-8-12" id="cfgStatus" style="display:none"></div>
 
     <div class="admin-grid">
         <!-- 密码哈希迭代次数 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>密码哈希迭代次数</h3>
             <div class="config-group">
-                <label>计算密码时重复的次数，越高越安全但登录也越慢。<span style="color:var(--danger)">安全下限 <span id="pbkdf2MinHint">100000</span></span>，建议 100000~1000000</label>
+                <label>计算密码时重复的次数，越高越安全但登录也越慢。<span class="c-danger">安全下限 <span id="pbkdf2MinHint">100000</span></span>，建议 100000~1000000</label>
                 <div class="config-row">
-                    <input type="number" id="pbkdf2IterationsInput" min="100000" value="600000" step="50000" style="width:110px">
-                    <span style="font-size:11px;color:var(--text-light)">次</span>
-                    <button class="btn-admin primary" onclick="applyPbkdf2Iterations()" style="font-size:11px">应用</button>
+                    <input class="w-110" type="number" id="pbkdf2IterationsInput" min="100000" value="600000" step="50000">
+                    <span class="t-xs c-dim">次</span>
+                    <button class="btn-admin primary t-xs" onclick="applyPbkdf2Iterations()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 密码盐长度 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>密码盐长度</h3>
             <div class="config-group">
-                <label>加密时加入的随机数据长度，越长越安全。重启后新建的密码才生效。<span style="color:var(--danger)">安全下限 <span id="saltMinHint">16</span></span>（建议 16~64 字节）</label>
+                <label>加密时加入的随机数据长度，越长越安全。重启后新建的密码才生效。<span class="c-danger">安全下限 <span id="saltMinHint">16</span></span>（建议 16~64 字节）</label>
                 <div class="config-row">
-                    <input type="number" id="saltLengthInput" min="16" value="32" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">字节</span>
-                    <button class="btn-admin primary" onclick="applySaltLength()" style="font-size:11px">应用</button>
+                    <input class="w-90" type="number" id="saltLengthInput" min="16" value="32">
+                    <span class="t-xs c-dim">字节</span>
+                    <button class="btn-admin primary t-xs" onclick="applySaltLength()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 缩略图采样比例 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>缩略图启动采样比例</h3>
             <div class="config-group">
                 <label>启动时检查多少比例的缩略图索引。值越小启动越快但检测越不准</label>
                 <div class="config-row">
-                    <input type="number" id="thumbSampleRatioInput" min="0.001" max="1" value="0.1" step="0.05" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">（0.001~1，建议 0.05~0.5）</span>
-                    <button class="btn-admin primary" onclick="applyThumbSampleRatio()" style="font-size:11px">应用</button>
+                    <input class="w-90" type="number" id="thumbSampleRatioInput" min="0.001" max="1" value="0.1" step="0.05">
+                    <span class="t-xs c-dim">（0.001~1，建议 0.05~0.5）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyThumbSampleRatio()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 源文件缺失阈值 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>缩略图源文件缺失阈值</h3>
             <div class="config-group">
                 <label>采样中超过此比例的源文件丢失，就启动后台全量清理。越小越早发现</label>
                 <div class="config-row">
-                    <input type="number" id="thumbMissThresholdInput" min="0.001" max="1" value="0.05" step="0.01" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">（0.001~1，建议 0.02~0.1）</span>
-                    <button class="btn-admin primary" onclick="applyThumbMissThreshold()" style="font-size:11px">应用</button>
+                    <input class="w-90" type="number" id="thumbMissThresholdInput" min="0.001" max="1" value="0.05" step="0.01">
+                    <span class="t-xs c-dim">（0.001~1，建议 0.02~0.1）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyThumbMissThreshold()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 清理每批数量 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>后台清理每批数量</h3>
             <div class="config-group">
                 <label>缩略图后台清理时每批处理多少条。越大清理越快但瞬间 IO 压力越大</label>
                 <div class="config-row">
-                    <input type="number" id="thumbScanBatchInput" min="1" max="10000" value="100" step="10" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">条/批（1~10000，建议 50~500）</span>
-                    <button class="btn-admin primary" onclick="applyThumbScanBatch()" style="font-size:11px">应用</button>
+                    <input class="w-90" type="number" id="thumbScanBatchInput" min="1" max="10000" value="100" step="10">
+                    <span class="t-xs c-dim">条/批（1~10000，建议 50~500）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyThumbScanBatch()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 清理批间隔 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>后台清理批间隔</h3>
             <div class="config-group">
                 <label>每批清理之间的等待时间。越大对正常请求影响越小但清理越慢</label>
                 <div class="config-row">
-                    <input type="number" id="thumbScanIntervalInput" min="0.01" max="60" value="0.5" step="0.1" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">秒（0.01~60，建议 0.1~2）</span>
-                    <button class="btn-admin primary" onclick="applyThumbScanInterval()" style="font-size:11px">应用</button>
+                    <input class="w-90" type="number" id="thumbScanIntervalInput" min="0.01" max="60" value="0.5" step="0.1">
+                    <span class="t-xs c-dim">秒（0.01~60，建议 0.1~2）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyThumbScanInterval()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 会话有效期 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>登录会话有效期</h3>
             <div class="config-group">
                 <label>登录会话保持有效的天数，到期后需重新登录（含游客会话）</label>
                 <div class="config-row">
-                    <input type="number" id="sessionExpiryInput" min="1" max="3650" value="30" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">天（1~3650）</span>
-                    <button class="btn-admin primary" onclick="applySessionExpiry()" style="font-size:11px">应用</button>
+                    <input class="w-80" type="number" id="sessionExpiryInput" min="1" max="3650" value="30">
+                    <span class="t-xs c-dim">天（1~3650）</span>
+                    <button class="btn-admin primary t-xs" onclick="applySessionExpiry()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 访客上传开关 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>访客可上传公共目录</h3>
             <div class="config-group">
                 <label>开启后访客可向 public 新建文件（同名自动改名）；访客始终<b>不能</b>删除/覆盖已有内容、不能建目录</label>
                 <div class="config-row">
-                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
-                        <input type="checkbox" id="guestWriteInput" style="width:auto">
+                    <label class="flex items-center gap-6 m-0 t-sm c-body">
+                        <input class="w-auto" type="checkbox" id="guestWriteInput">
                         <span>允许访客向公共目录上传新文件</span>
                     </label>
-                    <span style="flex:1"></span>
-                    <button class="btn-admin primary" onclick="applyGuestWrite()" style="font-size:11px">应用</button>
+                    <span class="flex-1"></span>
+                    <button class="btn-admin primary t-xs" onclick="applyGuestWrite()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 访客下载器开关 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>访客使用 URL 下载器</h3>
             <div class="config-group">
                 <label>是否允许访客使用“URL 下载器”。关闭时仅 user / 管理员及以上可用</label>
                 <div class="config-row">
-                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
-                        <input type="checkbox" id="dlGuestInput" style="width:auto">
+                    <label class="flex items-center gap-6 m-0 t-sm c-body">
+                        <input class="w-auto" type="checkbox" id="dlGuestInput">
                         <span>允许访客使用下载器</span>
                     </label>
-                    <span style="flex:1"></span>
-                    <button class="btn-admin primary" onclick="applyDlGuest()" style="font-size:11px">应用</button>
+                    <span class="flex-1"></span>
+                    <button class="btn-admin primary t-xs" onclick="applyDlGuest()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 请求访问日志开关 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>请求级访问日志</h3>
             <div class="config-group">
                 <label>记录每个 HTTP 请求的访问日志（含时间日期）。关闭可减少日志量，但会降低审计能力</label>
                 <div class="config-row">
-                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
-                        <input type="checkbox" id="accessLogInput" style="width:auto">
+                    <label class="flex items-center gap-6 m-0 t-sm c-body">
+                        <input class="w-auto" type="checkbox" id="accessLogInput">
                         <span>记录访问日志</span>
                     </label>
-                    <span style="flex:1"></span>
-                    <button class="btn-admin primary" onclick="applyAccessLog()" style="font-size:11px">应用</button>
+                    <span class="flex-1"></span>
+                    <button class="btn-admin primary t-xs" onclick="applyAccessLog()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 空闲断开时间 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>空闲断开时间</h3>
             <div class="config-group">
                 <label>连接在设定时间内没有数据收发时自动断开，释放所占的连接与线程资源。取值过小可能中断慢速传输或短暂挂起的真实连接；取值过大则空闲连接占用资源的时间更久（默认 120 秒）</label>
                 <div class="config-row">
-                    <input type="number" id="deepIdleTimeoutInput" min="1" step="any" value="120" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">秒（不小于 1，可带小数）</span>
-                    <button class="btn-admin primary" onclick="applyIdleTimeout()" style="font-size:11px">应用</button>
+                    <input class="w-90" type="number" id="deepIdleTimeoutInput" min="1" step="any" value="120">
+                    <span class="t-xs c-dim">秒（不小于 1，可带小数）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyIdleTimeout()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- keep-alive 空闲超时 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>keep-alive 空闲超时</h3>
             <div class="config-group">
                 <label>HTTP/1.1 下一条连接可以连续处理多个请求。这个值是「等下一个请求」的耐心：超时就断开，把占着的连接与线程让出来。它比上面的「空闲断开时间」短得多 —— 因为一条连接就占一个线程；取值过小会让复用的连接频繁重建，取值过大则空闲连接占用资源更久（默认 15 秒）</label>
                 <div class="config-row">
-                    <input type="number" id="deepKeepaliveInput" min="1" max="300" step="any" value="15" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">秒（1 ~ 300，可带小数）</span>
-                    <button class="btn-admin primary" onclick="applyKeepalive()" style="font-size:11px">应用</button>
+                    <input class="w-90" type="number" id="deepKeepaliveInput" min="1" max="300" step="any" value="15">
+                    <span class="t-xs c-dim">秒（1 ~ 300，可带小数）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyKeepalive()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 游客登录限速 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>游客登录限速</h3>
             <div class="config-group">
                 <label>单个 IP 每分钟允许的「游客访问」次数（默认 10）。调大一般是为了压测或自动化测试；生产环境调大会让游客入口更容易被刷</label>
                 <div class="config-row">
-                    <input type="number" id="deepGuestRateInput" min="1" max="100000" step="1" value="10" style="width:90px">
-                    <span style="font-size:11px;color:var(--text-light)">次 / 分钟（1 ~ 100000，整数）</span>
-                    <button class="btn-admin primary" onclick="applyGuestRate()" style="font-size:11px">应用</button>
+                    <input class="w-90" type="number" id="deepGuestRateInput" min="1" max="100000" step="1" value="10">
+                    <span class="t-xs c-dim">次 / 分钟（1 ~ 100000，整数）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyGuestRate()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 证书提示页监听地址 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>证书提示页监听地址</h3>
             <div class="config-group">
                 <label>HTTPS 证书提示页（纯文字提醒页，端口见“高级配置”）的监听地址：<code>0.0.0.0</code> = 全网监听（默认），也可填具体 IP 如 <code>127.0.0.1</code>。仅启用 HTTPS 时生效</label>
                 <div class="config-row">
-                    <input type="text" id="trustBindHostInput" value="0.0.0.0" maxlength="64" style="width:140px">
-                    <button class="btn-admin primary" onclick="applyTrustBindHost()" style="font-size:11px">应用</button>
+                    <input class="w-140" type="text" id="trustBindHostInput" value="0.0.0.0" maxlength="64">
+                    <button class="btn-admin primary t-xs" onclick="applyTrustBindHost()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 兼容存档（只读）：自签证书/ACL 机制已随分发策略移除 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>兼容存档（自签证书/ACL 机制已移除）</h3>
             <div class="config-group">
                 <label>以下键对应的“自签 CA / 自动信任 / 目录 ACL”功能已随分发安全策略移除，不再产生运行效果，仅保留数值存档以便兼容旧配置文件。如需 HTTPS 请配置正式证书（见高级配置说明）</label>
@@ -460,21 +461,5 @@ function applyMbKey(key, el, label) {
 loadDeepConfig();
 connectWS();
 </script>
-<style>
-.admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
-.admin-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
-.admin-card h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-.config-group { margin-bottom: 10px; }
-.config-group label { display: block; font-size: 11px; color: var(--text-light); margin-bottom: 4px; line-height: 1.6; }
-.config-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.config-row .row-label { font-size: 12px; color: var(--text); min-width: 150px; flex-shrink: 0; }
-.config-row .row-unit { font-size: 11px; color: var(--text-light); }
-.config-row input[type=number], .config-row input[type=text] { padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; background: var(--card-bg); color: var(--text); }
-.config-row input:focus { border-color: var(--primary); }
-.info-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 12px; }
-.info-label { color: var(--text-light); }
-.info-value { color: var(--text); font-weight: 500; word-break: break-all; }
-code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
-</style>
 </body>
 </html>

@@ -5,54 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>节点连接详情</title>
 <link rel="stylesheet" href="/static/style.css">
-<style>
-.dl-page { margin-top: 14px; }
-.header-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
-.header-bar h2 { font-size: 15px; font-weight: 600; color: var(--text); margin: 0; }
-.header-bar .back-btn { padding: 6px 14px; border: 1px solid var(--border); border-radius: 8px; text-decoration: none; color: var(--text); font-size: 13px; }
-.header-bar .back-btn:hover { border-color: var(--primary); color: var(--primary); }
-.dl-input-area {
-    background: var(--card-bg); border-radius: var(--radius); padding: 16px;
-    border: 1px solid var(--border); margin-bottom: 14px;
-}
-.dl-input-area h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--text); }
-.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; margin-bottom: 14px; }
-.summary-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; text-align: center; }
-.summary-card .val { font-size: 18px; font-weight: 700; color: var(--text); }
-.summary-card .lbl { font-size: 11px; color: var(--text-light); margin-top: 2px; }
-.dl-task-card {
-    background: var(--card-bg); border-radius: var(--radius); padding: 14px 18px;
-    border: 1px solid var(--border); margin-bottom: 10px;
-}
-.peers-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.peers-table th { text-align: left; padding: 8px 6px; border-bottom: 2px solid var(--border); color: var(--text-light); font-weight: 600; white-space: nowrap; }
-.peers-table td { padding: 7px 6px; border-bottom: 1px solid var(--border); color: var(--text); white-space: nowrap; }
-.peers-table tr:hover td { background: var(--hover-bg); }
-.peer-ip { font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; color: var(--primary); }
-.dl-task-status { font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
-.dl-task-status.active { background: var(--tint-info); color: var(--primary); }
-.dl-task-status.choking { background: var(--tint-warn); color: var(--warn); }
-.dl-task-status.unchoked { background: var(--tint-ok); color: var(--success); }
-.dl-task-status.encrypted { background: #f0e6ff; color: #8e44ad; }
-.dl-task-status.plain { background: var(--chip-bg); color: var(--muted); }
-.empty-msg { text-align: center; padding: 40px; color: var(--text-light); font-size: 13px; }
-.error-msg { text-align: center; padding: 20px; color: var(--danger); font-size: 13px; }
-.dl-progress-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; min-width: 60px; }
-.dl-progress-bar .fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
-@media (max-width: 600px) {
-    .peers-table th:nth-child(4), .peers-table td:nth-child(4),
-    .peers-table th:nth-child(5), .peers-table td:nth-child(5) { display: none; }
-}
-</style>
 </head>
 <body>
 <div class="dl-page">
     <div class="header-bar">
         <a href="/url-download" class="back-btn">← 返回下载器</a>
         <h2 id="taskTitle">节点连接详情</h2>
-        <span style="flex:1"></span>
-        <span style="font-size:11px;color:var(--text-light)" id="refreshStatus"></span>
-        <button class="btn btn-sm btn-outline" onclick="toggleAutoRefresh()" id="refreshBtn" style="padding:4px 10px;font-size:11px">暂停刷新</button>
+        <span class="flex-1"></span>
+        <span class="t-xs c-dim" id="refreshStatus"></span>
+        <button class="btn btn-sm btn-outline t-xs" onclick="toggleAutoRefresh()" id="refreshBtn" style="padding:4px 10px">暂停刷新</button>
     </div>
 
     <div class="dl-input-area">
@@ -61,7 +22,7 @@
     </div>
 
     <div class="dl-input-area">
-        <h3>对等节点列表 <span style="font-size:11px;color:var(--text-light);font-weight:400" id="peerCount">(0)</span></h3>
+        <h3>对等节点列表 <span class="t-xs c-dim fw-400" id="peerCount">(0)</span></h3>
         <div id="peerList"><div class="empty-msg">加载中...</div></div>
     </div>
 </div>
@@ -164,12 +125,12 @@ function fetchPeers() {
         var maxDl = getMaxHistory('dlSpeed');
         var maxUl = getMaxHistory('ulSpeed');
         document.getElementById('summaryGrid').innerHTML =
-            '<div class="summary-card"><div class="val" style="color:var(--primary)">' + formatSpeed(dlSpeed) + '</div><div class="lbl">下载速度</div><div class="trend" style="color:' + (dlSpeed > 0 ? 'var(--success)' : 'var(--text-light)') + '">峰值 ' + formatSpeed(maxDl) + '</div></div>' +
-            '<div class="summary-card"><div class="val" style="color:var(--warn)">' + formatSpeed(ulSpeed) + '</div><div class="lbl">上传速度</div><div class="trend" style="color:' + (ulSpeed > 0 ? 'var(--success)' : 'var(--text-light)') + '">峰值 ' + formatSpeed(maxUl) + '</div></div>' +
-            '<div class="summary-card"><div class="val">' + progress + '%</div><div class="lbl">下载进度</div><div class="trend" style="color:var(--text-light)">' + formatSize(completed) + (total > 0 ? ' / ' + formatSize(total) : '') + '</div></div>' +
-            '<div class="summary-card"><div class="val" style="color:#8e44ad">' + peers.length + '</div><div class="lbl">对等节点</div><div class="trend" style="color:var(--text-light)">最多 ' + getMaxHistory('peers') + '</div></div>' +
-            '<div class="summary-card"><div class="val">' + (status.numSeeders || '0') + '</div><div class="lbl">完成源</div><div class="trend" style="color:var(--text-light)">连接 ' + (status.connections || '0') + '</div></div>' +
-            '<div class="summary-card"><div class="val">' + (status.connections || '0') + '</div><div class="lbl">总连接数</div><div class="trend" style="color:var(--text-light)">GID: ' + (status.gid || '').substring(0, 8) + '</div></div>';
+            '<div class="summary-card"><div class="val c-primary">' + formatSpeed(dlSpeed) + '</div><div class="lbl">下载速度</div><div class="trend" style="color:' + (dlSpeed > 0 ? 'var(--success)' : 'var(--text-light)') + '">峰值 ' + formatSpeed(maxDl) + '</div></div>' +
+            '<div class="summary-card"><div class="val c-warn">' + formatSpeed(ulSpeed) + '</div><div class="lbl">上传速度</div><div class="trend" style="color:' + (ulSpeed > 0 ? 'var(--success)' : 'var(--text-light)') + '">峰值 ' + formatSpeed(maxUl) + '</div></div>' +
+            '<div class="summary-card"><div class="val">' + progress + '%</div><div class="lbl">下载进度</div><div class="trend c-dim">' + formatSize(completed) + (total > 0 ? ' / ' + formatSize(total) : '') + '</div></div>' +
+            '<div class="summary-card"><div class="val" style="color:#8e44ad">' + peers.length + '</div><div class="lbl">对等节点</div><div class="trend c-dim">最多 ' + getMaxHistory('peers') + '</div></div>' +
+            '<div class="summary-card"><div class="val">' + (status.numSeeders || '0') + '</div><div class="lbl">完成源</div><div class="trend c-dim">连接 ' + (status.connections || '0') + '</div></div>' +
+            '<div class="summary-card"><div class="val">' + (status.connections || '0') + '</div><div class="lbl">总连接数</div><div class="trend c-dim">GID: ' + (status.gid || '').substring(0, 8) + '</div></div>';
 
         var html = '';
         if (peers.length === 0) {

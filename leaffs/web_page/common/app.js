@@ -3,7 +3,7 @@
 
 // 二维码配色跟随主题：暗色=白点黑底，亮色=黑点白底（保证扫码可辨）
 function qrThemeColors() {
-    var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    var isDark = document.documentElement.getAttribute('data-theme') !== 'light';
     return isDark
         ? { colorDark: '#ffffff', colorLight: '#000000' }
         : { colorDark: '#000000', colorLight: '#ffffff' };
@@ -180,7 +180,7 @@ document.addEventListener('keydown', function(e) {
     }
     // 如果所在容器没有按钮，退一级找卡片容器中的按钮（如配额三行共用同一个按钮）
     if (!btn) {
-        var card = el.closest('.admin-card, .dl-card');
+        var card = el.closest('.panel, .dl-card');
         if (card) btn = card.querySelector('button');
     }
     if (btn) btn.click();

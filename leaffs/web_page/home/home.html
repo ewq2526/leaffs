@@ -5,86 +5,48 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>文件传输</title>
 <link rel="stylesheet" href="/static/style.css">
-<style>
-.toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
-.toolbar .count { font-size: 12px; color: var(--text-light); }
-.toolbar .refresh-btn { --btn-c: #fff; background-color: var(--muted-deep) !important; background-image: none !important; box-shadow: none !important; }
-.toolbar .share-btn { --btn-c: #fff; background-color: var(--primary) !important; background-image: none !important; box-shadow: none !important; color: #fff !important; }
-.file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-.file-grid.list-view { grid-template-columns: 1fr; }
-.file-card { position: relative; background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; text-align: center; cursor: pointer; transition: border-color 0.15s; }
-.file-card:hover { border-color: var(--primary); }
-.file-card .icon { font-size: 32px; display: block; margin: 8px 0; }
-.file-card .name { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
-.file-card .meta { font-size: 11px; color: var(--text-light); }
-.file-card .actions { margin-top: 8px; display: flex; gap: 6px; justify-content: center; }
-.file-card .actions a, .file-card .actions button { font-size: 11px; padding: 4px 10px; }
-.file-card input[type=checkbox] { position: absolute; top: 8px; left: 8px; z-index: 2; }
-.file-card.folder { cursor: pointer; }
-.list-view .file-card { display: flex; align-items: center; gap: 12px; padding: 8px 14px; text-align: left; }
-.list-view .file-card .icon { font-size: 20px; margin: 0; }
-.list-view .file-card .name { flex: 1; margin: 0; }
-.list-view .file-card .meta { min-width: 80px; text-align: right; }
-.list-view .file-card .actions { margin: 0; }
-.breadcrumb { font-size: 12px; margin-bottom: 12px; color: var(--text-light); }
-.breadcrumb a { color: var(--primary); text-decoration: none; }
-.breadcrumb a:hover { text-decoration: underline; }
-.breadcrumb span { color: var(--text); }
-.upload-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 30px 20px; text-align: center; background-color: var(--card-bg); margin-bottom: 14px; cursor: pointer; }
-.upload-zone.dragover { border-color: var(--primary); background: var(--hover-bg); }
-.upload-zone .label { font-size: 13px; color: var(--text-light); }
-.upload-zone .sub { font-size: 11px; color: var(--text-light); margin-top: 6px; }
-.upload-zone .btns { margin-top: 12px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-.upload-zone input[type=file] { display: none; }
-.preview-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-.preview-bar .chip { padding: 4px 12px; border-radius: 20px; border: 1px solid var(--border); font-size: 12px; cursor: pointer; color: var(--text); background: var(--card-bg); text-decoration: none; }
-.preview-bar .chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
-.preview-bar .chip .cnt { margin-left: 4px; font-size: 11px; opacity: 0.7; }
-.progress-wrap { height: 4px; background: var(--border); border-radius: 2px; margin-bottom: 14px; overflow: hidden; display: none; }
-.progress-wrap.active { display: block; }
-.progress-wrap .bar { height: 100%; background: var(--primary); width: 0; transition: width 0.3s; }
-.search-hl { background: var(--ring-soft); padding: 0 2px; border-radius: 2px; }
-.item-path { display: block; font-size: 10px; color: var(--text-light); margin-top: 2px; }
-.view-toggle { display: flex; gap: 2px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.view-toggle button { padding: 4px 10px; font-size: 11px; border: none; background: var(--card-bg); color: var(--text-light); cursor: pointer; }
-.view-toggle button.active { background: var(--primary); color: #fff; }
-</style>
 <script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;window.__SERVER_BASE__='__SERVER_BASE_URL__';window.__HAS_LAN__=__HAS_LAN_VAL__;</script>
 </head>
 <body>
 <div class="app">
-    <div class="header header-stats">
-        <h1><span class="ht">文件传输</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">已连接</span></span></h1>
-        <div class="info">
-            <span id="fileCount" style="font-size:12px;color:var(--text-light)"></span>
+    <header class="top">
+        <span class="top-logo">🍃</span>
+        <div class="top-main">
+            <h1 class="top-title" id="dirTitle">文件传输</h1>
+            <div class="top-meta">
+                <span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">已连接</span></span>
+                <span id="fileCount"></span>
+            </div>
         </div>
-        <!--THEME_TOGGLE-->
-    </div>
-    <div class="nav-bar">
+        <div class="top-side">
+            <button class="nav-back" onclick="goBack()" id="backBtn">返回</button>
+            <!--THEME_TOGGLE-->
+        </div>
+    </header>
+
+    <nav class="tabs">
         <a href="/browse/" class="active">浏览</a>
         <a href="/gallery" id="galleryNavLink">预览</a>
         <a href="/url-download" id="navDownloader">下载器</a>
         <a href="/share" id="navShare">分享</a>
         <a href="/admin" id="navAdmin">管理</a>
         <a href="/me">我的</a>
-        <span style="flex:1"></span>
-        <button class="nav-back" onclick="goBack()" id="backBtn">返回上级</button>
+    </nav>
+
+    <div class="banner" id="pwdBanner" style="display:none">
+        🔑 你还没设置过自己的密码（现在用的是首次启动自动生成的<strong>初始口令</strong>，无需知晓）——
+        请<strong>设置一个自己的密码</strong>：<a href="/admin/users">去改密码 →</a>
+        <span style="opacity:.65">（不强制，改完此提示自动消失）</span>
     </div>
 
-    <!-- 初始口令提醒（仅管理员/超管且服务端确认还没设过自己的密码时显示；改密后自动消失） -->
-    <div id="pwdBanner" style="display:none;margin:0 auto 12px;padding:10px 14px;border-radius:10px;background:rgba(234,179,8,.14);border:1px solid rgba(234,179,8,.55);color:#8a6a00;font-size:13px;line-height:1.7">
-        🔑 你还没设置过自己的密码（现在用的是首次启动自动生成的<strong>初始口令</strong>，无需知晓）——请<strong>设置一个自己的密码</strong>：
-        <a href="/admin/users" style="color:#0ea5e9;font-weight:600;text-decoration:none">去改密码 →</a>
-        <span style="opacity:.65;font-size:11px">（不强制，改完此提示自动消失）</span>
-    </div>
-
-    <div class="breadcrumb" id="breadcrumb"><a href="/browse/">根目录</a></div>
+    <div class="crumbs" id="breadcrumb"><a href="/browse/">根目录</a></div>
     <div class="progress-wrap" id="progressWrap"><div class="bar" id="progressBar"></div></div>
+    <div class="readonly-tip" id="readonlyTip" style="display:none">此目录为映射区或虚拟容器，只读：不能上传、不能新建文件夹</div>
 
-    <div class="readonly-tip" id="readonlyTip" style="display:none;margin:0 0 10px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text-light);font-size:12px">此目录为映射区或虚拟容器，只读：不能上传、不能新建文件夹</div>
-    <div class="upload-zone" id="dropZone">
+    <div class="drop" id="dropZone">
+        <span class="drop-icon">⬆</span>
         <div class="label" id="uploadLimitLabel">点击上传</div>
-        <div class="sub">支持拖拽文件或文件夹到此处</div>
+        <div class="sub">把文件或文件夹拖到这里，也可以直接选择</div>
         <div class="btns">
             <button class="btn btn-sm btn-primary" onclick="document.getElementById('fileInput').click()">上传文件</button>
             <button class="btn btn-sm btn-primary" onclick="document.getElementById('folderInput').click()">上传文件夹</button>
@@ -96,15 +58,15 @@
 
     <div class="preview-bar" id="previewBar" style="display:none"></div>
 
-    <div class="toolbar">
+    <div class="tools">
         <button class="btn btn-sm btn-outline" onclick="selectAll(true)">全选</button>
         <button class="btn btn-sm btn-outline" onclick="selectAll(false)">取消</button>
         <button class="btn btn-sm btn-success" onclick="downloadSelected()">下载</button>
         <button class="btn btn-sm btn-danger" id="bulkDeleteBtn" onclick="deleteSelected()">删除</button>
-        <button class="btn btn-sm share-btn" id="shareBtn" onclick="shareSelected()" style="display:none">分享</button>
-        <button class="btn btn-sm refresh-btn" onclick="loadFiles()">刷新</button>
+        <button class="btn btn-sm btn--solid share-btn" id="shareBtn" onclick="shareSelected()" style="display:none">分享</button>
+        <button class="btn btn-sm btn--solid btn--muted refresh-btn" onclick="loadFiles()">刷新</button>
         <span class="count">已选 <strong id="selectedCount">0</strong></span>
-        <select class="sort-select" id="sortSelect" onchange="sortFiles()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;background:var(--card-bg);color:var(--text)">
+        <select class="sort-select" id="sortSelect" onchange="sortFiles()">
             <option value="time_desc" selected>时间 &#8595;</option>
             <option value="time_asc">时间 &#8593;</option>
             <option value="name_asc">名称 &#8593;</option>
@@ -114,14 +76,14 @@
         </select>
         <button class="btn btn-sm btn-outline" onclick="openSearch('local')">本页搜索</button>
         <button class="btn btn-sm btn-outline" onclick="openSearch('global')">全盘搜索</button>
-        <span style="flex:1"></span>
-        <div class="view-toggle">
+        <span class="flex-1"></span>
+        <div class="seg">
             <button class="active" id="viewGrid" onclick="setViewMode('grid')">网格</button>
             <button id="viewList" onclick="setViewMode('list')">列表</button>
         </div>
     </div>
 
-    <div class="file-grid" id="fileList"></div>
+    <div class="grid" id="fileList"></div>
 </div>
 
 <script src="/static/app.js"></script>
@@ -248,7 +210,7 @@ function loadFiles() {
 function updateBreadcrumb(p) {
     var isPublic = p && p.indexOf('public') === 0;
     var loc = isPublic ? '公共目录' : '我的目录';
-    var h = '<span style="font-size:12px;font-weight:600;color:var(--text);margin-right:8px;padding:2px 8px;border-radius:4px;background:var(--bg);border:1px solid var(--border)">' + loc + '</span>';
+    var h = '<span class="t-sm fw-600 c-body mr-8 r-4 bg-page pad-2-8 bd">' + loc + '</span>';
     // 层级：跳过第一段（`public` 或 `users`），其余逐级显示；链接前缀直接用**原始各段**拼
     // —— 用户目录的第一段是用户名、公共目录的第一段是子目录，两者的前缀算法不一样，
     //    自己另算必然算错一边。
@@ -265,9 +227,15 @@ function updateBreadcrumb(p) {
     });
     // 游客只在公共目录：不显示“我的目录”切换入口（否则点了会进 users/游客 越权 403）
     if (myRole !== 'guest') {
-        h += ' <span style="margin-left:10px">|</span> <a href="/browse/' + (isPublic ? '' : 'public') + '" style="color:var(--primary);font-size:12px">' + (isPublic ? '我的目录' : '公共目录') + '</a>';
+        h += ' <span class="ml-10">|</span> <a class="c-primary t-sm" href="/browse/' + (isPublic ? '' : 'public') + '">' + (isPublic ? '我的目录' : '公共目录') + '</a>';
     }
     document.getElementById('breadcrumb').innerHTML = h;
+    // 顶部标题跟着当前目录走（根目录没有"最后一段"，退回各起点名）
+    var titleEl = document.getElementById('dirTitle');
+    if (titleEl) {
+        var lastPart = parts.length > 1 ? parts[parts.length - 1] : '';
+        titleEl.textContent = lastPart || (isPublic ? '公共目录' : '我的文件');
+    }
     updateGalleryLinks();
 }
 
@@ -281,7 +249,7 @@ function updateStats() {
     });
     // 当前层: 大小 文件夹数 文件数 | 总计: 文件总数
     //（总计只列文件数：文件夹的 size 本身就是递归值，"当前层"那个大小已经含了它）
-    document.getElementById('fileCount').textContent = '当前层: ' + formatSize(ts) + (pending ? '…' : '') + '  ' + foc + '文件夹 ' + fc + ' 文件 | 总计: ' + (_currentTotalFiles == null ? '…' : _currentTotalFiles) + ' 个文件';
+    document.getElementById('fileCount').textContent = formatSize(ts) + (pending ? '…' : '') + ' · ' + foc + ' 文件夹 · ' + fc + ' 文件 · 共 ' + (_currentTotalFiles == null ? '…' : _currentTotalFiles) + ' 个';
 }
 
 function getParent() { if (!currentPath) return ''; var p = currentPath.split('/'); p.pop(); return p.join('/'); }
@@ -307,15 +275,15 @@ function render() {
     filtered.sort(function(a,b) { var ka = getSortKey(a, sortMode), kb = getSortKey(b, sortMode); for(var i=0;i<ka.length;i++){if(ka[i]<kb[i])return -1;if(ka[i]>kb[i])return 1;} return 0; });
 
     var c = document.getElementById('fileList');
-    if (!filtered.length) { c.innerHTML = '<div class="empty" style="padding:60px 20px;color:var(--text-light);font-size:13px;text-align:center"><p>' + (searchQuery ? '没有匹配' : '暂无文件') + '</p></div>'; updateSelected(); return; }
-    c.className = 'file-grid' + (viewMode === 'list' ? ' list-view' : '');
+    if (!filtered.length) { c.innerHTML = '<div class="empty"><span class="icon">🗂</span><p>' + (searchQuery ? '没有匹配的文件' : '这里还是空的') + '</p></div>'; updateSelected(); return; }
+    c.className = 'grid' + (viewMode === 'list' ? ' list-view' : '');
 
     var h = '';
     for (var i = 0; i < filtered.length; i++) {
         var f = filtered[i];
         if (f.type === 'locked') {
             // 锁着的挂载点：**名字、大小一个都不给** —— 只显示"需要访问码"，点它输码
-            h += '<div class="file-card folder" style="cursor:pointer" onclick="askShareCode(\'' + jsAttr(f.label || '') + '\')">';
+            h += '<div class="tile folder pointer" onclick="askShareCode(\'' + jsAttr(f.label || '') + '\')">';
             h += '<span class="icon">&#128274;</span>';
             h += '<div class="name">需要访问码</div>';
             h += '<div class="meta">&mdash;</div>';
@@ -345,7 +313,7 @@ function render() {
         }
 
         // 卡片是整体：点卡片一律是选择（文件夹也一样），进目录走卡片里的「打开」按钮
-        h += '<div class="file-card' + (isFolder ? ' folder' : '') + (selected.has(f.path) ? ' sel' : '') + '" data-path="' + eh + '" onclick="toggleCardSelect(\'' + sp + '\', this)">';
+        h += '<div class="tile' + (isFolder ? ' folder' : '') + (selected.has(f.path) ? ' sel' : '') + '" data-path="' + eh + '" onclick="toggleCardSelect(\'' + sp + '\', this)">';
         h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked,this)">';
         h += thumb;
         h += '<div class="name">' + en + '</div>';
@@ -384,7 +352,7 @@ function paintCardSel(card, on) {
 }
 function toggleSelect(p, c, el) {
     if (c) selected.add(p); else selected.delete(p);
-    paintCardSel(el ? el.closest('.file-card') : null, selected.has(p));
+    paintCardSel(el ? el.closest('.tile') : null, selected.has(p));
     updateSelected();
 }
 function selectAll(c) { files.forEach(function(f) { if (c) selected.add(f.path); else selected.delete(f.path); }); render(); }
@@ -606,7 +574,7 @@ function openSearch(mode) {
 }
 
 function doSearch(mode, q) {
-    if (!q) { if (mode === 'local') { searchQuery = ''; loadFiles(); } else { document.getElementById('fileList').innerHTML = '<div class="empty" style="padding:60px 20px;color:var(--text-light);font-size:13px;text-align:center"><p>输入关键词搜索</p></div>'; } return; }
+    if (!q) { if (mode === 'local') { searchQuery = ''; loadFiles(); } else { document.getElementById('fileList').innerHTML = '<div class="empty c-dim t-md text-center pad-60-20"><p>输入关键词搜索</p></div>'; } return; }
     if (mode === 'local') { searchQuery = q.toLowerCase(); render(); }
     else {
         fetch('/api/search?q=' + encodeURIComponent(q)).then(function(r) { return r.json(); }).then(function(d) {
@@ -617,8 +585,8 @@ function doSearch(mode, q) {
 
 function renderSearchResults(rf, query) {
     var c = document.getElementById('fileList');
-    if (!rf.length) { c.innerHTML = '<div class="empty" style="padding:60px 20px;color:var(--text-light);font-size:13px;text-align:center"><p>没有找到 "' + esc(query) + '"</p></div>'; updateSelected(); return; }
-    c.className = 'file-grid list-view';
+    if (!rf.length) { c.innerHTML = '<div class="empty"><span class="icon">🔍</span><p>没有找到 "' + esc(query) + '"</p></div>'; updateSelected(); return; }
+    c.className = 'grid list-view';
     var h = '';
     for (var i = 0; i < rf.length; i++) {
         var f = rf[i], checked = selected.has(f.path) ? 'checked' : '', sp = jsAttr(f.path), ep = encodeURIComponent(f.path);
@@ -628,7 +596,7 @@ function renderSearchResults(rf, query) {
         var ft = fileType(f.name);
         var pv = (['image', 'video', 'audio', 'text', 'pdf'].indexOf(ft) >= 0)
             ? '<button class="btn btn-sm btn-outline" onclick="event.stopPropagation();openPreview(\'' + sp + '\', rf)">预览</button>' : '';
-        h += '<div class="file-card list-item' + (selected.has(f.path) ? ' sel' : '') + '"><div style="position:absolute;top:0;left:0;right:0;bottom:0;z-index:1" onclick="toggleCardSelect(\'' + sp + '\', this.parentNode)"></div>';
+        h += '<div class="tile list-item' + (selected.has(f.path) ? ' sel' : '') + '"><div class="abs inset-0 z-1" onclick="toggleCardSelect(\'' + sp + '\', this.parentNode)"></div>';
         h += '<input type="checkbox" class="checkbox" ' + checked + ' onclick="event.stopPropagation();toggleSelect(\'' + sp + '\',this.checked,this)">';
         h += '<span class="icon">' + getFileIcon(f.name) + '</span>';
         h += '<div class="name">' + nameHtml + (dir ? '<span class="item-path">' + esc(dir) + '</span>' : '') + '</div>';

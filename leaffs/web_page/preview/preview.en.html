@@ -11,27 +11,28 @@
 <script>window.__LANG__='en';</script></head>
 <body>
 <div class="app">
-    <div class="header">
-        <h1><span class="ht">Gallery</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting...</span></span></h1>
-        <div class="info">
-            <!--THEME_TOGGLE-->
+    <header class="top">
+        <span class="top-logo">🍃</span>
+        <div class="top-main">
+            <h1 class="top-title">Gallery</h1>
+            <div class="top-meta"><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting...</span></span></div>
         </div>
-    </div>
+        <div class="top-side"><!--THEME_TOGGLE--></div>
+    </header>
 
-    <div class="nav-bar">
+    <nav class="tabs">
         <a href="/browse/">Browse</a>
         <a href="/gallery" class="active">Gallery</a>
         <a href="/url-download">Downloader</a>
         <a href="/share">Share</a>
         <a href="/admin">Admin</a>
         <a href="/me">My Account</a>
-        <span style="flex:1"></span>
-    </div>
+    </nav>
 
     <div class="gallery-header">
         Category view
     </div>
-    <div class="breadcrumb" id="galleryBreadcrumb"><a href="/browse/">Home</a></div>
+    <div class="crumbs" id="galleryBreadcrumb"><a href="/browse/">Home</a></div>
 
     <div class="gallery-tabs" id="galleryTabs">
         <div class="gallery-tab active" data-type="all" onclick="switchTab('all')">All</div>
@@ -60,9 +61,9 @@ var myRole = __MY_ROLE__;
 // 根据角色显隐导航项
 (function(){
     var isGuest = myRole === 'guest' || !myRole;
-    var navDownloader = document.querySelector('.nav-bar a[href="/url-download"]');
-    var navAdmin = document.querySelector('.nav-bar a[href="/admin"]');
-    var navShare = document.querySelector('.nav-bar a[href="/share"]');
+    var navDownloader = document.querySelector('.tabs a[href="/url-download"]');
+    var navAdmin = document.querySelector('.tabs a[href="/admin"]');
+    var navShare = document.querySelector('.tabs a[href="/share"]');
     if (navDownloader) navDownloader.style.display = isGuest ? 'none' : '';
     if (navAdmin) navAdmin.style.display = (myRole === 'admin' || myRole === 'super_admin') ? '' : 'none';
     if (navShare) navShare.style.display = isGuest ? 'none' : '';
@@ -109,20 +110,20 @@ function updateGalleryBreadcrumb() {
     var el = document.getElementById('galleryBreadcrumb');
     var isInPublic = _currentScanRoot === 'public';
     var locationLabel = isInPublic ? 'Public' : 'My folder';
-    var html = '<span style="font-size:12px;font-weight:600;color:var(--text);margin-right:8px;padding:2px 8px;border-radius:4px;background:var(--bg);border:1px solid var(--border)">' + locationLabel + '</span>';
+    var html = '<span class="t-sm fw-600 c-body mr-8 r-4 bg-page pad-2-8 bd">' + locationLabel + '</span>';
     if (isInPublic) {
         html += '<a href="/gallery?dir=public">Public</a>';
         // 游客只在公共目录，不提供“切换到我的目录”
         if (myRole !== 'guest') {
-            html += ' <span style="margin-left:14px;color:var(--text-light);font-size:11px">|</span> ';
-            html += '<a href="/gallery" style="color:var(--primary);font-weight:500;font-size:12px">Switch to My folder</a>';
+            html += ' <span class="c-dim t-xs ml-14">|</span> ';
+            html += '<a class="c-primary fw-500 t-sm" href="/gallery">Switch to My folder</a>';
         }
     } else {
         var parts = _currentScanRoot.split('/');
         var userName = parts[1] || '';
         html += '<span>' + esc(userName) + '</span>';
-        html += ' <span style="margin-left:14px;color:var(--text-light);font-size:11px">|</span> ';
-        html += '<a href="/gallery?dir=public" style="color:var(--primary);font-weight:500;font-size:12px">Switch to Public</a>';
+        html += ' <span class="c-dim t-xs ml-14">|</span> ';
+        html += '<a class="c-primary fw-500 t-sm" href="/gallery?dir=public">Switch to Public</a>';
     }
     el.innerHTML = html;
 }
@@ -295,7 +296,7 @@ function renderGallery() {
         html += '<div class="gallery-item" onclick="openPreview(\'' + sname + '\', allFiles)">';
         html += thumbHtml;
         html += '<div class="item-name" title="' + escAttr(f.name) + '">' + ename + '</div>';
-        html += '<div style="font-size:11px;color:var(--muted)">' + formatSize(f.size) + '</div>';
+        html += '<div class="t-xs" style="color:var(--muted)">' + formatSize(f.size) + '</div>';
         html += '</div>';
     }
     container.innerHTML = html;
@@ -313,26 +314,5 @@ if (initType) {
 loadAllFiles();
 connectWS();
 </script>
-<style>
-.gallery-header { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 10px; }
-.breadcrumb { font-size: 12px; margin-bottom: 10px; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
-.breadcrumb a { color: var(--primary); text-decoration: none; font-size: 12px; }
-.breadcrumb a:hover { text-decoration: underline; }
-.breadcrumb span { color: var(--text); }
-.gallery-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
-.gallery-tab { padding: 4px 14px; border-radius: 20px; border: 1px solid var(--border); font-size: 12px; cursor: pointer; color: var(--text); background: var(--card-bg); }
-.gallery-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
-.gallery-search { margin-bottom: 12px; }
-.gallery-search-input { width: 100%; padding: 8px 12px; border: 2px solid var(--border); border-radius: 8px; font-size: 13px; outline: none; background: var(--card-bg); color: var(--text); }
-.gallery-search-input:focus { border-color: var(--primary); }
-.gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-.gallery-item { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; cursor: pointer; text-align: center; padding-bottom: 8px; }
-.gallery-item:hover { border-color: var(--primary); }
-.gallery-item img.thumb { width: 100%; height: 120px; object-fit: cover; display: block; }
-.gallery-item .icon-large { font-size: 40px; display: flex; align-items: center; justify-content: center; height: 120px; }
-.gallery-item .item-name { font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 8px 2px; }
-.gallery-empty { text-align: center; padding: 80px 20px; color: var(--text-light); font-size: 13px; }
-.empty { text-align: center; padding: 60px 20px; color: var(--text-light); font-size: 13px; }
-</style>
 </body>
 </html>

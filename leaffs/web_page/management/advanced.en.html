@@ -10,181 +10,182 @@
 <script>window.__LANG__='en';</script></head>
 <body>
 <div class="app">
-    <div class="header">
-        <h1><span class="ht">Advanced Settings</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting…</span></span></h1>
-        <div class="info">
-            <!--THEME_TOGGLE-->
+    <header class="top">
+        <span class="top-logo">🍃</span>
+        <div class="top-main">
+            <h1 class="top-title">Advanced Settings</h1>
+            <div class="top-meta"><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting…</span></span></div>
         </div>
-    </div>
+        <div class="top-side"><button class="nav-back" onclick="window.location.href='/admin'">Back to Admin</button>
+            <!--THEME_TOGGLE--></div>
+    </header>
 
-    <div class="nav-bar">
+    <nav class="tabs">
         <a href="/browse/">Browse</a>
         <a href="/gallery">Gallery</a>
         <a href="/url-download">Downloader</a>
         <a href="/share">Share</a>
         <a href="/admin">Admin</a>
         <a href="/me">My Account</a>
-        <span style="flex:1"></span>
-        <button class="nav-back" onclick="window.location.href='/admin'">Back to Admin</button>
-    </div>
+    </nav>
 
     <!-- Config read status: clearly reports load failures / missing fields instead of silently showing empty data -->
-    <div id="cfgStatus" style="display:none;margin:10px 0;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5"></div>
+    <div class="t-sm lh-15 r-6 my-10 pad-8-12" id="cfgStatus" style="display:none"></div>
 
     <div class="admin-grid">
         <!-- HTTP port -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>HTTP Port</h3>
             <div class="config-group">
                 <label>The HTTP port the service listens on. Port range 1024~65535; changing it requires a server restart</label>
                 <div class="config-row">
-                    <input type="number" id="httpPortInput" min="1024" max="65535" value="8080" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">(1024~65535)</span>
-                    <button class="btn-admin primary" onclick="applyHttpPort()" style="font-size:11px">Save</button>
+                    <input class="w-80" type="number" id="httpPortInput" min="1024" max="65535" value="8080">
+                    <span class="t-xs c-dim">(1024~65535)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyHttpPort()">Save</button>
                 </div>
-                <div style="font-size:11px;color:var(--danger);margin-top:4px">Changing it requires a server restart to take effect</div>
+                <div class="t-xs c-danger mt-4">Changing it requires a server restart to take effect</div>
             </div>
         </div>
 
         <!-- WebSocket port -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>WebSocket Port</h3>
             <div class="config-group">
                 <label>The WebSocket port used for realtime communication. Port range 1024~65535; changing it requires a server restart</label>
                 <div class="config-row">
-                    <input type="number" id="wsPortInput" min="1024" max="65535" value="8081" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">(1024~65535)</span>
-                    <button class="btn-admin primary" onclick="applyWsPort()" style="font-size:11px">Save</button>
+                    <input class="w-80" type="number" id="wsPortInput" min="1024" max="65535" value="8081">
+                    <span class="t-xs c-dim">(1024~65535)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyWsPort()">Save</button>
                 </div>
-                <div style="font-size:11px;color:var(--danger);margin-top:4px">Changing it requires a server restart to take effect</div>
+                <div class="t-xs c-danger mt-4">Changing it requires a server restart to take effect</div>
             </div>
         </div>
 
         <!-- HTTPS (TLS) -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>HTTPS (TLS)</h3>
             <div class="config-group">
                 <label>When enabled, access is served over encrypted HTTPS: file contents and sign-in credentials travel as ciphertext over the network, preventing eavesdropping</label>
                 <div class="config-row">
-                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
-                        <input type="checkbox" id="tlsEnabledInput" style="width:auto">
+                    <label class="flex items-center gap-6 m-0 t-sm c-body">
+                        <input class="w-auto" type="checkbox" id="tlsEnabledInput">
                         <span>Enable HTTPS (plaintext HTTP when off)</span>
                     </label>
-                    <span style="flex:1"></span>
-                    <button class="btn-admin primary" onclick="applyTls()" style="font-size:11px">Save</button>
+                    <span class="flex-1"></span>
+                    <button class="btn-admin primary t-xs" onclick="applyTls()">Save</button>
                 </div>
-                <div style="font-size:11px;color:var(--danger);margin-top:4px">Changing it requires a server restart; once enabled, access via https://</div>
-                <div id="tlsRoleNote" style="display:none;font-size:11px;color:var(--warn);margin-top:4px">Only the Super Admin can change TLS settings (security policy).</div>
+                <div class="t-xs c-danger mt-4">Changing it requires a server restart; once enabled, access via https://</div>
+                <div class="t-xs c-warn mt-4" id="tlsRoleNote" style="display:none">Only the Super Admin can change TLS settings (security policy).</div>
             </div>
         </div>
 
         <!-- Certificate info page port -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Certificate Info Page Port</h3>
             <div class="config-group">
                 <label>Only active when HTTPS is enabled: if the browser warns "Not secure / Your connection is not private", open the plain-text info page on this port of the machine to understand why (no certificate is installed). Must not duplicate the HTTP/WebSocket port</label>
                 <div class="config-row">
-                    <input type="number" id="tlsTrustPortInput" min="1024" max="65535" value="8082" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">(1024~65535, applies after restart)</span>
-                    <button class="btn-admin primary" onclick="applyTrustPort()" style="font-size:11px">Save</button>
+                    <input class="w-80" type="number" id="tlsTrustPortInput" min="1024" max="65535" value="8082">
+                    <span class="t-xs c-dim">(1024~65535, applies after restart)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyTrustPort()">Save</button>
                 </div>
-                <div style="font-size:11px;color:var(--danger);margin-top:4px">Changing it requires a server restart; it must not be the same as the HTTP / WebSocket port</div>
+                <div class="t-xs c-danger mt-4">Changing it requires a server restart; it must not be the same as the HTTP / WebSocket port</div>
             </div>
         </div>
 
         <!-- Copy buffer size -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Copy Buffer Size</h3>
             <div class="config-group">
                 <label>In-memory buffer used when reading and writing files; larger means lower CPU usage but more memory used</label>
                 <div class="config-row">
-                    <input type="number" id="bufferSizeInput" min="1" value="16" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">MB (1~64 recommended)</span>
-                    <button class="btn-admin primary" onclick="applyBufferSize()" style="font-size:11px">Apply</button>
+                    <input class="w-80" type="number" id="bufferSizeInput" min="1" value="16">
+                    <span class="t-xs c-dim">MB (1~64 recommended)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyBufferSize()">Apply</button>
                 </div>
-                <div style="font-size:11px;color:var(--danger);margin-top:4px">Changing it requires a server restart to take effect</div>
+                <div class="t-xs c-danger mt-4">Changing it requires a server restart to take effect</div>
             </div>
         </div>
 
         <!-- File cache TTL -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>File Cache TTL</h3>
             <div class="config-group">
                 <label>How long cached file content stays before it is refreshed automatically; 0 disables caching. Longer TTL means files are less up-to-date but fewer disk reads</label>
                 <div class="config-row">
-                    <input type="number" id="fileCacheTtlInput" min="0" value="5" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">s (0 = disable cache)</span>
-                    <button class="btn-admin primary" onclick="applyFileCacheTtl()" style="font-size:11px">Apply</button>
+                    <input class="w-80" type="number" id="fileCacheTtlInput" min="0" value="5">
+                    <span class="t-xs c-dim">s (0 = disable cache)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyFileCacheTtl()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Folder cache TTL -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Folder Cache TTL</h3>
             <div class="config-group">
                 <label>How long cached folder sizes stay before they are refreshed automatically. Shorter TTL updates folder sizes more promptly, at a small extra performance cost</label>
                 <div class="config-row">
-                    <input type="number" id="folderCacheTtlInput" min="0" value="5" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">s (0 = disable cache)</span>
-                    <button class="btn-admin primary" onclick="applyFolderCacheTtl()" style="font-size:11px">Apply</button>
+                    <input class="w-80" type="number" id="folderCacheTtlInput" min="0" value="5">
+                    <span class="t-xs c-dim">s (0 = disable cache)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyFolderCacheTtl()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Upload debounce delay -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Upload Debounce Delay</h3>
             <div class="config-group">
                 <label>While several files are uploaded in a row, lowers how often folder sizes are recomputed. Larger values cost less performance, but folder-size updates are slightly delayed</label>
                 <div class="config-row">
-                    <input type="number" id="debounceDelayInput" min="0" value="2" step="0.5" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">s (0 = disable debounce)</span>
-                    <button class="btn-admin primary" onclick="applyDebounceDelay()" style="font-size:11px">Apply</button>
+                    <input class="w-80" type="number" id="debounceDelayInput" min="0" value="2" step="0.5">
+                    <span class="t-xs c-dim">s (0 = disable debounce)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyDebounceDelay()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- API request body limit -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>API Request Body Size Limit</h3>
             <div class="config-group">
                 <label>JSON requests larger than this are rejected (file uploads are not affected)</label>
                 <div class="config-row">
-                    <input type="number" id="apiBodySizeInput" min="0" value="1" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">MB (0.5~5 recommended)</span>
-                    <button class="btn-admin primary" onclick="applyApiBodySize()" style="font-size:11px">Apply</button>
+                    <input class="w-80" type="number" id="apiBodySizeInput" min="0" value="1">
+                    <span class="t-xs c-dim">MB (0.5~5 recommended)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyApiBodySize()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Upload read chunk size -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Upload Read Chunk Size</h3>
             <div class="config-group">
                 <label>Buffer chunk read from the network stream and written to disk while uploading. Larger chunks use less CPU and upload faster, but memory usage rises</label>
                 <div class="config-row">
-                    <input type="number" id="uploadChunkInput" min="0.5" value="1" step="0.5" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">MB (0.5~4 recommended)</span>
-                    <button class="btn-admin primary" onclick="applyUploadChunk()" style="font-size:11px">Apply</button>
+                    <input class="w-80" type="number" id="uploadChunkInput" min="0.5" value="1" step="0.5">
+                    <span class="t-xs c-dim">MB (0.5~4 recommended)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyUploadChunk()">Apply</button>
                 </div>
-                <div style="font-size:11px;color:var(--text-light);margin-top:4px">Applies to new uploads immediately</div>
+                <div class="t-xs c-dim mt-4">Applies to new uploads immediately</div>
             </div>
         </div>
 
         <!-- ZIP packaging mode -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>ZIP Packaging Mode</h3>
             <div class="config-group">
-                <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
-                    <input type="checkbox" id="zipStreamInput" checked onchange="zipStreamChanged()" style="width:auto;margin-top:2px">
+                <label class="flex items-start gap-8 pointer">
+                    <input class="w-auto mt-2" type="checkbox" id="zipStreamInput" checked onchange="zipStreamChanged()">
                     <span><strong>Streaming packaging (on by default, recommended)</strong>: selected files are compressed and sent on the fly — no disk space used, and data starts flowing as soon as the download begins.</span>
                 </label>
-                <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
-                    <button class="btn-admin primary" onclick="applyZipStream()" style="font-size:11px">Save</button>
-                    <span style="font-size:11px;color:var(--text-light)">Takes effect immediately, no restart needed</span>
+                <div class="flex items-center gap-12 mt-8">
+                    <button class="btn-admin primary t-xs" onclick="applyZipStream()">Save</button>
+                    <span class="t-xs c-dim">Takes effect immediately, no restart needed</span>
                 </div>
-                <div id="zipStreamWarn" style="display:none;font-size:12px;color:var(--danger);border:1px solid var(--danger);border-radius:8px;padding:8px 10px;margin-top:10px;background:rgba(220,60,60,.07);line-height:1.7">
+                <div class="t-sm c-danger mt-10 lh-17 r-8 bd-danger pad-8-10" id="zipStreamWarn" style="display:none;background:rgba(220,60,60,.07)">
                     ⚠️ <strong>Turning streaming off = package first, send later</strong>: the system compresses all selected files into a <strong>temporary file</strong> before the download starts.
                     Packaging large files <strong>uses a lot of disk space</strong>; a full disk can <strong>make the transfer fail</strong>, and it <strong>takes much longer</strong> (no data is sent until everything is fully compressed).
                     Keep streaming on unless you have a specific reason.
@@ -193,54 +194,54 @@
         </div>
 
         <!-- ZIP packaging file limit -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>ZIP Packaging File Limit</h3>
             <div class="config-group">
                 <label>Maximum number of files for a one-shot packaged download (including expanded folders); 0 = unlimited</label>
                 <div class="config-row">
-                    <input type="number" id="zipMaxInput" min="0" value="500" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">files (0 = unlimited, 100~1000 recommended)</span>
-                    <button class="btn-admin primary" onclick="applyZipMax()" style="font-size:11px">Apply</button>
+                    <input class="w-80" type="number" id="zipMaxInput" min="0" value="500">
+                    <span class="t-xs c-dim">files (0 = unlimited, 100~1000 recommended)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyZipMax()">Apply</button>
                 </div>
-                <div style="font-size:11px;color:var(--text-light);margin-top:4px">Takes effect immediately</div>
+                <div class="t-xs c-dim mt-4">Takes effect immediately</div>
             </div>
         </div>
 
         <!-- File cache max items -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>File Cache Max Items</h3>
             <div class="config-group">
                 <label>How many file contents to cache at most; the oldest files are evicted automatically when exceeded</label>
                 <div class="config-row">
-                    <input type="number" id="cacheMaxItemsInput" min="0" value="50" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">items (0 = disable cache)</span>
-                    <button class="btn-admin primary" onclick="applyCacheMaxItems()" style="font-size:11px">Apply</button>
+                    <input class="w-80" type="number" id="cacheMaxItemsInput" min="0" value="50">
+                    <span class="t-xs c-dim">items (0 = disable cache)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyCacheMaxItems()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Upload size limit -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Upload Size Limit</h3>
             <div class="config-group">
                 <label>Uploads of files larger than this are rejected. 0 means no limit</label>
                 <div class="config-row">
-                    <input type="number" id="uploadMaxSizeInput" min="0" value="10240" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">MB (0 = unlimited)</span>
-                    <button class="btn-admin primary" onclick="applyUploadMaxSize()" style="font-size:11px">Apply</button>
+                    <input class="w-80" type="number" id="uploadMaxSizeInput" min="0" value="10240">
+                    <span class="t-xs c-dim">MB (0 = unlimited)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyUploadMaxSize()">Apply</button>
                 </div>
             </div>
         </div>
 
         <!-- Online preview size limit -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>Online Preview Size Limit</h3>
             <div class="config-group">
                 <label>Files larger than this can only be downloaded, not previewed directly in the browser (images, video, text, etc.)</label>
                 <div class="config-row">
-                    <input type="number" id="previewMaxSizeInput" min="0" value="10" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">MB (0 = disable preview)</span>
-                    <button class="btn-admin primary" onclick="applyPreviewMaxSize()" style="font-size:11px">Apply</button>
+                    <input class="w-80" type="number" id="previewMaxSizeInput" min="0" value="10">
+                    <span class="t-xs c-dim">MB (0 = disable preview)</span>
+                    <button class="btn-admin primary t-xs" onclick="applyPreviewMaxSize()">Apply</button>
                 </div>
             </div>
         </div>
@@ -529,16 +530,5 @@ function loadConfig() {
 loadConfig();
 connectWS();
 </script>
-<style>
-.admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
-.admin-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
-.admin-card h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-.config-group { margin-bottom: 10px; }
-.config-group label { display: block; font-size: 11px; color: var(--text-light); margin-bottom: 4px; line-height: 1.4; }
-.config-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.config-row input[type=number] { padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; background: var(--card-bg); color: var(--text); }
-.config-row input:focus { border-color: var(--primary); }
-/* Button styles are unified in the global style.css common buttons */
-</style>
 </body>
 </html>

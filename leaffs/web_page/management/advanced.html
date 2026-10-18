@@ -9,181 +9,182 @@
 </head>
 <body>
 <div class="app">
-    <div class="header">
-        <h1><span class="ht">高级配置</span><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">连接中...</span></span></h1>
-        <div class="info">
-            <!--THEME_TOGGLE-->
+    <header class="top">
+        <span class="top-logo">🍃</span>
+        <div class="top-main">
+            <h1 class="top-title">高级配置</h1>
+            <div class="top-meta"><span class="ws-status"><span class="dot" id="wsDot"></span><span id="wsLabel">连接中...</span></span></div>
         </div>
-    </div>
+        <div class="top-side"><button class="nav-back" onclick="window.location.href='/admin'">返回管理</button>
+            <!--THEME_TOGGLE--></div>
+    </header>
 
-    <div class="nav-bar">
+    <nav class="tabs">
         <a href="/browse/">浏览</a>
         <a href="/gallery">预览</a>
         <a href="/url-download">下载器</a>
         <a href="/share">分享</a>
         <a href="/admin">管理</a>
         <a href="/me">我的</a>
-        <span style="flex:1"></span>
-        <button class="nav-back" onclick="window.location.href='/admin'">返回管理</button>
-    </div>
+    </nav>
 
     <!-- 配置读取状态：加载失败/字段缺失时明确提示，绝不静默显示空数据 -->
-    <div id="cfgStatus" style="display:none;margin:10px 0;padding:8px 12px;border-radius:6px;font-size:12px;line-height:1.5"></div>
+    <div class="t-sm lh-15 r-6 my-10 pad-8-12" id="cfgStatus" style="display:none"></div>
 
     <div class="admin-grid">
         <!-- HTTP 端口 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>HTTP 端口</h3>
             <div class="config-group">
                 <label>服务监听的 HTTP 端口。端口号范围 1024~65535，修改后必须重启服务器才能生效</label>
                 <div class="config-row">
-                    <input type="number" id="httpPortInput" min="1024" max="65535" value="8080" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">（1024~65535）</span>
-                    <button class="btn-admin primary" onclick="applyHttpPort()" style="font-size:11px">保存</button>
+                    <input class="w-80" type="number" id="httpPortInput" min="1024" max="65535" value="8080">
+                    <span class="t-xs c-dim">（1024~65535）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyHttpPort()">保存</button>
                 </div>
-                <div style="font-size:11px;color:var(--danger);margin-top:4px">修改后需重启服务器生效</div>
+                <div class="t-xs c-danger mt-4">修改后需重启服务器生效</div>
             </div>
         </div>
 
         <!-- WebSocket 端口 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>WebSocket 端口</h3>
             <div class="config-group">
                 <label>WebSocket 实时通信端口。端口号范围 1024~65535，修改后必须重启服务器才能生效</label>
                 <div class="config-row">
-                    <input type="number" id="wsPortInput" min="1024" max="65535" value="8081" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">（1024~65535）</span>
-                    <button class="btn-admin primary" onclick="applyWsPort()" style="font-size:11px">保存</button>
+                    <input class="w-80" type="number" id="wsPortInput" min="1024" max="65535" value="8081">
+                    <span class="t-xs c-dim">（1024~65535）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyWsPort()">保存</button>
                 </div>
-                <div style="font-size:11px;color:var(--danger);margin-top:4px">修改后需重启服务器生效</div>
+                <div class="t-xs c-danger mt-4">修改后需重启服务器生效</div>
             </div>
         </div>
 
         <!-- HTTPS (TLS) -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>HTTPS (TLS)</h3>
             <div class="config-group">
                 <label>开启后以 HTTPS 加密方式提供访问：文件内容与登录口令在网络中均为密文传输，防止被窃听</label>
                 <div class="config-row">
-                    <label style="display:flex;align-items:center;gap:6px;margin:0;font-size:12px;color:var(--text)">
-                        <input type="checkbox" id="tlsEnabledInput" style="width:auto">
+                    <label class="flex items-center gap-6 m-0 t-sm c-body">
+                        <input class="w-auto" type="checkbox" id="tlsEnabledInput">
                         <span>启用 HTTPS（关闭时保持明文 HTTP）</span>
                     </label>
-                    <span style="flex:1"></span>
-                    <button class="btn-admin primary" onclick="applyTls()" style="font-size:11px">保存</button>
+                    <span class="flex-1"></span>
+                    <button class="btn-admin primary t-xs" onclick="applyTls()">保存</button>
                 </div>
-                <div style="font-size:11px;color:var(--danger);margin-top:4px">修改后需重启服务器生效；开启后请使用 https:// 访问</div>
-                <div id="tlsRoleNote" style="display:none;font-size:11px;color:var(--warn);margin-top:4px">仅超级管理员可修改 TLS 设置（安全策略）。</div>
+                <div class="t-xs c-danger mt-4">修改后需重启服务器生效；开启后请使用 https:// 访问</div>
+                <div class="t-xs c-warn mt-4" id="tlsRoleNote" style="display:none">仅超级管理员可修改 TLS 设置（安全策略）。</div>
             </div>
         </div>
 
         <!-- 证书提示页端口 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>证书提示页端口</h3>
             <div class="config-group">
                 <label>仅启用 HTTPS 时提供：浏览器提示“不安全 / 连接不是私密连接”时，可打开本机该端口的纯文字说明页了解原因（不安装任何证书）。不可与 HTTP/WebSocket 端口重复</label>
                 <div class="config-row">
-                    <input type="number" id="tlsTrustPortInput" min="1024" max="65535" value="8082" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">（1024~65535，重启生效）</span>
-                    <button class="btn-admin primary" onclick="applyTrustPort()" style="font-size:11px">保存</button>
+                    <input class="w-80" type="number" id="tlsTrustPortInput" min="1024" max="65535" value="8082">
+                    <span class="t-xs c-dim">（1024~65535，重启生效）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyTrustPort()">保存</button>
                 </div>
-                <div style="font-size:11px;color:var(--danger);margin-top:4px">修改后需重启服务器生效；不能与 HTTP / WebSocket 端口相同</div>
+                <div class="t-xs c-danger mt-4">修改后需重启服务器生效；不能与 HTTP / WebSocket 端口相同</div>
             </div>
         </div>
 
         <!-- 复制缓冲区大小 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>复制缓冲区大小</h3>
             <div class="config-group">
                 <label>文件读写时使用的内存缓冲区，越大CPU占用越小但越占内存</label>
                 <div class="config-row">
-                    <input type="number" id="bufferSizeInput" min="1" value="16" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">MB（建议 1~64）</span>
-                    <button class="btn-admin primary" onclick="applyBufferSize()" style="font-size:11px">应用</button>
+                    <input class="w-80" type="number" id="bufferSizeInput" min="1" value="16">
+                    <span class="t-xs c-dim">MB（建议 1~64）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyBufferSize()">应用</button>
                 </div>
-                <div style="font-size:11px;color:var(--danger);margin-top:4px">修改后需重启服务器生效</div>
+                <div class="t-xs c-danger mt-4">修改后需重启服务器生效</div>
             </div>
         </div>
 
         <!-- 文件缓存 TTL -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>文件缓存存活时间</h3>
             <div class="config-group">
                 <label>缓存的文件内容多久后自动刷新，0 表示禁用缓存。存活时间越长，文件实时性越低，但硬盘读取减少</label>
                 <div class="config-row">
-                    <input type="number" id="fileCacheTtlInput" min="0" value="5" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">秒（0 = 禁用缓存）</span>
-                    <button class="btn-admin primary" onclick="applyFileCacheTtl()" style="font-size:11px">应用</button>
+                    <input class="w-80" type="number" id="fileCacheTtlInput" min="0" value="5">
+                    <span class="t-xs c-dim">秒（0 = 禁用缓存）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyFileCacheTtl()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 文件夹缓存 TTL -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>文件夹缓存存活时间</h3>
             <div class="config-group">
                 <label>文件夹大小的缓存多久后自动刷新。存活时间越短，文件夹大小更新越及时，同时小幅提升性能消耗</label>
                 <div class="config-row">
-                    <input type="number" id="folderCacheTtlInput" min="0" value="5" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">秒（0 = 禁用缓存）</span>
-                    <button class="btn-admin primary" onclick="applyFolderCacheTtl()" style="font-size:11px">应用</button>
+                    <input class="w-80" type="number" id="folderCacheTtlInput" min="0" value="5">
+                    <span class="t-xs c-dim">秒（0 = 禁用缓存）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyFolderCacheTtl()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 上传防抖延迟 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>上传防抖延迟</h3>
             <div class="config-group">
                 <label>连续上传多个文件时，降低文件夹大小计算频率。越大性能消耗越小，但文件夹大小更新会稍微延迟</label>
                 <div class="config-row">
-                    <input type="number" id="debounceDelayInput" min="0" value="2" step="0.5" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">秒（0 = 禁用防抖）</span>
-                    <button class="btn-admin primary" onclick="applyDebounceDelay()" style="font-size:11px">应用</button>
+                    <input class="w-80" type="number" id="debounceDelayInput" min="0" value="2" step="0.5">
+                    <span class="t-xs c-dim">秒（0 = 禁用防抖）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyDebounceDelay()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- API 请求体上限 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>API 请求体大小上限</h3>
             <div class="config-group">
                 <label>超过此大小的 JSON 请求会被拒绝（文件上传不受影响）</label>
                 <div class="config-row">
-                    <input type="number" id="apiBodySizeInput" min="0" value="1" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">MB（建议 0.5~5）</span>
-                    <button class="btn-admin primary" onclick="applyApiBodySize()" style="font-size:11px">应用</button>
+                    <input class="w-80" type="number" id="apiBodySizeInput" min="0" value="1">
+                    <span class="t-xs c-dim">MB（建议 0.5~5）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyApiBodySize()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 上传读取块大小 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>上传读取块大小</h3>
             <div class="config-group">
                 <label>上传时从网络流读取并写入磁盘的缓冲块大小。越大 CPU 占用越低、上传越快，但内存占用上升</label>
                 <div class="config-row">
-                    <input type="number" id="uploadChunkInput" min="0.5" value="1" step="0.5" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">MB（建议 0.5~4）</span>
-                    <button class="btn-admin primary" onclick="applyUploadChunk()" style="font-size:11px">应用</button>
+                    <input class="w-80" type="number" id="uploadChunkInput" min="0.5" value="1" step="0.5">
+                    <span class="t-xs c-dim">MB（建议 0.5~4）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyUploadChunk()">应用</button>
                 </div>
-                <div style="font-size:11px;color:var(--text-light);margin-top:4px">对新上传立即生效</div>
+                <div class="t-xs c-dim mt-4">对新上传立即生效</div>
             </div>
         </div>
 
         <!-- ZIP 打包方式 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>ZIP 打包方式</h3>
             <div class="config-group">
-                <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer">
-                    <input type="checkbox" id="zipStreamInput" checked onchange="zipStreamChanged()" style="width:auto;margin-top:2px">
+                <label class="flex items-start gap-8 pointer">
+                    <input class="w-auto mt-2" type="checkbox" id="zipStreamInput" checked onchange="zipStreamChanged()">
                     <span><strong>流式打包（默认开启，推荐）</strong>：选中文件后边压缩边发送，不占磁盘空间，一点下载就开始出数据。</span>
                 </label>
-                <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
-                    <button class="btn-admin primary" onclick="applyZipStream()" style="font-size:11px">保存</button>
-                    <span style="font-size:11px;color:var(--text-light)">立即生效，无需重启</span>
+                <div class="flex items-center gap-12 mt-8">
+                    <button class="btn-admin primary t-xs" onclick="applyZipStream()">保存</button>
+                    <span class="t-xs c-dim">立即生效，无需重启</span>
                 </div>
-                <div id="zipStreamWarn" style="display:none;font-size:12px;color:var(--danger);border:1px solid var(--danger);border-radius:8px;padding:8px 10px;margin-top:10px;background:rgba(220,60,60,.07);line-height:1.7">
+                <div class="t-sm c-danger mt-10 lh-17 r-8 bd-danger pad-8-10" id="zipStreamWarn" style="display:none;background:rgba(220,60,60,.07)">
                     ⚠️ <strong>关闭流式 = 先打包、后发送</strong>：系统会把所有选中文件先压缩写进<strong>临时文件</strong>再开始下载。
                     打包大文件时会<strong>占用大量磁盘空间</strong>，磁盘写满会<strong>导致传输失败</strong>，而且<strong>耗时更久</strong>（必须等全部压缩完才开始出数据）。
                     没有特殊需求请保持流式开启。
@@ -192,54 +193,54 @@
         </div>
 
         <!-- ZIP 打包上限 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>ZIP 打包文件上限</h3>
             <div class="config-group">
                 <label>一次性打包下载（含文件夹展开）的文件数量上限，0 = 不限制</label>
                 <div class="config-row">
-                    <input type="number" id="zipMaxInput" min="0" value="500" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">个（0 = 不限，建议 100~1000）</span>
-                    <button class="btn-admin primary" onclick="applyZipMax()" style="font-size:11px">应用</button>
+                    <input class="w-80" type="number" id="zipMaxInput" min="0" value="500">
+                    <span class="t-xs c-dim">个（0 = 不限，建议 100~1000）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyZipMax()">应用</button>
                 </div>
-                <div style="font-size:11px;color:var(--text-light);margin-top:4px">立即生效</div>
+                <div class="t-xs c-dim mt-4">立即生效</div>
             </div>
         </div>
 
         <!-- 文件缓存最大条目 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>文件缓存最大条目数</h3>
             <div class="config-group">
                 <label>最多缓存多少个文件的内容。超过时自动淘汰最旧的文件</label>
                 <div class="config-row">
-                    <input type="number" id="cacheMaxItemsInput" min="0" value="50" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">个（0 = 禁用缓存）</span>
-                    <button class="btn-admin primary" onclick="applyCacheMaxItems()" style="font-size:11px">应用</button>
+                    <input class="w-80" type="number" id="cacheMaxItemsInput" min="0" value="50">
+                    <span class="t-xs c-dim">个（0 = 禁用缓存）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyCacheMaxItems()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 上传大小上限 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>上传大小上限</h3>
             <div class="config-group">
                 <label>超过此大小的文件上传会被拒绝。0 表示不限制</label>
                 <div class="config-row">
-                    <input type="number" id="uploadMaxSizeInput" min="0" value="10240" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">MB（0 = 不限制）</span>
-                    <button class="btn-admin primary" onclick="applyUploadMaxSize()" style="font-size:11px">应用</button>
+                    <input class="w-80" type="number" id="uploadMaxSizeInput" min="0" value="10240">
+                    <span class="t-xs c-dim">MB（0 = 不限制）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyUploadMaxSize()">应用</button>
                 </div>
             </div>
         </div>
 
         <!-- 在线预览大小上限 -->
-        <div class="admin-card">
+        <div class="panel">
             <h3>在线预览大小上限</h3>
             <div class="config-group">
                 <label>超过此大小的文件只能下载，不能直接在浏览器中预览（图片、视频、文本等）</label>
                 <div class="config-row">
-                    <input type="number" id="previewMaxSizeInput" min="0" value="10" style="width:80px">
-                    <span style="font-size:11px;color:var(--text-light)">MB（0 = 禁用预览）</span>
-                    <button class="btn-admin primary" onclick="applyPreviewMaxSize()" style="font-size:11px">应用</button>
+                    <input class="w-80" type="number" id="previewMaxSizeInput" min="0" value="10">
+                    <span class="t-xs c-dim">MB（0 = 禁用预览）</span>
+                    <button class="btn-admin primary t-xs" onclick="applyPreviewMaxSize()">应用</button>
                 </div>
             </div>
         </div>
@@ -528,16 +529,5 @@ function loadConfig() {
 loadConfig();
 connectWS();
 </script>
-<style>
-.admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
-.admin-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
-.admin-card h3 { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-.config-group { margin-bottom: 10px; }
-.config-group label { display: block; font-size: 11px; color: var(--text-light); margin-bottom: 4px; line-height: 1.4; }
-.config-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.config-row input[type=number] { padding: 6px 8px; border: 2px solid var(--border); border-radius: 6px; font-size: 12px; outline: none; background: var(--card-bg); color: var(--text); }
-.config-row input:focus { border-color: var(--primary); }
-/* 按钮样式已统一在全局 style.css 通用按钮 */
-</style>
 </body>
 </html>

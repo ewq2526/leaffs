@@ -80,7 +80,7 @@
       var el = document.documentElement;
       browser.runtime.sendNativeMessage('browser', {
         type: 'theme',
-        dark: el.getAttribute('data-theme') === 'dark',
+        dark: el.getAttribute('data-theme') !== 'light',
         accent: el.getAttribute('data-accent') || ''
       });
     } catch (e) {

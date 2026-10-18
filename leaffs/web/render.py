@@ -58,7 +58,7 @@ def _inject_theme_toggle(html, theme='', is_en=False):
     改成只有一份：文案取自 _THEME_LABELS，切换时由 common/theme.js 从 data-label-* 读回。
     """
     labels = _THEME_LABELS['en' if is_en else 'zh']
-    cur = labels['dark'] if theme == 'dark' else labels['light']
+    cur = labels['light'] if theme == 'light' else labels['dark']
     # script 紧跟按钮之后：脚本执行时按钮已在 DOM 中，theme.js 初始化可直接改文案
     # （script 在 UA 样式里是 display:none，不会成为 flex/grid 的子项，不影响布局）
     frag = ('<button class="dark-toggle" id="darkToggle" onclick="toggleDark()"'
@@ -75,7 +75,7 @@ def inject_page_theme(html, cookie='', is_en=False):
 
     主题是一体的（亮暗 + 主色）：只看客户端本地的 leaf_theme / leaf_accent cookie ——
     与语言的 leaf_lang 同一做法。每个客户端各存各的，服务端不存储，账号里也没有。
-    都没有就是默认（亮色 + 默认蓝）—— 首次打开用默认主题是正常行为。
+    都没有就是默认（深底 + 默认蓝）—— 首次打开用默认主题是正常行为。
     服务端读 cookie 只是为了首屏就渲染成对的配色，避免先出来再被 JS 改。
 
     当前 4 个入口：serve_file / serve_admin_page / serve_admin_users_page /
@@ -175,14 +175,14 @@ def _cookie_theme(cookie):
 
 
 def _inject_theme(html, accent, theme=''):
-    """把主题主色与亮暗写入 <html>（配色见 style.css 的 data-theme / data-accent 覆盖块）
+    """把主题主色与亮暗写入 <html>（配色见 style.css 的 [data-theme] / [data-accent] 覆盖块）
 
     服务端注入可保证首屏即正确主题（不闪），亮暗的来源是客户端本地的 cookie，
-    见 inject_page_theme。
+    见 inject_page_theme。默认是深底白字，所以只有选了亮色才写属性。
     """
     attrs = ''
-    if theme == 'dark':
-        attrs += ' data-theme="dark"'
+    if theme == 'light':
+        attrs += ' data-theme="light"'
     if accent:
         attrs += ' data-accent="%s"' % accent
     if attrs:
