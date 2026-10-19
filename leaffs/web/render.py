@@ -180,11 +180,9 @@ def _inject_theme(html, accent, theme=''):
     服务端注入可保证首屏即正确主题（不闪），亮暗的来源是客户端本地的 cookie，
     见 inject_page_theme。默认是深底白字，所以只有选了亮色才写属性。
     """
-    attrs = ''
-    if theme == 'light':
-        attrs += ' data-theme="light"'
-    if accent:
-        attrs += ' data-accent="%s"' % accent
+    # 两个属性一律写全：配色全在 [data-theme] 与 [data-accent] 里，没有"省略即默认"
+    attrs = ' data-theme="%s"' % ('light' if theme == 'light' else 'dark')
+    attrs += ' data-accent="%s"' % (accent or 'plain')
     if attrs:
         html = html.replace('<html', '<html' + attrs, 1)
     return html
@@ -275,6 +273,19 @@ def page_csp(handler):
     )
 
 
+def _inject_upload_limit(html):
+    """注入单文件上传上限（占位 __UPLOAD_MAX_BYTES__，0 表示不限）。
+
+    浏览页要按它做前端预检。这个数不敏感，但也不该走 /api/config/advanced ——
+    那条是 admin-only，普通用户与游客请求会被统一拒成 404（不泄露端点存在）。
+    """
+    try:
+        val = int(_cfg.get_upload_max_size())
+    except Exception:
+        val = 0
+    return html.replace('__UPLOAD_MAX_BYTES__', str(val))
+
+
 def serve_file(handler, filename, content_type, BASE_DIR,
                get_session, get_session_username):
     """渲染常规 HTML 页面（注入用户名和角色）；语言 cookie 为 en 时优先渲染英文版页面。"""
@@ -311,6 +322,7 @@ def serve_file(handler, filename, content_type, BASE_DIR,
     html = html.replace('__MY_ROLE__', role_json)
     html = _inject_ws_port(html)
     html = _inject_server_base(html)
+    html = _inject_upload_limit(html)
     html = inject_page_theme(html, cookie, used_en)
     data = html.encode('utf-8')
     handler.send_response(200)

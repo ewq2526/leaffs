@@ -4,13 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>我的</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png?v=3">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/favicon.png?v=3">
+<link rel="apple-touch-icon" href="/static/favicon.png?v=3">
 <link rel="stylesheet" href="/static/style.css">
 <script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
 </head>
 <body>
 <div class="app">
     <header class="top">
-        <span class="top-logo">🍃</span>
+        <span class="top-logo"><img src="/static/logo.png" alt=""></span>
         <div class="top-main">
             <h1 class="top-title">我的</h1>
         </div>
@@ -65,12 +68,12 @@
             <div class="acc-row">
                 <span class="k">主题颜色</span>
                 <span class="v flex items-center gap-8 flex-wrap" id="accentBox">
-                    <button class="swatch" type="button" data-a="" onclick="setAccent('')"></button>
+                    <button class="swatch" type="button" data-a="plain" onclick="setAccent('plain')" title="白板"></button>
+                    <button class="swatch" type="button" data-a="blue" onclick="setAccent('blue')" title="蓝"></button>
                     <button class="swatch" type="button" data-a="green" onclick="setAccent('green')"></button>
                     <button class="swatch" type="button" data-a="purple" onclick="setAccent('purple')"></button>
                     <button class="swatch" type="button" data-a="orange" onclick="setAccent('orange')"></button>
                     <button class="swatch" type="button" data-a="red" onclick="setAccent('red')"></button>
-                    <button class="swatch" type="button" data-a="plain" onclick="setAccent('plain')" title="白板"></button>
                 </span>
             </div>
             <div class="acc-hint">英文界面由 AI 翻译，可能与中文存在差异。English UI is AI-translated and may differ from Chinese.</div>

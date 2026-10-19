@@ -21,7 +21,7 @@ from leaffs.runtime_log import add_log
 _CSS_PATH = os.path.join(BASE_DIR, 'web_page', 'common', 'style.css')
 
 # 可换的主题主色（空字符串 = 默认蓝）；网页侧的白名单也用它（render._cookie_accent）
-ACCENTS = ('green', 'purple', 'orange', 'red', 'plain')
+ACCENTS = ('blue', 'green', 'purple', 'orange', 'red', 'plain')
 
 _BLOCK_RE = re.compile(r'([^{}]+)\{([^{}]*)\}', re.S)
 _VAR_RE = re.compile(r'(--[\w-]+)\s*:\s*([^;]+);')
@@ -57,7 +57,11 @@ def _one_applies(sel, dark, accent):
     if not sel:
         return False
     s = sel
-    # [data-theme="light"] —— 只有亮色才生效（默认就是深底，属性只用来标亮色）
+    # 主题块：dark 块只在暗色生效，light 块只在亮色生效（属性一律写全）
+    if '[data-theme="dark"]' in s:
+        if not dark:
+            return False
+        s = s.replace('[data-theme="dark"]', '')
     if '[data-theme="light"]' in s:
         if dark:
             return False
@@ -75,7 +79,7 @@ def _selector_applies(sel, dark, accent):
 def palette(theme='dark', accent=''):
     """按当前主题/主色合并出 CSS 变量表（后出现的块覆盖先出现的，与 CSS 层叠一致）"""
     dark = (theme != 'light')
-    accent = accent if accent in ACCENTS else ''
+    accent = accent if accent in ACCENTS else 'plain'
     text = _css_text()
     if not text:
         return {}
@@ -283,10 +287,8 @@ def error_page(title='页面加载失败', message='共享服务可能还没就�
     """
     theme = theme or 'dark'
     colors = current(theme, accent) or {}
-    accent = accent or colors.get('accent', '')
-    attrs = ''
-    if theme != 'dark':
-        attrs += ' data-theme="light"'
+    accent = accent or colors.get('accent', '') or 'plain'
+    attrs = ' data-theme="%s"' % ('light' if theme != 'dark' else 'dark')
     if accent:
         attrs += ' data-accent="%s"' % accent
     return (

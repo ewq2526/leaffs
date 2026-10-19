@@ -4,13 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>文件传输</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png?v=3">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/favicon.png?v=3">
+<link rel="apple-touch-icon" href="/static/favicon.png?v=3">
 <link rel="stylesheet" href="/static/style.css">
 <script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;window.__SERVER_BASE__='__SERVER_BASE_URL__';window.__HAS_LAN__=__HAS_LAN_VAL__;</script>
+<script>window.__UPLOAD_MAX__=Number("__UPLOAD_MAX_BYTES__");</script>
 </head>
 <body>
 <div class="app">
     <header class="top">
-        <span class="top-logo">🍃</span>
+        <span class="top-logo"><img src="/static/logo.png" alt=""></span>
         <div class="top-main">
             <h1 class="top-title" id="dirTitle">文件传输</h1>
             <div class="top-meta">
@@ -63,7 +67,7 @@
         <button class="btn btn-sm btn-outline" onclick="selectAll(false)">取消</button>
         <button class="btn btn-sm btn-success" onclick="downloadSelected()">下载</button>
         <button class="btn btn-sm btn-danger" id="bulkDeleteBtn" onclick="deleteSelected()">删除</button>
-        <button class="btn btn-sm btn--solid share-btn" id="shareBtn" onclick="shareSelected()" style="display:none">分享</button>
+        <button class="btn btn-sm btn-primary share-btn" id="shareBtn" onclick="shareSelected()" style="display:none">分享</button>
         <button class="btn btn-sm btn--solid btn--muted refresh-btn" onclick="loadFiles()">刷新</button>
         <span class="count">已选 <strong id="selectedCount">0</strong></span>
         <select class="sort-select" id="sortSelect" onchange="sortFiles()">
@@ -387,13 +391,18 @@ function askShareCode(label) {
     }).catch(function () { batchToast('验证失败', 'error'); });
 }
 
-var MAX_UPLOAD_SIZE = 10 * 1024 * 1024 * 1024;
+// 上传上限由服务端随页面注入（见 render._inject_upload_limit）。
+// 不走 /api/config/advanced —— 那是 admin-only，普通用户与游客请求会被统一拒成 404。
+var MAX_UPLOAD_SIZE = isFinite(window.__UPLOAD_MAX__) ? window.__UPLOAD_MAX__ : 10 * 1024 * 1024 * 1024;
+if (MAX_UPLOAD_SIZE === 0) MAX_UPLOAD_SIZE = Infinity;
 (function(){
-    fetch('/api/config/advanced').then(function(r){return r.json()}).then(function(d){
-        var size = d.upload_max_size, lbl = document.getElementById('uploadLimitLabel');
-        if (size === 0) { MAX_UPLOAD_SIZE = Infinity; lbl.textContent = '点击上传'; }
-        else if (size && size > 0) { MAX_UPLOAD_SIZE = size; lbl.textContent = '点击上传 · 最大 ' + Math.round(size / 1073741824) + ' GB'; }
-    }).catch(function(){});
+    var lbl = document.getElementById('uploadLimitLabel');
+    var size = window.__UPLOAD_MAX__;
+    if (!lbl || typeof size !== 'number' || !isFinite(size)) return;
+    if (size === 0) { lbl.textContent = '点击上传 · 不限大小'; return; }
+    var txt = size >= 1073741824 ? (Math.round(size / 1073741824) + ' GB')
+                                 : (Math.round(size / 1048576) + ' MB');
+    lbl.textContent = '点击上传 · 最大 ' + txt;
 })();
 
 function uploadFiles(fileList) {

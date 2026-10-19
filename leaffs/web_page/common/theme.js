@@ -19,8 +19,7 @@ function setThemeLabel(isDark) {
 // 默认是深底（无属性），只有亮色才写 data-theme="light"
 function applyTheme(isDark) {
     var html = document.documentElement;
-    if (isDark) html.removeAttribute('data-theme');
-    else html.setAttribute('data-theme', 'light');
+    html.setAttribute('data-theme', isDark ? 'dark' : 'light');
     try { document.cookie = 'leaf_theme=' + (isDark ? 'dark' : 'light') + '; path=/; max-age=31536000'; } catch (e) {}
     setThemeLabel(isDark);
 }

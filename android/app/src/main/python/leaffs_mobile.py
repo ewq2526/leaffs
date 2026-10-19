@@ -377,20 +377,17 @@ def permission_page(label='附近的设备', since='Android 16', denied=False):
     """
     css = ''
     theme = 'dark'
-    accent = ''
+    accent = 'plain'
     try:
         import leaffs.ui_theme as _ut
         css = _ut._css_text()
         colors = _web_colors() or {}
         theme = colors.get('theme', 'dark')
-        accent = colors.get('accent', '')
+        accent = colors.get('accent', '') or 'plain'
     except Exception as e:
         add_log('permission_page 取样式失败: %s: %s' % (type(e).__name__, e), 'warn')
-    attrs = ''
-    if theme != 'dark':
-        attrs += ' data-theme="light"'
-    if accent:
-        attrs += ' data-accent="%s"' % accent
+    attrs = ' data-theme="%s"' % ('light' if theme != 'dark' else 'dark')
+    attrs += ' data-accent="%s"' % (accent or 'plain')
     # 按钮都撑满宽度上下排（.btn 本身是 inline-flex，宽度会随文字长短不一）
     solid = 'display:flex;justify-content:center'
     ghost = ('display:flex;justify-content:center;margin-top:8px;background:transparent;'

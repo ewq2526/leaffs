@@ -138,6 +138,9 @@ class CertRemindHandler(BaseHTTPRequestHandler):
         """渲染提示页：模板 + 内联主站样式表 + 按请求拼出的主站地址"""
         html = _read_text(_PAGE_PATH, _FALLBACK_PAGE)
         html = html.replace('__CERT_STYLE__', _read_text(_CSS_PATH))
+        # 色板参数只在 [data-accent] 里定义，这页也得带上（默认白板）
+        html = html.replace('<html lang="zh-CN">',
+                            '<html lang="zh-CN" data-theme="dark" data-accent="plain">')
         # 按钮直接指向 https 主站（http_port）。早先这里换成过 WS 端口（ws_port），
         # 想让访客"按端口依次放行证书" —— 那个前提是错的：8081 连不上跟证书无关
         # （见 server/ws.py 的 _ws_origin_host_ok），所以按钮已改回主站。
