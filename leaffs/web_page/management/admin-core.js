@@ -451,6 +451,10 @@ function initQR() {
         var _qg = { text: url, width: 105, height: 105 };
         if (typeof qrThemeColors === 'function') { var _qgc = qrThemeColors(); _qg.colorDark = _qgc.colorDark; _qg.colorLight = _qgc.colorLight; }
         new QRCode(container, _qg);
+        // qrcodejs 会同时生成 canvas 和 img 两套渲染结果；容器是个固定 105px 的格子，
+        // 两个都留着就会并排撑成 210px，把二维码顶出边框外。只留 img（透明底，可缩）。
+        var _cvs = container.querySelector('canvas');
+        if (_cvs) _cvs.style.display = 'none';
         setCap(cap || (_UI_EN ? 'Scan to open the file service' : '手机扫码访问文件服务'));
     }
     Promise.all([

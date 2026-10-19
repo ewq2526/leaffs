@@ -1,12 +1,11 @@
 // 主题（toggleDark / applyTheme）已独立到 common/theme.js：
 // 按钮本体与脚本由服务端随 <!--THEME_TOGGLE--> 占位一起注入，不再随 app.js 分发。
 
-// 二维码配色跟随主题：暗色=白点黑底，亮色=黑点白底（保证扫码可辨）
+// 二维码配色：**始终**黑模块 + 白底，不跟随主题。
+// 暗色下以前反成白模块黑底，看着"融入背景"，实际上违反 QR 规范（深模块必须在浅底上），
+// 不少手机相机 / 微信识别不了反色码。调用方仍走这个函数，只是返回值不再随亮暗变。
 function qrThemeColors() {
-    var isDark = document.documentElement.getAttribute('data-theme') !== 'light';
-    return isDark
-        ? { colorDark: '#ffffff', colorLight: '#000000' }
-        : { colorDark: '#000000', colorLight: '#ffffff' };
+    return { colorDark: '#000000', colorLight: '#ffffff' };
 }
 
 // ========== 全局工具函数 ==========

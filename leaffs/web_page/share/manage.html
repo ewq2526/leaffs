@@ -53,15 +53,12 @@
                 <button class="btn btn-sm btn-outline" onclick="copyVisitor()">复制链接</button>
             </div>
             <div class="t-xs c-danger mt-8" id="visitorLanWarn" style="display:none">无可用局域网，这个地址只有本机能打开</div>
-        </section>
 
-        <section class="panel">
-            <div class="flex items-center justify-between flex-wrap gap-8 mb-8">
-                <h3 class="m-0">访问码 <span class="t-xs c-dim" id="codeState"></span></h3>
-                <span class="t-xs c-dim">每条分享一条码，留空即关闭</span>
+            <div class="flex items-center justify-between flex-wrap gap-8 mt-10 pt-10 bd-top">
+                <span class="t-sm fw-600">访问码 <span class="t-xs c-dim" id="codeState"></span></span>
+                <span class="t-xs c-dim">每条分享一条码，留空即关闭；访客输对后记住 1 小时，输错触发防爆破</span>
             </div>
-            <p class="t-xs c-dim lh-17">在下面每条右侧点「设码 / 查看码」。访客输对后浏览器记住 1 小时；输错会触发防爆破，见下方提醒。</p>
-            <div class="banner banner--danger" id="attackTip" style="display:none"></div>
+            <div class="banner banner--danger mt-10" id="attackTip" style="display:none"></div>
         </section>
 
         <section class="panel" id="mountBox" style="display:none">

@@ -26,7 +26,6 @@
     --btn-radius: 16px;
     --btn-radius-pill: 999px;
     --btn-stroke: 1.5px;
-    --glass-blur: 18px;
   }
 
   /* 面：只由亮暗决定 */
@@ -39,6 +38,7 @@
     --danger-deep: #e11d48;
     --warn-deep: #d97706;
     --card-bg: rgba(255, 255, 255, 0.07);
+    --card-solid: #151726;
     --glass-bg: rgba(255, 255, 255, 0.05);
     --paper: #ffffff;
     --text: #ffffff;
@@ -79,6 +79,7 @@
     --danger-deep: #9f1239;
     --warn-deep: #92400e;
     --card-bg: rgba(255, 255, 255, 0.9);
+    --card-solid: #ffffff;
     --glass-bg: rgba(255, 255, 255, 0.74);
     --paper: #ffffff;
     --text: #10101a;
@@ -133,7 +134,6 @@
       radial-gradient(1.4px 1.4px at 90px 230px, var(--star), transparent 100%);
     background-size: 300px 300px, 400px 400px, 260px 260px;
     background-repeat: repeat;
-    background-attachment: fixed;
     color: var(--text);
     padding: 10px;
     min-height: 100vh;
@@ -160,7 +160,9 @@
     transition: background-image 0.6s var(--ease);
   }
 
-  /* 三团光晕：缓慢漂浮，尺寸/位置用 --orb* 由主题决定 */
+  /* 三团光晕：位置与尺寸由 --orb* 定，**静止**。
+     曾经挂过 30s 无限漂移动画 —— 位移只有 1px/s，肉眼看不出来，但合成器每帧都在跑，
+     它下方所有 backdrop-filter 卡片的模糊也就每帧重算，核显直接满载。别加回来。 */
   body::after {
     content: '';
     position: fixed;
@@ -172,13 +174,6 @@
       radial-gradient(36% 36% at 88% 8%, var(--orb2), transparent 70%),
       radial-gradient(40% 40% at 70% 92%, var(--orb3), transparent 70%);
     background-repeat: no-repeat;
-    animation: glowDrift 30s ease-in-out infinite alternate;
-    transition: background-image 0.9s var(--ease);
-  }
-
-  @keyframes glowDrift {
-    from { transform: translate3d(-1.5%, -1%, 0) scale(1); }
-    to   { transform: translate3d(1.5%, 1.5%, 0) scale(1.08); }
   }
 
   a { color: var(--primary-ink); text-decoration: none; }
@@ -290,8 +285,6 @@
     background-image:
       radial-gradient(120% 100% at 0% -20%, var(--card-edge1), transparent 60%),
       radial-gradient(120% 100% at 100% -20%, var(--card-edge2), transparent 58%);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
-    backdrop-filter: blur(var(--glass-blur)) saturate(1.4);
     box-shadow: var(--shadow);
   }
   .topbar h1 {
@@ -386,8 +379,6 @@
     border-radius: 999px;
     border: 1px solid var(--border);
     background: var(--card-bg);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
-    backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
     overflow-x: auto;
     scrollbar-width: none;
   }
@@ -641,8 +632,6 @@
     border-radius: var(--radius-sm);
     border: 1px solid var(--border);
     background: var(--card-bg);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
-    backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
   }
   .tools .count { font-size: 12px; color: var(--text-light); margin-right: 2px; }
   .tools .count strong { color: var(--text); }
@@ -660,8 +649,6 @@
     margin: 6px 0 12px;
     background-color: var(--card-bg);
     background-image: radial-gradient(120% 100% at 50% -30%, var(--card-edge2), transparent 62%);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
-    backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
     cursor: pointer;
     transition: all var(--dur) var(--ease);
   }
@@ -779,7 +766,10 @@
     .ws-status .dot { width: 8px; height: 8px; }
   }
 
-  /* ---------- 卡片玻璃（统一层：外观只在这里定义一次） ---------- */
+  /* ---------- 卡片（统一层：外观只在这里定义一次）
+     半透明底色 + 渐变边光 + --shadow 里的主色辉光，**不做背景模糊**：
+     一屏几十张卡片各自 backdrop-filter，滚动或背景一有动静就要整屏重算。
+     质感靠底色与阴影堆，和模板 .pro-card 同一路子。 ---------- */
   .tile, .panel, .card, .panel, .drop,
   .gallery-item, .summary-card, .dl-task-card, .dl-input-area,
   .modal-content, .toast, .preview-quick-bar, .dl-panel {
@@ -788,9 +778,11 @@
       radial-gradient(130% 100% at 6% -12%, var(--card-edge1), transparent 55%),
       radial-gradient(120% 95% at 100% -8%, var(--card-edge2), transparent 52%),
       radial-gradient(110% 90% at 50% 118%, var(--card-edge3), transparent 62%);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
-    backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
   }
+
+  /* 浮在内容正上方的那几块（弹层、下载器面板、预览条）不能走半透明：
+     没有背景模糊兜着，半透明会把下面的文字直接透上来 */
+  .modal-content, .dl-panel { background-color: var(--card-solid); }
 
   /* ---------- 分段按钮（网格/列表） ---------- */
   .seg {
@@ -891,7 +883,6 @@
     display: none;
     align-items: center;
     justify-content: center;
-    backdrop-filter: blur(6px);
     animation: fadeIn 0.2s var(--ease);
   }
   .modal-overlay.active { display: flex; }
@@ -977,7 +968,6 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    backdrop-filter: blur(8px);
     transition: all var(--dur) var(--ease);
   }
   .modal-nav:hover { background: rgba(0, 0, 0, 0.7); transform: translateY(-50%) scale(1.06); }
@@ -2017,8 +2007,6 @@
     background-image:
         radial-gradient(120% 90% at 12% -10%, var(--card-edge1), transparent 58%),
         radial-gradient(120% 100% at 92% -6%, var(--card-edge2), transparent 56%);
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
-    backdrop-filter: blur(var(--glass-blur)) saturate(1.35);
     box-shadow: var(--shadow-hover);
     animation: authRise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
@@ -2050,7 +2038,7 @@
     border-radius: 50%;
     background: var(--success);
     box-shadow: 0 0 10px 1px var(--success);
-    animation: authPulse 2.4s ease-in-out infinite;
+    animation: authPulse 2.4s ease-in-out 3;
 }
 @keyframes authPulse {
     0%, 100% { opacity: 1; transform: scale(1); }
@@ -2192,8 +2180,13 @@
 .guest-box { display: flex; gap: 16px; align-items: center; }
 .guest-main { flex: 1; min-width: 0; }
 .guest-qr { flex: 0 0 auto; }
-.qr-frame { display: inline-flex; align-items: center; justify-content: center; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card-bg); line-height: 0; }
+/* 二维码外框：框内整体白底（含四周边距），二维码本身也是白底黑格，
+   两者连成一块 —— 暗色下才看得出这是"一张码"，也保证扫码器拿到的静区是白的。
+   码是方形、四角有定位图案，**不能裁圆角**；外框半径 16px、内留 6px，
+   方形码的四角正好落在圆弧以内，既不戳出去也不会被切。 */
+.qr-frame { display: inline-flex; align-items: center; justify-content: center; padding: 6px; border: 1px solid var(--border); border-radius: 16px; background: var(--paper); line-height: 0; }
 .qr-slot { width: 105px; height: 105px; display: flex; align-items: center; justify-content: center; color: var(--text-light); font-size: 11px; }
+.qr-slot img, .qr-slot canvas { display: block; width: 105px; height: 105px; }
 @media (max-width: 560px) {
     .guest-box { flex-direction: column; align-items: stretch; }
     .guest-qr { align-self: center; }

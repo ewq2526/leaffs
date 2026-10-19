@@ -54,15 +54,12 @@
                 <button class="btn btn-sm btn-outline" onclick="copyVisitor()">Copy link</button>
             </div>
             <div class="t-xs c-danger mt-8" id="visitorLanWarn" style="display:none">No LAN available — this address only works on this device</div>
-        </section>
 
-        <section class="panel">
-            <div class="flex items-center justify-between flex-wrap gap-8 mb-8">
-                <h3 class="m-0">Access code <span class="t-xs c-dim" id="codeState"></span></h3>
-                <span class="t-xs c-dim">One code per share; leave it empty to turn it off</span>
+            <div class="flex items-center justify-between flex-wrap gap-8 mt-10 pt-10 bd-top">
+                <span class="t-sm fw-600">Access code <span class="t-xs c-dim" id="codeState"></span></span>
+                <span class="t-xs c-dim">One code per share, empty turns it off; remembered for 1 hour, wrong attempts trigger brute-force protection</span>
             </div>
-            <p class="t-xs c-dim lh-17">Use “Set code / View code” on each row below. Visitors who enter it are remembered for 1 hour; wrong attempts trigger brute-force protection (see the alert below).</p>
-            <div class="banner banner--danger" id="attackTip" style="display:none"></div>
+            <div class="banner banner--danger mt-10" id="attackTip" style="display:none"></div>
         </section>
 
         <section class="panel" id="mountBox" style="display:none">
