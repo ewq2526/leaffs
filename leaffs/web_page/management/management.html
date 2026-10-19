@@ -55,25 +55,22 @@
         </div>
 
         <!-- 游客模式 -->
-        <div class="panel" style="padding:16px 20px">
+        <div class="panel">
             <h3>游客模式</h3>
-            <div class="flex gap-20" style="align-items:stretch;min-height:100px">
-                <div class="flex-1 flex flex-col justify-center">
+            <div class="guest-box">
+                <div class="guest-main">
                     <div class="config-row">
                         <span class="auth-state" id="authState">-</span>
                         <button class="btn-admin" id="authToggleBtn" onclick="toggleAuth()">切换</button>
                     </div>
                     <div class="config-hint">开启后无需登录即可浏览和下载公共文件夹文件。登录用户不受该设置影响</div>
+                    <div class="t-base c-primary lh-15 fw-600 mt-10" id="qrUrl" style="word-break:break-all"></div>
+                    <div class="t-xs c-dim mt-6 lh-15" id="qrCaption">手机扫码访问文件服务</div>
                 </div>
-                <div class="shrink-0" style="width:1px;background:var(--border)"></div>
-                <div class="flex items-center justify-center" style="width:50%">
-                    <div class="flex items-center justify-center r-8 bg-card" style="width:115px;height:115px;border:2px solid #d0d5dd">
-                        <div class="flex items-center justify-center t-xs" id="qrContainer" style="width:105px;height:105px;color:var(--muted)">加载中...</div>
-                    </div>
+                <div class="guest-qr">
+                    <div class="qr-frame"><div class="qr-slot" id="qrContainer">加载中...</div></div>
                 </div>
             </div>
-            <div class="t-base c-primary lh-15 text-center fw-600" id="qrUrl" style="word-break:break-all;margin-top:14px"></div>
-            <div class="t-xs c-dim mt-6 text-center lh-15" id="qrCaption">手机扫码访问文件服务</div>
         </div>
 
         <!-- 功能入口：用户管理 / 高级配置 / 深度配置（与其它卡片同处 .admin-grid，随窗口一致换行） -->

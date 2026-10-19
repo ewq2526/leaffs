@@ -50,7 +50,7 @@
         </div>
         <div class="user-list-header">
             <span>Total <span class="count" id="userTotalCount">0</span> users</span>
-            <button class="btn-admin outline t-xs py-3 px-10" onclick="refreshUsers()">Refresh</button>
+            <button class="btn btn-xs btn-outline" onclick="refreshUsers()">Refresh</button>
         </div>
         <div id="userList" class="user-grid"><div class="c-body t-md text-center" style="padding:40px 0;grid-column:1/-1">Loading…</div></div>
     </div>
@@ -60,8 +60,8 @@
         <div class="user-list-header">
             <span><span class="count" id="archiveTotal">0</span> item(s) · <span class="count" id="archiveSize">0 B</span> used</span>
             <span>
-                <button class="btn-admin outline t-xs py-3 px-10" onclick="loadArchives()">Refresh</button>
-                <button class="btn-admin outline t-xs py-3 px-10" onclick="purgeAllArchives()">Clear all</button>
+                <button class="btn btn-xs btn-outline" onclick="loadArchives()">Refresh</button>
+                <button class="btn btn-xs btn-outline" onclick="purgeAllArchives()">Clear all</button>
             </span>
         </div>
         <div class="archive-hint">Deleting a user only renames their files into an archive here; the files are not removed. Clearing is <b>not reversible</b> — make sure you no longer need what is inside before you delete it.</div>
@@ -97,72 +97,51 @@ function genQR(name) {
         .then(function(d) {
             if (!d.qr_url) { batchToast('Failed to generate QR code', 'error'); return; }
             var sid = d.sid, qrUrl = d.qr_url;
-            var overlay = document.createElement('div');
-            overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999;background:var(--modal-overlay);display:flex;align-items:center;justify-content:center';
-            var card = document.createElement('div');
-            card.style.cssText = 'background:var(--card-bg);border-radius:12px;padding:32px;max-width:360px;width:90%;box-shadow:var(--shadow-hover);text-align:center;position:relative';
-            var closeBtn = document.createElement('button');
-            closeBtn.innerHTML = '\u2715';
-            closeBtn.style.cssText = 'position:absolute;top:8px;right:10px;width:28px;height:28px;border-radius:50%;border:none;background:var(--chip-bg);color:var(--muted);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center';
-            var title = document.createElement('div');
-            title.style.cssText = 'font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px';
-            title.textContent = 'Scan to sign in';
+            var done = false, expireTimer = null;
+
+            var m = buildModal('Scan to sign in', 340, cleanup);
+            m.body.className = 'qr-modal-body';
             var sub = document.createElement('div');
-            sub.style.cssText = 'font-size:12px;color:var(--muted);margin-bottom:16px';
+            sub.className = 'qr-sub';
             sub.textContent = 'Signs in automatically after scanning (' + name + ')';
-            var qrWrap = document.createElement('div');
-            qrWrap.style.cssText = 'text-align:center;padding:12px 0';
-            // QR code frame (same style as the guest card: border + rounded corners + background; white background with black modules in dark mode)
-            var qrFrame = document.createElement('div');
-            qrFrame.style.cssText = 'display:inline-block;border:2px solid var(--border);border-radius:10px;padding:8px;background:var(--card-bg);line-height:0';
-            qrWrap.appendChild(qrFrame);
-            card.appendChild(closeBtn);
-            card.appendChild(title);
-            card.appendChild(sub);
-            card.appendChild(qrWrap);
-            overlay.appendChild(card);
-            document.body.appendChild(overlay);
+            var frame = document.createElement('div');
+            frame.className = 'qr-frame';
+            frame.id = 'embedQr';
+            var expired = document.createElement('div');
+            expired.className = 'qr-status err';
+            expired.id = 'embedQrExpired';
+            expired.style.display = 'none';
+            expired.textContent = 'The QR code has expired. Close and generate a new one.';
+            m.body.appendChild(sub); m.body.appendChild(frame); m.body.appendChild(expired);
+
             if (typeof QRCode !== 'undefined') {
-                var _qu = { text: qrUrl, width: 220, height: 220 };
-                if (typeof qrThemeColors === 'function') { var _quc = qrThemeColors(); _qu.colorDark = _quc.colorDark; _qu.colorLight = _quc.colorLight; }
-                new QRCode(qrFrame, _qu);
-                var img = qrFrame.querySelector('img');
+                var opts = { text: qrUrl, width: 200, height: 200 };
+                if (typeof qrThemeColors === 'function') { var c = qrThemeColors(); opts.colorDark = c.colorDark; opts.colorLight = c.colorLight; }
+                new QRCode(frame, opts);
+                var img = frame.querySelector('img');
                 if (img) { img.style.display = 'block'; img.style.margin = '0 auto'; }
             }
+
+            function cleanup() {
+                clearTimeout(expireTimer);
+                if (!done) { done = true; delete _qrWindows[sid]; sendWS({ type: 'qr-unsub', sid: sid }); }
+            }
             // Wait for the server WS push of qr_consumed (instant, no polling)
-            var done = false;
+            function finishConsumed() {
+                if (done) return; done = true;
+                clearTimeout(expireTimer); delete _qrWindows[sid];
+                frame.style.display = 'none';
+                setTimeout(function() { m.destroy(); }, 1200);
+            }
             function showExpired() {
                 if (done) return; done = true;
                 delete _qrWindows[sid];
-                qrWrap.style.display = 'none';
-                var tip = document.createElement('div');
-                tip.style.cssText = 'font-size:12px;color:var(--danger);margin-top:10px;text-align:center';
-                tip.textContent = 'The QR code has expired. Close and generate a new one.';
-                overlay.appendChild(tip);
-            }
-            function finishConsumed() {
-                if (done) return; done = true;
-                clearTimeout(qrExpireTimer);
-                delete _qrWindows[sid];
-                qrWrap.style.display = 'none';
-                setTimeout(function() {
-                    if (document.body.contains(overlay)) document.body.removeChild(overlay);
-                }, 1200);
+                frame.style.display = 'none';
+                expired.style.display = 'block';
             }
             _qrWindows[sid] = finishConsumed;
             if (ws && ws.readyState === WebSocket.OPEN) sendWS({ type: 'qr-sub', sid: sid });
-            var qrExpireTimer = setTimeout(showExpired, 120000);
-            function qrClose() {
-                if (!done) {
-                    done = true;
-                    clearTimeout(qrExpireTimer);
-                    delete _qrWindows[sid];
-                    sendWS({ type: 'qr-unsub', sid: sid });
-                }
-                if (document.body.contains(overlay)) document.body.removeChild(overlay);
-            }
-            closeBtn.onclick = qrClose;
-            overlay.onclick = function(e) { if (e.target === overlay) qrClose(); };
+            expireTimer = setTimeout(showExpired, 120000);
         });
 }
 
@@ -177,7 +156,7 @@ function _usersEditing() { var a = document.activeElement; return !!(a && (a.tag
 //    fine all along; this card simply offered no way in).
 function openArchive(name){window.location.href='/browse/'+encodeURIComponent('users/.deleted/'+name);}
 function loadArchives(){return fetch('/api/users/archive').then(function(r){return r.json();}).then(function(d){renderArchives(d);}).catch(function(){batchToast('Could not read archives','error');});}
-function renderArchives(d){var items=(d&&d.archives)||[];document.getElementById('archiveTotal').textContent=items.length;document.getElementById('archiveSize').textContent=formatSize((d&&d.total_size)||0);var box=document.getElementById('archiveList');if(!items.length){box.innerHTML='<div class="archive-empty">No archives</div>';return;}box.innerHTML=items.map(function(a){var sn=a.name.replace(/'/g,"\\'");return '<div class="archive-row"><div class="archive-meta"><b>'+esc(a.name)+'</b><span>'+a.files+' file(s) · '+formatSize(a.size)+' · '+formatTime(a.mtime)+'</span></div><span class="archive-btns"><button class="btn-admin outline t-xs py-3 px-10" onclick="openArchive(\''+sn+'\')">Open</button><button class="btn-admin outline t-xs py-3 px-10" onclick="purgeArchive(\''+sn+'\')">Delete</button></span></div>';}).join('');}
+function renderArchives(d){var items=(d&&d.archives)||[];document.getElementById('archiveTotal').textContent=items.length;document.getElementById('archiveSize').textContent=formatSize((d&&d.total_size)||0);var box=document.getElementById('archiveList');if(!items.length){box.innerHTML='<div class="archive-empty">No archives</div>';return;}box.innerHTML=items.map(function(a){var sn=a.name.replace(/'/g,"\\'");return '<div class="archive-row"><div class="archive-meta"><b>'+esc(a.name)+'</b><span>'+a.files+' file(s) · '+formatSize(a.size)+' · '+formatTime(a.mtime)+'</span></div><span class="archive-btns"><button class="btn btn-xs btn-outline" onclick="openArchive(\''+sn+'\')">Open</button><button class="btn btn-xs btn-outline" onclick="purgeArchive(\''+sn+'\')">Delete</button></span></div>';}).join('');}
 function purgeArchive(name){if(!confirm('Permanently delete archive "'+name+'"?'))return;if(!confirm('The files inside will really be deleted and cannot be recovered. Continue?'))return;fetch('/api/users/archive/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names:[name]})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Archive deleted: '+name,'success');loadArchives();}else batchToast((d.failed&&d.failed[0]&&d.failed[0].error)||d.error||'Delete failed','error');});}
 function purgeAllArchives(){var n=parseInt(document.getElementById('archiveTotal').textContent)||0;if(!n){batchToast('No archives to clear','info');return;}if(!confirm('Permanently delete all '+n+' archive(s)?'))return;if(!confirm('The files inside will really be deleted and cannot be recovered. Continue?'))return;fetch('/api/users/archive/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({all:true})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('Cleared '+d.deleted+' archive(s)','success');loadArchives();}else batchToast(d.error||'Clear failed','error');});}
 function _applyUsers(users) {

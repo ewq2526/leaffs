@@ -29,102 +29,105 @@
         <a href="/me" class="active">我的</a>
     </nav>
 
-    <div class="acc-card">
-        <div class="acc-avatar" id="accAvatar">?</div>
-        <div class="acc-name" id="accName">-</div>
-        <div class="acc-role" id="accRole">-</div>
+    <div class="banner" id="accWarn" style="display:none">你还没设置过自己的密码（现在用的是首次启动自动生成的<strong>初始口令</strong>，无需知晓），请设置一个自己的密码：<a onclick="openPwModal()">去改密码 →</a></div>
+    <div id="shareWarnSlot"></div>
 
-        <div class="acc-grid">
+    <div class="acc-grid">
         <div class="acc-col">
-        <div class="acc-sec">
-            <div class="acc-sec-title">账号信息</div>
-            <div class="acc-row"><span class="k">登录用户</span><span class="v" id="rowUser">-</span></div>
-            <div class="acc-row"><span class="k">角色</span><span class="v" id="rowRole">-</span></div>
-            <div class="acc-row"><span class="k">游客模式</span><span class="v" id="rowGuest">-</span></div>
-            <!-- 地址独占一行：挤在提示和按钮中间会被压窄，word-break 一断就是好几行 -->
-            <div class="acc-row items-start">
-                <span class="k">服务器地址</span>
-                <span class="v flex flex-col items-end gap-6 min-w-0">
-                    <span id="rowServer">-</span>
-                    <span class="flex items-center gap-8">
-                        <span class="t-xs c-danger-strong" id="rowServerLanWarn" style="display:none">无可用局域网</span>
-                        <button class="btn btn-sm btn-primary" onclick="copyServer()" id="copyBtn">复制</button>
+            <section class="panel">
+                <div class="acc-head">
+                    <div class="acc-avatar" id="accAvatar">?</div>
+                    <div class="min-w-0">
+                        <div class="acc-name" id="accName">-</div>
+                        <div class="acc-role" id="accRole">-</div>
+                    </div>
+                </div>
+                <div class="info-row"><span class="info-label">登录用户</span><span class="info-value" id="rowUser">-</span></div>
+                <div class="info-row"><span class="info-label">角色</span><span class="info-value" id="rowRole">-</span></div>
+                <div class="info-row"><span class="info-label">游客模式</span><span class="info-value" id="rowGuest">-</span></div>
+                <!-- 地址独占一块：挤在提示和按钮中间会被压窄，word-break 一断就是好几行 -->
+                <div class="info-row acc-row-addr">
+                    <span class="info-label">服务器地址</span>
+                    <span class="acc-srv">
+                        <span class="info-value" id="rowServer">-</span>
+                        <span class="acc-srv-btns">
+                            <span class="t-xs c-danger-strong" id="rowServerLanWarn" style="display:none">无可用局域网</span>
+                            <button class="btn btn-sm btn-outline" onclick="copyServer()" id="copyBtn">复制</button>
+                        </span>
                     </span>
-                </span>
-            </div>
-        </div>
+                </div>
+            </section>
 
-        <div class="acc-sec">
-            <div class="acc-sec-title">偏好</div>
-            <div class="acc-row">
-                <span class="k">界面语言</span>
-                <span class="v flex items-center gap-8">
-                    <select class="t-md c-body r-6 bg-card pad-4-8 bd" id="langSel" onchange="onLangChange()">
+            <section class="panel">
+                <h3>偏好</h3>
+                <div class="info-row">
+                    <span class="info-label">界面语言</span>
+                    <select class="search-input" id="langSel" onchange="onLangChange()">
                         <option value="zh" selected>中文</option>
                         <option value="en">English</option>
                     </select>
-                </span>
-            </div>
-            <div class="acc-row">
-                <span class="k">主题颜色</span>
-                <span class="v flex items-center gap-8 flex-wrap" id="accentBox">
-                    <button class="swatch" type="button" data-a="plain" onclick="setAccent('plain')" title="白板"></button>
-                    <button class="swatch" type="button" data-a="blue" onclick="setAccent('blue')" title="蓝"></button>
-                    <button class="swatch" type="button" data-a="green" onclick="setAccent('green')"></button>
-                    <button class="swatch" type="button" data-a="purple" onclick="setAccent('purple')"></button>
-                    <button class="swatch" type="button" data-a="orange" onclick="setAccent('orange')"></button>
-                    <button class="swatch" type="button" data-a="red" onclick="setAccent('red')"></button>
-                </span>
-            </div>
-            <div class="acc-hint">英文界面由 AI 翻译，可能与中文存在差异。English UI is AI-translated and may differ from Chinese.</div>
-        </div>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">主题颜色</span>
+                    <span class="flex items-center gap-8 flex-wrap" id="accentBox">
+                        <button class="swatch" type="button" data-a="plain" onclick="setAccent('plain')" title="白板"></button>
+                        <button class="swatch" type="button" data-a="blue" onclick="setAccent('blue')" title="蓝"></button>
+                        <button class="swatch" type="button" data-a="green" onclick="setAccent('green')" title="绿"></button>
+                        <button class="swatch" type="button" data-a="purple" onclick="setAccent('purple')" title="紫"></button>
+                        <button class="swatch" type="button" data-a="orange" onclick="setAccent('orange')" title="橙"></button>
+                        <button class="swatch" type="button" data-a="red" onclick="setAccent('red')" title="红"></button>
+                    </span>
+                </div>
+                <div class="t-xs c-dim mt-8 lh-16">英文界面由 AI 翻译，可能与中文存在差异。English UI is AI-translated and may differ from Chinese.</div>
+            </section>
         </div>
 
         <div class="acc-col">
-        <div class="acc-sec">
-            <div class="acc-sec-title" id="quotaTitle">空间用量</div>
-            <div class="usg-wrap">
-                <div class="usg-top"><span id="quotaUsed">-</span><span id="quotaLimit">-</span></div>
+            <section class="panel">
+                <h3 id="quotaTitle">空间用量</h3>
+                <div class="flex justify-between t-sm"><span id="quotaUsed">-</span><span class="c-dim" id="quotaLimit">-</span></div>
                 <div class="usg-bar"><div class="usg-fill" id="quotaBar" style="width:0%"></div></div>
-            </div>
-        </div>
+            </section>
 
-        <div class="acc-sec" id="curDevSec">
-            <div class="acc-sec-title">当前设备</div>
-            <div class="acc-row"><span class="k">IP 地址</span><span class="v" id="rowCurIp">-</span></div>
-            <div class="acc-row"><span class="k">登录过期</span><span class="v" id="rowCurExpiry">-</span></div>
-            <div class="acc-sub" id="rowCurUa"></div>
-        </div>
+            <section class="panel" id="curDevSec">
+                <h3>当前设备</h3>
+                <div class="info-row"><span class="info-label">IP 地址</span><span class="info-value" id="rowCurIp">-</span></div>
+                <div class="info-row"><span class="info-label">登录过期</span><span class="info-value" id="rowCurExpiry">-</span></div>
+                <div class="t-xs c-dim mt-8 lh-16" id="rowCurUa"></div>
+            </section>
 
-        <div class="acc-sec" id="sessSec" style="display:none">
-            <div class="acc-sec-title flex justify-between items-center">
-                <span>登录设备</span>
-                <button class="btn btn-sm" id="revokeBtn" onclick="revokeOthers()">退出其它设备</button>
-            </div>
-            <div id="sessList"></div>
-            <div class="acc-sub">同一个账号在其它设备登录后，会出现在这里；可一键把其它设备全部退出。</div>
+            <section class="panel" id="sessSec" style="display:none">
+                <div class="flex justify-between items-center mb-8">
+                    <h3 class="m-0">登录设备</h3>
+                    <button class="btn btn-sm btn-outline" id="revokeBtn" onclick="revokeOthers()">退出其它设备</button>
+                </div>
+                <div id="sessList"></div>
+                <div class="t-xs c-dim mt-8 lh-16">同一个账号在其它设备登录后，会出现在这里；可一键把其它设备全部退出。</div>
+            </section>
         </div>
-        </div>
-        </div>
-
-        <div class="acc-warn" id="accWarn">你还没设置过自己的密码（现在用的是首次启动自动生成的<strong>初始口令</strong>，无需知晓），请设置一个自己的密码：<a onclick="openPwModal()">去改密码 →</a></div>
-        <div class="danger-zone">
-            <button class="btn btn-primary" id="pwBtn" onclick="openPwModal()">修改密码</button>
-            <button class="btn btn-danger" id="logoutBtn">退出登录</button>
-        </div>
-        <div class="acc-hint">退出后，这台设备需要重新登录（或重新扫码）才能继续访问。</div>
     </div>
+
+    <div class="acc-actions">
+        <button class="btn btn-primary" id="pwBtn" onclick="openPwModal()">修改密码</button>
+        <button class="btn btn-danger" id="logoutBtn">退出登录</button>
+    </div>
+    <div class="t-xs c-dim text-center mt-8 lh-16">退出后，这台设备需要重新登录（或重新扫码）才能继续访问。</div>
 </div>
 
-<div class="acc-modal" id="pwModal" style="display:none" onclick="if(event.target===this)closePwModal()">
-    <div class="acc-modal-box">
-        <h3>修改密码</h3>
-        <input type="password" id="pwOld" placeholder="当前密码" autocomplete="current-password">
-        <input type="password" id="pwNew" placeholder="新密码（8~128 位）" autocomplete="new-password">
-        <input type="password" id="pwNew2" placeholder="再次输入新密码" autocomplete="new-password">
-        <div class="acc-modal-actions">
-            <button class="btn" onclick="closePwModal()">取消</button>
-            <button class="btn btn-primary" id="pwOk" onclick="submitPw()">确认修改</button>
+<div class="modal-overlay" id="pwModal" onclick="if(event.target===this)closePwModal()">
+    <div class="modal-content acc-modal-box">
+        <div class="modal-header">
+            <span class="modal-title">修改密码</span>
+            <button class="modal-close-btn" onclick="closePwModal()">✕</button>
+        </div>
+        <div class="acc-modal-body">
+            <input class="search-input w-full" type="password" id="pwOld" placeholder="当前密码" autocomplete="current-password">
+            <input class="search-input w-full" type="password" id="pwNew" placeholder="新密码（8~128 位）" autocomplete="new-password">
+            <input class="search-input w-full" type="password" id="pwNew2" placeholder="再次输入新密码" autocomplete="new-password">
+            <div class="acc-modal-actions">
+                <button class="btn btn-outline" onclick="closePwModal()">取消</button>
+                <button class="btn btn-primary" id="pwOk" onclick="submitPw()">确认修改</button>
+            </div>
         </div>
     </div>
 </div>
@@ -241,19 +244,19 @@ function renderSessions(list) {
     var box = document.getElementById('sessList');
     box.innerHTML = '';
     if (!list || !list.length) {
-        box.innerHTML = '<div class="acc-sub">暂无其它会话记录。</div>';
+        box.innerHTML = '<div class="t-xs c-dim lh-16">暂无其它会话记录。</div>';
         return;
     }
     list.forEach(function (s) {
         var d = document.createElement('div');
         d.className = 'sess-item';
         var info = document.createElement('div');
-        info.className = 'si-info';
+        info.className = 'min-w-0';
         var ip = document.createElement('div');
-        ip.className = 'si-ip';
+        ip.className = 't-md fw-600 c-body';
         ip.textContent = s.ip || '未知来源';
         var t = document.createElement('div');
-        t.className = 'si-time';
+        t.className = 't-xs c-dim mt-2';
         t.textContent = '过期于 ' + fmtTime(s.expiry);
         info.appendChild(ip); info.appendChild(t);
         d.appendChild(info);
@@ -392,14 +395,16 @@ if (!IS_GUEST) {
             if (st.global_active) msgs.push('⚠️ 你的分享页疑似遭大量暴力尝试，已临时全局锁定');
             if (st.ip_locked) msgs.push('已锁定 ' + st.ip_locked + ' 个异常 IP');
             if (st.failed_today) msgs.push('今日共 ' + st.failed_today + ' 次输错');
+            var slot = document.getElementById('shareWarnSlot');
+            if (!slot) return;
             var bar = document.createElement('div');
-            bar.style.cssText = 'position:relative;z-index:5;margin:0 auto 12px;max-width:1100px;padding:10px 14px;border-radius:10px;background:rgba(208,86,107,.10);border:1px solid rgba(208,86,107,.4);color:#b03a50;font-size:13px;line-height:1.7;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
+            bar.className = 'banner';
             var txt = document.createElement('span');
-            txt.style.cssText = 'flex:1';
+            txt.className = 'flex-1';
             txt.textContent = msgs.join(' · ');
             var btn = document.createElement('button');
+            btn.className = 'btn btn-sm btn-danger';
             btn.textContent = '立即重置';
-            btn.style.cssText = 'border:0;background:#b03a50;color:#fff;border-radius:999px;padding:6px 16px;font-size:12px;font-weight:600;cursor:pointer';
             btn.onclick = function () {
                 fetch('/api/share/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
                   .then(function (r) { return r.json(); }).then(function (d) {
@@ -407,8 +412,7 @@ if (!IS_GUEST) {
                   }).catch(function () {});
             };
             bar.appendChild(txt); bar.appendChild(btn);
-            var app = document.querySelector('.app') || document.body;
-            app.insertBefore(bar, app.firstChild);
+            slot.appendChild(bar);
         }).catch(function () {});
     })();
 }

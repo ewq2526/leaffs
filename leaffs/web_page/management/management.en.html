@@ -56,25 +56,22 @@
         </div>
 
         <!-- Guest mode -->
-        <div class="panel" style="padding:16px 20px">
+        <div class="panel">
             <h3>Guest Mode</h3>
-            <div class="flex gap-20" style="align-items:stretch;min-height:100px">
-                <div class="flex-1 flex flex-col justify-center">
+            <div class="guest-box">
+                <div class="guest-main">
                     <div class="config-row">
                         <span class="auth-state" id="authState">-</span>
                         <button class="btn-admin" id="authToggleBtn" onclick="toggleAuth()">Toggle</button>
                     </div>
                     <div class="config-hint">When enabled, anyone can browse and download files in the public folder without signing in. Signed-in users are not affected by this setting.</div>
+                    <div class="t-base c-primary lh-15 fw-600 mt-10" id="qrUrl" style="word-break:break-all"></div>
+                    <div class="t-xs c-dim mt-6 lh-15" id="qrCaption">Scan with your phone to access the file service</div>
                 </div>
-                <div class="shrink-0" style="width:1px;background:var(--border)"></div>
-                <div class="flex items-center justify-center" style="width:50%">
-                    <div class="flex items-center justify-center r-8 bg-card" style="width:115px;height:115px;border:2px solid #d0d5dd">
-                        <div class="flex items-center justify-center t-xs" id="qrContainer" style="width:105px;height:105px;color:var(--muted)">Loading…</div>
-                    </div>
+                <div class="guest-qr">
+                    <div class="qr-frame"><div class="qr-slot" id="qrContainer">Loading…</div></div>
                 </div>
             </div>
-            <div class="t-base c-primary lh-15 text-center fw-600" id="qrUrl" style="word-break:break-all;margin-top:14px"></div>
-            <div class="t-xs c-dim mt-6 text-center lh-15" id="qrCaption">Scan with your phone to access the file service</div>
         </div>
 
         <!-- Feature entries: User Management / Advanced Settings / Deep Config (in the same .admin-grid as the other cards, wrapping with the window) -->

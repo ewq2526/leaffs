@@ -33,49 +33,42 @@
 
     <div class="dl-page">
         <!-- Downloader warning: the feature itself does not work properly — say so, promise nothing -->
-        <div class="mb-12 c-danger pad-10-14 bd-danger" style="border-radius:var(--radius);background:rgba(242,101,139,.10);font-size:12.5px;line-height:1.75">
-            ⚠️ <b>The downloader is barely usable — it is a placeholder for now.</b> <b>Do not depend on it</b>, and never keep your only copy here.
-        </div>
-        <div class="t-sm mb-12 c-body bg-card bd pad-10-14" id="dlDaemonTip" style="display:none;border-radius:var(--radius)"></div>
-        <div class="dl-input-area">
+        <div class="banner banner--danger">⚠️ <b>The downloader is barely usable — it is a placeholder for now.</b> <b>Do not depend on it</b>, and never keep your only copy here.</div>
+        <div class="readonly-tip" id="dlDaemonTip" style="display:none"></div>
+
+        <section class="panel">
             <h3>Paste a download link</h3>
             <div class="dl-row">
-                <input type="text" id="urlInput" placeholder="HTTP/HTTPS direct link / magnet link / .m3u8 stream (ed2k eMule protocol not supported)" onkeydown="if(event.key==='Enter')startDownload()">
-                <div class="dl-dir-selector" id="dirSelector" onclick="openDirPicker()">
-                    <span class="path-text" id="selectedDir">Click to choose a save folder</span>
-                    <span>&#9662;</span>
-                </div>
-                <button class="dl-btn-start" id="startBtn" onclick="startDownload()">Download</button>
+                <input class="search-input dl-url" type="text" id="urlInput" placeholder="HTTP/HTTPS direct link / magnet link / .m3u8 stream (ed2k eMule protocol not supported)" onkeydown="if(event.key==='Enter')startDownload()">
+                <button class="btn btn-sm btn-outline dl-dir" id="dirSelector" onclick="openDirPicker()"><span class="path-text" id="selectedDir">Click to choose a save folder</span><span>&#9662;</span></button>
+                <button class="btn btn-sm btn-primary" id="startBtn" onclick="startDownload()">Download</button>
             </div>
-            <div class="t-xs c-dim mt-6">Supports HTTP/HTTPS direct links, magnet links, m3u8 streams and .torrent links &nbsp;|&nbsp; <span class="c-danger fw-600">ed2k (eMule) protocol is not supported</span></div>
-        </div>
+            <div class="t-xs c-dim mt-8 lh-16">Supports HTTP/HTTPS direct links, magnet links, m3u8 streams and .torrent links &nbsp;|&nbsp; <span class="c-danger fw-600">ed2k (eMule) protocol is not supported</span></div>
+        </section>
 
-        <div class="dl-input-area pad-12-16">
+        <section class="panel">
             <h3>Upload a torrent file</h3>
             <div class="dl-row">
                 <input type="file" id="torrentFileInput" accept=".torrent" style="display:none" onchange="uploadTorrent()">
-                <div class="dl-dir-selector flex-1" id="uploadDirSelector" onclick="openDirPicker()">
-                    <span class="path-text" id="uploadSelectedDir">Choose a save folder</span>
-                    <span>&#9662;</span>
-                </div>
-                <button class="dl-btn-start t-sm pad-6-16" id="uploadTorrentBtn" onclick="document.getElementById('torrentFileInput').click()">Choose torrent</button>
+                <button class="btn btn-sm btn-outline dl-dir flex-1" id="uploadDirSelector" onclick="openDirPicker()"><span class="path-text" id="uploadSelectedDir">Choose a save folder</span><span>&#9662;</span></button>
+                <button class="btn btn-sm btn-primary" id="uploadTorrentBtn" onclick="document.getElementById('torrentFileInput').click()">Choose torrent</button>
             </div>
-            <div class="t-xs c-dim mt-6">First choose a save folder, then pick a local .torrent file; after it is parsed you can select which files to download</div>
-        </div>
+            <div class="t-xs c-dim mt-8 lh-16">First choose a save folder, then pick a local .torrent file; after it is parsed you can select which files to download</div>
+        </section>
 
-        <div class="dl-settings">
+        <section class="panel dl-settings">
             <div>
                 <label>Concurrency</label>
-                <input type="number" id="concurrentInput" min="1" max="10" value="3">
+                <input class="search-input num" type="number" id="concurrentInput" min="1" max="10" value="3">
             </div>
             <div>
                 <label>Speed limit</label>
-                <input type="number" id="speedInput" min="0" max="999999" value="0" step="100">
+                <input class="search-input num" type="number" id="speedInput" min="0" max="999999" value="0" step="100">
                 <span class="unit">KB/s</span>
                 <span class="t-xs c-dim">(0 = no limit)</span>
             </div>
-            <button class="btn btn-sm btn-outline pad-4-14" onclick="applySettings()">Apply</button>
-        </div>
+            <button class="btn btn-sm btn-outline" onclick="applySettings()">Apply</button>
+        </section>
 
         <div id="taskList"></div>
     </div>
@@ -103,33 +96,6 @@ function formatSize(b) {
     if (i >= u.length) i = u.length - 1;
     var val = b / Math.pow(1024, i);
     return (i === 0 ? val : val.toFixed(1)) + ' ' + u[i];
-}
-
-var _toastTimer = null, _toastQueue = [];
-function toast(msg, type) {
-    var container = document.querySelector('.toast-container');
-    if (!container) {
-        container = document.createElement('div');
-        container.className = 'toast-container';
-        document.body.appendChild(container);
-    }
-    var el = document.createElement('div');
-    el.className = 'toast ' + (type || 'info');
-    el.textContent = msg;
-    container.appendChild(el);
-    setTimeout(function () { el.remove(); }, 2800);
-}
-function batchToast(msg, type) {
-    _toastQueue.push({ msg: msg, type: type || 'info' });
-    if (_toastTimer) return;
-    _toastTimer = setTimeout(function () {
-        var last = _toastQueue[_toastQueue.length - 1];
-        var count = _toastQueue.length;
-        var text = count > 1 ? last.msg + ' (+' + (count - 1) + ')' : last.msg;
-        toast(text, last.type);
-        _toastQueue = [];
-        _toastTimer = null;
-    }, 500);
 }
 
 var _selectedDir = '';
@@ -266,28 +232,25 @@ function applySettings() {
 function openDirPicker() { showDirPicker('public', 'public'); }
 function showDirPicker(startPath, rootPath) {
     var _curPath = startPath;
-    var overlay = document.createElement('div'); overlay.className = 'dir-overlay';
-    var card = document.createElement('div'); card.className = 'dir-card';
-    var title = document.createElement('h3'); title.textContent = 'Choose a save folder';
+    var m = buildModal('Choose a save folder', 460);
     var bc = document.createElement('div'); bc.className = 'dir-breadcrumb'; bc.id = 'dirBreadcrumb';
     var list = document.createElement('div'); list.className = 'dir-list'; list.id = 'dirList';
     var actions = document.createElement('div'); actions.className = 'dir-actions';
-    var mkdirBtn = document.createElement('button'); mkdirBtn.className = 'dir-btn outline'; mkdirBtn.textContent = 'New Folder';
+    var mkdirBtn = document.createElement('button'); mkdirBtn.className = 'btn btn-sm btn-outline'; mkdirBtn.textContent = 'New Folder';
     mkdirBtn.onclick = function() {
-        var name = prompt('Folder name:'); if (!name) return;
+        var name = prompt('Folder name: '); if (!name) return;
         fetch('/api/mkdir', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: _curPath, name: name }) })
         .then(function(r) { return r.json(); }).then(function(d) {
             if (d.success) { batchToast('Created: ' + name, 'success'); loadDirList(_curPath, rootPath, list, bc); }
-            else { batchToast(d.error || 'Failed to create', 'error'); }
+            else { batchToast(d.error || 'Create failed', 'error'); }
         });
     };
-    var cancelBtn = document.createElement('button'); cancelBtn.className = 'dir-btn outline'; cancelBtn.textContent = 'Cancel';
-    cancelBtn.onclick = function() { document.body.removeChild(overlay); };
-    var confirmBtn = document.createElement('button'); confirmBtn.className = 'dir-btn primary'; confirmBtn.textContent = 'Save to this folder';
-    confirmBtn.onclick = function() { _selectedDir = _curPath; document.getElementById('selectedDir').textContent = _curPath || 'Click to choose a save folder'; document.body.removeChild(overlay); };
+    var cancelBtn = document.createElement('button'); cancelBtn.className = 'btn btn-sm btn-outline'; cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = m.destroy;
+    var confirmBtn = document.createElement('button'); confirmBtn.className = 'btn btn-sm btn-primary'; confirmBtn.textContent = 'Save to this folder';
+    confirmBtn.onclick = function() { _selectedDir = _curPath; document.getElementById('selectedDir').textContent = _curPath || 'Click to choose a save folder'; m.destroy(); };
     actions.appendChild(mkdirBtn); actions.appendChild(cancelBtn); actions.appendChild(confirmBtn);
-    card.appendChild(title); card.appendChild(bc); card.appendChild(list); card.appendChild(actions);
-    overlay.appendChild(card); document.body.appendChild(overlay);
+    m.body.appendChild(bc); m.body.appendChild(list); m.body.appendChild(actions);
     loadDirList(startPath, rootPath, list, bc);
 }
 function loadDirList(path, rootPath, listEl, bcEl) {
@@ -349,23 +312,21 @@ function showTorrentFilePicker(files, torrentUrl, initialDir) {
     var selected = {};
     for (var i = 0; i < files.length; i++) selected[files[i].index] = true;
     var pickerDir = initialDir || 'public';
-    var overlay = document.createElement('div'); overlay.className = 'dir-overlay';
-    var card = document.createElement('div'); card.className = 'dir-card'; card.style.maxWidth = '520px';
-    var title = document.createElement('h3'); title.textContent = 'Select files to download (' + files.length + ' total)';
-    var dirRow = document.createElement('div'); dirRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:10px';
-    dirRow.innerHTML = '<span class="t-md fw-500 nowrap c-body">Save to:</span>';
+    var m = buildModal('Select files to download (' + files.length + ' total)', 520);
+    var dirRow = document.createElement('div'); dirRow.className = 'flex items-center gap-8';
+    var dirLbl = document.createElement('span'); dirLbl.className = 't-sm c-dim nowrap'; dirLbl.textContent = 'Save to:';
     var dirPathSpan = document.createElement('span');
-    dirPathSpan.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--primary);cursor:pointer;font-weight:500';
+    dirPathSpan.className = 'flex-1 overflow-hidden nowrap ellipsis t-sm c-primary pointer fw-500';
     dirPathSpan.textContent = pickerDir;
-    dirRow.appendChild(dirPathSpan);
+    dirRow.appendChild(dirLbl); dirRow.appendChild(dirPathSpan);
     dirPathSpan.onclick = function() { openInlineDirPicker(function(chosenDir) { pickerDir = chosenDir; dirPathSpan.textContent = chosenDir || 'Home'; }); };
-    var selectBar = document.createElement('div'); selectBar.style.cssText = 'display:flex;gap:8px;margin-bottom:6px;align-items:center';
-    var sa = document.createElement('button'); sa.textContent = 'Select All'; sa.style.cssText = 'padding:3px 10px;border:1px solid var(--border);border-radius:6px;font-size:11px;cursor:pointer;background:var(--card-bg);color:var(--text)';
+    var selectBar = document.createElement('div'); selectBar.className = 'flex gap-8 items-center';
+    var sa = document.createElement('button'); sa.className = 'btn btn-xs btn-outline'; sa.textContent = 'Select All';
     sa.onclick = function() { for (var k in selected) selected[k] = true; list.querySelectorAll('input[type=checkbox]').forEach(function(cb) { cb.checked = true; }); confirmBtn.textContent = 'Download selected (' + Object.keys(selected).length + ')'; };
-    var ua = document.createElement('button'); ua.textContent = 'Clear Selection'; ua.style.cssText = 'padding:3px 10px;border:1px solid var(--border);border-radius:6px;font-size:11px;cursor:pointer;background:var(--card-bg);color:var(--text)';
+    var ua = document.createElement('button'); ua.className = 'btn btn-xs btn-outline'; ua.textContent = 'Clear Selection';
     ua.onclick = function() { for (var k in selected) selected[k] = false; list.querySelectorAll('input[type=checkbox]').forEach(function(cb) { cb.checked = false; }); confirmBtn.textContent = 'Download selected (0)'; };
     selectBar.appendChild(sa); selectBar.appendChild(ua);
-    var info = document.createElement('div'); info.style.cssText = 'font-size:11px;color:var(--text-light);margin-bottom:6px'; info.textContent = 'Unchecked files will not be downloaded';
+    var info = document.createElement('div'); info.className = 't-xs c-dim'; info.textContent = 'Unchecked files will not be downloaded';
     var list = document.createElement('div'); list.className = 'dir-list'; var html = '';
     for (var i = 0; i < files.length; i++) {
         html += '<div class="dir-item t-sm" onclick="toggleTorrentItem(' + files[i].index + ', this)" data-idx="' + files[i].index + '">';
@@ -375,40 +336,37 @@ function showTorrentFilePicker(files, torrentUrl, initialDir) {
     }
     list.innerHTML = html;
     var actions = document.createElement('div'); actions.className = 'dir-actions';
-    var cancelBtn = document.createElement('button'); cancelBtn.className = 'dir-btn outline'; cancelBtn.textContent = 'Cancel';
-    cancelBtn.onclick = function() { document.body.removeChild(overlay); };
-    var confirmBtn = document.createElement('button'); confirmBtn.className = 'dir-btn primary'; confirmBtn.textContent = 'Download selected (' + files.length + ')';
+    var cancelBtn = document.createElement('button'); cancelBtn.className = 'btn btn-sm btn-outline'; cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = m.destroy;
+    var confirmBtn = document.createElement('button'); confirmBtn.className = 'btn btn-sm btn-primary'; confirmBtn.textContent = 'Download selected (' + files.length + ')';
     confirmBtn.onclick = function() {
         if (!pickerDir) { batchToast('Please choose a save folder', 'info'); return; }
         var sel = []; for (var i = 0; i < files.length; i++) { if (selected[files[i].index]) sel.push(files[i].index); }
         if (!sel.length) { batchToast('Please select at least one file', 'info'); return; }
-        document.body.removeChild(overlay); doStartDownload(torrentUrl, pickerDir, sel.join(','));
+        m.destroy(); doStartDownload(torrentUrl, pickerDir, sel.join(','));
     };
     window.toggleTorrentItem = function(idx, el) {
         selected[idx] = !selected[idx]; var cb = el.querySelector('input[type=checkbox]'); if (cb) cb.checked = selected[idx];
         var count = 0; for (var k in selected) { if (selected[k]) count++; } confirmBtn.textContent = 'Download selected (' + count + ')';
     };
     actions.appendChild(cancelBtn); actions.appendChild(confirmBtn);
-    card.appendChild(title); card.appendChild(dirRow); card.appendChild(selectBar); card.appendChild(info); card.appendChild(list); card.appendChild(actions);
-    overlay.appendChild(card); document.body.appendChild(overlay);
+    m.body.appendChild(dirRow); m.body.appendChild(selectBar); m.body.appendChild(info); m.body.appendChild(list); m.body.appendChild(actions);
 }
 
 var _inlineCurrentDir = 'public', _inlineCallback = null;
 function openInlineDirPicker(callback) {
     _inlineCallback = callback;
-    var overlay = document.createElement('div'); overlay.className = 'dir-overlay'; overlay.style.zIndex = '100000';
-    var card = document.createElement('div'); card.className = 'dir-card';
-    var title = document.createElement('h3'); title.textContent = 'Choose a save folder';
+    var m = buildModal('Choose a save folder', 460);
     var bc = document.createElement('div'); bc.className = 'dir-breadcrumb'; bc.id = 'inlineDirBreadcrumb';
     var list = document.createElement('div'); list.className = 'dir-list'; list.id = 'inlineDirList';
     var actions = document.createElement('div'); actions.className = 'dir-actions';
-    var cancelBtn = document.createElement('button'); cancelBtn.className = 'dir-btn outline'; cancelBtn.textContent = 'Cancel';
-    cancelBtn.onclick = function() { document.body.removeChild(overlay); };
-    var confirmBtn = document.createElement('button'); confirmBtn.className = 'dir-btn primary'; confirmBtn.textContent = 'Save to this folder';
-    confirmBtn.onclick = function() { if (_inlineCallback) _inlineCallback(_inlineCurrentDir); document.body.removeChild(overlay); };
+    var cancelBtn = document.createElement('button'); cancelBtn.className = 'btn btn-sm btn-outline'; cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = m.destroy;
+    var confirmBtn = document.createElement('button'); confirmBtn.className = 'btn btn-sm btn-primary'; confirmBtn.textContent = 'Save to this folder';
+    confirmBtn.onclick = function() { if (_inlineCallback) _inlineCallback(_inlineCurrentDir); m.destroy(); };
     actions.appendChild(cancelBtn); actions.appendChild(confirmBtn);
-    card.appendChild(title); card.appendChild(bc); card.appendChild(list); card.appendChild(actions);
-    overlay.appendChild(card); document.body.appendChild(overlay); loadInlineDirList('public', 'public');
+    m.body.appendChild(bc); m.body.appendChild(list); m.body.appendChild(actions);
+    loadInlineDirList('public', 'public');
 }
 function loadInlineDirList(path, rootPath) {
     var listEl = document.getElementById('inlineDirList'); var bcEl = document.getElementById('inlineDirBreadcrumb');
@@ -442,33 +400,27 @@ function deleteTask(id) {
     for (var i = 0; i < _tasks.length; i++) {
         if (_tasks[i].id === id && (_tasks[i].type === 'torrent' || _tasks[i].type === 'magnet')) { btTask = true; break; }
     }
-    // 弹出确认对话框，询问是否删除文件
-    var overlay = document.createElement('div'); overlay.className = 'dir-overlay';
-    var card = document.createElement('div'); card.className = 'dir-card'; card.style.maxWidth = '400px';
-    var title = document.createElement('h3'); title.textContent = 'Delete download task';
+    var m = buildModal('Delete download task', 400);
     var msg = document.createElement('div');
-    msg.style.cssText = 'margin:12px 0;line-height:1.8;font-size:13px;color:var(--text)';
+    msg.className = 't-md lh-17 c-body';
     var actions = document.createElement('div'); actions.className = 'dir-actions';
-    var cancelBtn = document.createElement('button'); cancelBtn.className = 'dir-btn outline'; cancelBtn.textContent = 'Cancel';
-    cancelBtn.onclick = function() { document.body.removeChild(overlay); };
+    var cancelBtn = document.createElement('button'); cancelBtn.className = 'btn btn-sm btn-outline'; cancelBtn.textContent = 'Cancel';
+    cancelBtn.onclick = m.destroy;
     if (btTask) {
         // 磁力/种子：按钮只删除任务记录，已下载文件保留在保存目录
-        msg.innerHTML = '<p>Magnet/torrent tasks only delete the task record; downloaded files are unaffected.</p>' +
-            '<p class="t-sm c-warn">Clean up downloaded files manually in the file area.</p>';
-        var delBtn = document.createElement('button'); delBtn.className = 'dir-btn danger'; delBtn.textContent = 'Delete task (clean up files manually)';
-        delBtn.onclick = function() { document.body.removeChild(overlay); deleteTaskWithFile(id, false); };
+        msg.innerHTML = '<p>Magnet/torrent tasks only remove the task record; downloaded files are left alone.</p>' + '<p class="t-sm c-warn">Clean up the downloaded files yourself in the shared files folder.</p>';
+        var delBtn = document.createElement('button'); delBtn.className = 'btn btn-sm btn-danger'; delBtn.textContent = 'Delete task (clean up files manually)';
+        delBtn.onclick = function() { m.destroy(); deleteTaskWithFile(id, false); };
         actions.appendChild(cancelBtn); actions.appendChild(delBtn);
     } else {
-        msg.innerHTML = '<p>Delete this download task. Also delete the downloaded files?</p>' +
-            '<p class="t-sm c-dim">"Task only": keeps downloaded files;<br>"Task and files": removes only the files downloaded by this task.</p>';
-        var keepBtn = document.createElement('button'); keepBtn.className = 'dir-btn outline'; keepBtn.textContent = 'Task only (keep files)';
-        keepBtn.onclick = function() { document.body.removeChild(overlay); deleteTaskWithFile(id, false); };
-        var deleteBtn = document.createElement('button'); deleteBtn.className = 'dir-btn danger'; deleteBtn.textContent = 'Delete task and files';
-        deleteBtn.onclick = function() { document.body.removeChild(overlay); deleteTaskWithFile(id, true); };
+        msg.innerHTML = '<p>Delete this download task. Delete the downloaded files as well?</p>' + '<p class="t-sm c-dim">"Task only": keep the downloaded files;<br>"Delete task and files": remove only the files this task downloaded.</p>';
+        var keepBtn = document.createElement('button'); keepBtn.className = 'btn btn-sm btn-outline'; keepBtn.textContent = 'Task only (keep files)';
+        keepBtn.onclick = function() { m.destroy(); deleteTaskWithFile(id, false); };
+        var deleteBtn = document.createElement('button'); deleteBtn.className = 'btn btn-sm btn-danger'; deleteBtn.textContent = 'Delete task and files';
+        deleteBtn.onclick = function() { m.destroy(); deleteTaskWithFile(id, true); };
         actions.appendChild(cancelBtn); actions.appendChild(keepBtn); actions.appendChild(deleteBtn);
     }
-    card.appendChild(title); card.appendChild(msg); card.appendChild(actions);
-    overlay.appendChild(card); document.body.appendChild(overlay);
+    m.body.appendChild(msg); m.body.appendChild(actions);
 }
 function deleteTaskWithFile(id, deleteFiles) {
     var label = deleteFiles ? 'Task and downloaded files deleted' : 'Task deleted (files kept)';
@@ -480,24 +432,20 @@ var _peerRefreshTimer = null;
 function showPeerDetails(taskId) {
     // 关闭旧弹窗
     if (_peerRefreshTimer) { clearInterval(_peerRefreshTimer); _peerRefreshTimer = null; }
-    var oldOverlay = document.querySelector('.dir-overlay[id="peerOverlay"]');
-    if (oldOverlay) document.body.removeChild(oldOverlay);
+    var oldOverlay = document.getElementById('peerOverlay');
+    if (oldOverlay && oldOverlay.parentNode) oldOverlay.parentNode.removeChild(oldOverlay);
 
-    var overlay = document.createElement('div'); overlay.className = 'dir-overlay'; overlay.id = 'peerOverlay';
-    var card = document.createElement('div'); card.className = 'dir-card'; card.style.maxWidth = '380px';
-    var title = document.createElement('h3'); title.textContent = 'Connection details';
+    function stopTimer() { if (_peerRefreshTimer) { clearInterval(_peerRefreshTimer); _peerRefreshTimer = null; } }
+    var m = buildModal('Connection details', 380, stopTimer);
+    m.overlay.id = 'peerOverlay';
     var info = document.createElement('div');
     info.id = 'peerInfo';
-    info.style.cssText = 'margin:12px 0;line-height:2;font-size:13px;color:var(--text)';
+    info.className = 't-md lh-17 c-body';
     var actions = document.createElement('div'); actions.className = 'dir-actions';
-    var closeBtn = document.createElement('button'); closeBtn.className = 'dir-btn primary'; closeBtn.textContent = 'Close';
-    closeBtn.onclick = function() {
-        if (_peerRefreshTimer) { clearInterval(_peerRefreshTimer); _peerRefreshTimer = null; }
-        document.body.removeChild(overlay);
-    };
+    var closeBtn = document.createElement('button'); closeBtn.className = 'btn btn-sm btn-primary'; closeBtn.textContent = 'Close';
+    closeBtn.onclick = m.destroy;
     actions.appendChild(closeBtn);
-    card.appendChild(title); card.appendChild(info); card.appendChild(actions);
-    overlay.appendChild(card); document.body.appendChild(overlay);
+    m.body.appendChild(info); m.body.appendChild(actions);
 
     // 刷新函数
     function refreshPeerInfo() {
@@ -507,8 +455,8 @@ function showPeerDetails(taskId) {
         }
         if (!task) return;
         document.getElementById('peerInfo').innerHTML =
-            '<div class="flex py-4"><span class="c-dim w-90 shrink-0">Download speed:</span><span>' + esc(task.speed || '0 B/s') + '</span></div>' +
-            '<div class="flex py-4"><span class="c-dim w-90 shrink-0">Upload speed:</span><span>' + esc(task.upload_speed || '0 B/s') + '</span></div>' +
+            '<div class="flex py-4"><span class="c-dim w-90 shrink-0">Down speed:</span><span>' + esc(task.speed || '0 B/s') + '</span></div>' +
+            '<div class="flex py-4"><span class="c-dim w-90 shrink-0">Up speed:</span><span>' + esc(task.upload_speed || '0 B/s') + '</span></div>' +
             '<div class="flex py-4"><span class="c-dim w-90 shrink-0">Seeds:</span><span>' + (task.seeds || 0) + '</span></div>' +
             '<div class="flex py-4"><span class="c-dim w-90 shrink-0">Peers:</span><span>' + (task.peers || 0) + '</span></div>' +
             '<div class="flex py-4"><span class="c-dim w-90 shrink-0">Connections:</span><span>' + (task.connections || 0) + '</span></div>' +
@@ -618,7 +566,7 @@ function renderTasks(tasks) {
             var statusText = isMetadata ? 'Fetching metadata' : (STATUS_LABEL[t.status] || t.status);
             var typeLabel = TYPE_LABEL[t.type] || t.type;
             var displayName = t.filename || t.url.split('/').pop() || t.url;
-            var cardHtml = '<div class="dl-task-card" id="task_' + t.id + '">';
+            var cardHtml = '<div class="panel dl-task-card" id="task_' + t.id + '">';
             cardHtml += '<div class="dl-task-header">';
             cardHtml += '<div class="dl-task-name" title="' + escAttr(t.url) + '"><span class="dl-task-type">' + typeLabel + '</span>' + esc(displayName) + '</div>';
             cardHtml += '<div class="flex gap-6 items-center">';

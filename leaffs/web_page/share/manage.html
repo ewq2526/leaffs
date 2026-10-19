@@ -43,53 +43,51 @@
             </p>
         </div>
 
-        <div class="box">
-            <div class="box-head">
-                <div class="box-title">访客分享页</div>
-                <div class="box-sub">把这个地址发给别人，他就能在公共区浏览</div>
+        <section class="panel">
+            <div class="flex items-center justify-between flex-wrap gap-8 mb-8">
+                <h3 class="m-0">访客分享页</h3>
+                <span class="t-xs c-dim">把这个地址发给别人，他就能在公共区浏览</span>
             </div>
-            <div class="row">
-                <input class="inp" id="visitorUrl" readonly>
-                <button class="btn-admin t-sm" onclick="copyVisitor()">复制链接</button>
+            <div class="flex items-center gap-8 flex-wrap">
+                <input class="search-input share-inp" id="visitorUrl" readonly>
+                <button class="btn btn-sm btn-outline" onclick="copyVisitor()">复制链接</button>
             </div>
-            <div class="warn-line" id="visitorLanWarn" style="display:none">无可用局域网，这个地址只有本机能打开</div>
-        </div>
+            <div class="t-xs c-danger mt-8" id="visitorLanWarn" style="display:none">无可用局域网，这个地址只有本机能打开</div>
+        </section>
 
-        <div class="box">
-            <div class="box-head">
-                <div class="box-title">访问码 <span class="box-note" id="codeState"></span></div>
-                <div class="box-sub">每条分享一条码，留空即关闭</div>
+        <section class="panel">
+            <div class="flex items-center justify-between flex-wrap gap-8 mb-8">
+                <h3 class="m-0">访问码 <span class="t-xs c-dim" id="codeState"></span></h3>
+                <span class="t-xs c-dim">每条分享一条码，留空即关闭</span>
             </div>
-            <p class="box-text">在下面每条右侧点「设码 / 查看码」。访客输对后浏览器记住 1 小时；输错会触发防爆破，见下方提醒。</p>
-            <div class="tip-danger" id="attackTip" style="display:none"></div>
-        </div>
+            <p class="t-xs c-dim lh-17">在下面每条右侧点「设码 / 查看码」。访客输对后浏览器记住 1 小时；输错会触发防爆破，见下方提醒。</p>
+            <div class="banner banner--danger" id="attackTip" style="display:none"></div>
+        </section>
 
-        <div class="box" id="mountBox" style="display:none">
-            <div class="box-head">
-                <div class="box-title">挂载本机路径 <span class="box-note">只读</span></div>
+        <section class="panel" id="mountBox" style="display:none">
+            <h3>挂载本机路径 <span class="t-xs c-dim">只读</span></h3>
+            <div class="flex items-center gap-8 flex-wrap">
+                <input class="search-input share-inp" id="mountPath" type="text" autocomplete="off" placeholder="本机绝对路径，例如 E:\电影 或 D:\资料\a.pdf">
+                <button class="btn btn-sm btn-outline" onclick="pickMount(false)">选目录…</button>
+                <button class="btn btn-sm btn-outline" onclick="pickMount(true)">选文件…</button>
+                <button class="btn btn-sm btn-primary" onclick="doMount()">挂载</button>
             </div>
-            <div class="row">
-                <input class="inp" id="mountPath" type="text" autocomplete="off" placeholder="本机绝对路径，例如 E:\电影 或 D:\资料\a.pdf">
-                <button class="btn-admin t-sm" onclick="pickMount(false)">选目录…</button>
-                <button class="btn-admin t-sm" onclick="pickMount(true)">选文件…</button>
-                <button class="btn-admin primary t-sm" onclick="doMount()">挂载</button>
-            </div>
-            <p class="box-text">目录或单个文件都行，<b>不复制文件</b>；挂上来的内容<b>只读</b>。挂载点出现在
+            <p class="t-xs c-dim mt-8 lh-17">目录或单个文件都行，<b>不复制文件</b>；挂上来的内容<b>只读</b>。挂载点出现在
                 <code>public/mounts/</code> 下（就在公共目录里，不按用户分），名字就是它在本机上的名字 ——
                 只有服务端本机（桌面窗口或手机 App）能做这件事。</p>
-        </div>
+        </section>
 
-        <div class="box">
-            <div class="box-head">
-                <div class="box-title">已发布的分享</div>
-                <button class="btn-admin t-sm" onclick="loadList()">刷新</button>
+        <section class="panel">
+            <div class="flex items-center justify-between flex-wrap gap-8 mb-8">
+                <h3 class="m-0">已发布的分享</h3>
+                <button class="btn btn-sm btn-outline" onclick="loadList()">刷新</button>
             </div>
             <div id="shareList"></div>
             <div class="empty" id="emptyTip" style="display:none">
                 <span class="icon">🔗</span>
                 <p>还没有分享 —— 去「浏览」勾选文件后点工具栏「分享」</p>
             </div>
-        </div>
+        </section>
     </div>
 </div>
 
@@ -205,7 +203,7 @@ function renderAttackTip(st) {
     if (st.global_active) parts.push('⚠️ 疑似遭大量暴力尝试，你的分享页已临时全局锁定（至 ' + fmtTs(st.global_locked_until) + '）');
     if (st.ip_locked) parts.push('已锁定 ' + st.ip_locked + ' 个异常 IP');
     if (st.failed_today) parts.push('今日共 ' + st.failed_today + ' 次输错');
-    var html = parts.join(' · ') + '　<a class="c-danger-strong" href="javascript:void(0)" onclick="resetAttempts()" style="font-weight:700">立即重置</a>';
+    var html = parts.join(' · ') + '　<a href="javascript:void(0)" onclick="resetAttempts()">立即重置</a>';
     tip.innerHTML = html;
     tip.style.display = '';
 }
@@ -314,23 +312,25 @@ function loadList() {
             st.className = 'srow-path';
             var meta = rowMeta(it);
             st.textContent = meta ? (meta + ' · ' + it.src) : it.src;
+            // 状态标签跟着文件名走：原来先塞进 row，标签就跑到文件名前面去了
+            var tags = [];
             if (!it.exists) {
                 var gone = document.createElement('span');
                 gone.className = 'tag tag-gone';
                 gone.textContent = '源文件已不存在';
-                row.appendChild(gone);
+                tags.push(gone);
             }
             if (it.local && it.exists) {
                 var loc = document.createElement('span');
                 loc.className = 'tag tag-local';
                 loc.textContent = '本机路径';
-                row.appendChild(loc);
+                tags.push(loc);
             }
             if (it.coded) {
                 var lk = document.createElement('span');
                 lk.className = 'tag tag-coded';
                 lk.textContent = '已设码';
-                row.appendChild(lk);
+                tags.push(lk);
             }
             var cd = document.createElement('button');
             cd.className = 'btn-admin';
@@ -350,12 +350,14 @@ function loadList() {
             rm.className = 'btn-admin danger';
             rm.textContent = '移除';
             rm.onclick = function () { removeMap(it.path, rm); };
-            row.appendChild(nm); row.appendChild(st);
+            row.appendChild(nm);
+            tags.forEach(function (t) { row.appendChild(t); });
+            row.appendChild(st);
             row.appendChild(cp); row.appendChild(cd); row.appendChild(rm);
             box.appendChild(row);
         });
     }).catch(function () {
-        box.innerHTML = '<div class="tip-danger">加载失败，请确认已登录</div>';
+        box.innerHTML = '<div class="banner banner--danger mt-8">加载失败，请确认已登录</div>';
     });
 }
 loadList();

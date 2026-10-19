@@ -344,3 +344,35 @@ function apiMkdir(path, name, callback) {
         body: JSON.stringify({ path: path, name: name })
     }).then(function (r) { return r.json(); }).then(callback);
 }
+
+// ========== 弹层骨架 ==========
+// 全站共用：共享 .modal-overlay / .modal-content / .modal-header 拼一个空壳，
+// 内容由调用方往 body 里塞。onClose 只在关闭时回调（清定时器之类），别再调 destroy。
+function buildModal(titleText, widthPx, onClose) {
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay active';
+    var card = document.createElement('div');
+    card.className = 'modal-content';
+    if (widthPx) card.style.width = widthPx + 'px';
+    var header = document.createElement('div');
+    header.className = 'modal-header';
+    var title = document.createElement('span');
+    title.className = 'modal-title';
+    title.textContent = titleText;
+    var close = document.createElement('button');
+    close.className = 'modal-close-btn';
+    close.textContent = '\u2715';
+    header.appendChild(title); header.appendChild(close);
+    var body = document.createElement('div');
+    body.className = 'modal-body-plain';
+    card.appendChild(header); card.appendChild(body);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    function destroy() {
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        if (onClose) onClose();
+    }
+    close.onclick = destroy;
+    overlay.onclick = function (e) { if (e.target === overlay) destroy(); };
+    return { overlay: overlay, body: body, destroy: destroy };
+}

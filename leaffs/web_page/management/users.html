@@ -49,7 +49,7 @@
         </div>
         <div class="user-list-header">
             <span>共 <span class="count" id="userTotalCount">0</span> 个用户</span>
-            <button class="btn-admin outline t-xs py-3 px-10" onclick="refreshUsers()">刷新</button>
+            <button class="btn btn-xs btn-outline" onclick="refreshUsers()">刷新</button>
         </div>
         <div id="userList" class="user-grid"><div class="c-body t-md text-center" style="padding:40px 0;grid-column:1/-1">加载中...</div></div>
     </div>
@@ -59,8 +59,8 @@
         <div class="user-list-header">
             <span>共 <span class="count" id="archiveTotal">0</span> 项 · 占用 <span class="count" id="archiveSize">0 B</span></span>
             <span>
-                <button class="btn-admin outline t-xs py-3 px-10" onclick="loadArchives()">刷新</button>
-                <button class="btn-admin outline t-xs py-3 px-10" onclick="purgeAllArchives()">全部清空</button>
+                <button class="btn btn-xs btn-outline" onclick="loadArchives()">刷新</button>
+                <button class="btn btn-xs btn-outline" onclick="purgeAllArchives()">全部清空</button>
             </span>
         </div>
         <div class="archive-hint">删除用户时，他的文件只是被改名归档到这里，并没有被删掉。清理是<b>不可恢复</b>的：确认里面的东西不再需要，再删。</div>
@@ -96,72 +96,52 @@ function genQR(name) {
         .then(function(d) {
             if (!d.qr_url) { batchToast('生成二维码失败', 'error'); return; }
             var sid = d.sid, qrUrl = d.qr_url;
-            var overlay = document.createElement('div');
-            overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999;background:var(--modal-overlay);display:flex;align-items:center;justify-content:center';
-            var card = document.createElement('div');
-            card.style.cssText = 'background:var(--card-bg);border-radius:12px;padding:32px;max-width:360px;width:90%;box-shadow:var(--shadow-hover);text-align:center;position:relative';
-            var closeBtn = document.createElement('button');
-            closeBtn.innerHTML = '\u2715';
-            closeBtn.style.cssText = 'position:absolute;top:8px;right:10px;width:28px;height:28px;border-radius:50%;border:none;background:var(--chip-bg);color:var(--muted);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center';
-            var title = document.createElement('div');
-            title.style.cssText = 'font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px';
-            title.textContent = '扫码连接';
+            var done = false, expireTimer = null;
+
+            var m = buildModal('扫码连接', 340, cleanup);
+            m.body.className = 'qr-modal-body';
             var sub = document.createElement('div');
-            sub.style.cssText = 'font-size:12px;color:var(--muted);margin-bottom:16px';
+            sub.className = 'qr-sub';
             sub.textContent = '扫描后自动登录（' + name + '）';
-            var qrWrap = document.createElement('div');
-            qrWrap.style.cssText = 'text-align:center;padding:12px 0';
-            // 二维码外框（与游客卡片同款：描边+圆角+底色，暗色模式下配合白底黑格二维码）
-            var qrFrame = document.createElement('div');
-            qrFrame.style.cssText = 'display:inline-block;border:2px solid var(--border);border-radius:10px;padding:8px;background:var(--card-bg);line-height:0';
-            qrWrap.appendChild(qrFrame);
-            card.appendChild(closeBtn);
-            card.appendChild(title);
-            card.appendChild(sub);
-            card.appendChild(qrWrap);
-            overlay.appendChild(card);
-            document.body.appendChild(overlay);
+            var frame = document.createElement('div');
+            frame.className = 'qr-frame';
+            frame.id = 'embedQr';
+            var expired = document.createElement('div');
+            expired.className = 'qr-status err';
+            expired.id = 'embedQrExpired';
+            expired.style.display = 'none';
+            expired.textContent = '二维码已失效，请关闭后重新生成';
+            m.body.appendChild(sub); m.body.appendChild(frame); m.body.appendChild(expired);
+
             if (typeof QRCode !== 'undefined') {
-                var _qu = { text: qrUrl, width: 220, height: 220 };
-                if (typeof qrThemeColors === 'function') { var _quc = qrThemeColors(); _qu.colorDark = _quc.colorDark; _qu.colorLight = _quc.colorLight; }
-                new QRCode(qrFrame, _qu);
-                var img = qrFrame.querySelector('img');
+                var opts = { text: qrUrl, width: 200, height: 200 };
+                if (typeof qrThemeColors === 'function') { var c = qrThemeColors(); opts.colorDark = c.colorDark; opts.colorLight = c.colorLight; }
+                new QRCode(frame, opts);
+                var img = frame.querySelector('img');
                 if (img) { img.style.display = 'block'; img.style.margin = '0 auto'; }
             }
+
+            // 关闭时统一清理：停计时器 + 退订（扫码已完成的会话由服务端收尾，这里不退订）
+            function cleanup() {
+                clearTimeout(expireTimer);
+                if (!done) { done = true; delete _qrWindows[sid]; sendWS({ type: 'qr-unsub', sid: sid }); }
+            }
             // 等待服务器 WS 推送 qr_consumed（即时，无需轮询）
-            var done = false;
+            function finishConsumed() {
+                if (done) return; done = true;
+                clearTimeout(expireTimer); delete _qrWindows[sid];
+                frame.style.display = 'none';
+                setTimeout(function() { m.destroy(); }, 1200);
+            }
             function showExpired() {
                 if (done) return; done = true;
                 delete _qrWindows[sid];
-                qrWrap.style.display = 'none';
-                var tip = document.createElement('div');
-                tip.style.cssText = 'font-size:12px;color:var(--danger);margin-top:10px;text-align:center';
-                tip.textContent = '二维码已失效，请关闭后重新生成';
-                overlay.appendChild(tip);
-            }
-            function finishConsumed() {
-                if (done) return; done = true;
-                clearTimeout(qrExpireTimer);
-                delete _qrWindows[sid];
-                qrWrap.style.display = 'none';
-                setTimeout(function() {
-                    if (document.body.contains(overlay)) document.body.removeChild(overlay);
-                }, 1200);
+                frame.style.display = 'none';
+                expired.style.display = 'block';
             }
             _qrWindows[sid] = finishConsumed;
             if (ws && ws.readyState === WebSocket.OPEN) sendWS({ type: 'qr-sub', sid: sid });
-            var qrExpireTimer = setTimeout(showExpired, 120000);
-            function qrClose() {
-                if (!done) {
-                    done = true;
-                    clearTimeout(qrExpireTimer);
-                    delete _qrWindows[sid];
-                    sendWS({ type: 'qr-unsub', sid: sid });
-                }
-                if (document.body.contains(overlay)) document.body.removeChild(overlay);
-            }
-            closeBtn.onclick = qrClose;
-            overlay.onclick = function(e) { if (e.target === overlay) qrClose(); };
+            expireTimer = setTimeout(showExpired, 120000);
         });
 }
 
@@ -174,7 +154,7 @@ function _usersEditing() { var a = document.activeElement; return !!(a && (a.tag
 //    「网页不能进入归档目录」—— 后端和浏览页一直是通的，是这里没给入口）。
 function openArchive(name){window.location.href='/browse/'+encodeURIComponent('users/.deleted/'+name);}
 function loadArchives(){return fetch('/api/users/archive').then(function(r){return r.json();}).then(function(d){renderArchives(d);}).catch(function(){batchToast('读取归档失败','error');});}
-function renderArchives(d){var items=(d&&d.archives)||[];document.getElementById('archiveTotal').textContent=items.length;document.getElementById('archiveSize').textContent=formatSize((d&&d.total_size)||0);var box=document.getElementById('archiveList');if(!items.length){box.innerHTML='<div class="archive-empty">没有归档</div>';return;}box.innerHTML=items.map(function(a){var sn=a.name.replace(/'/g,"\\'");return '<div class="archive-row"><div class="archive-meta"><b>'+esc(a.name)+'</b><span>'+a.files+' 个文件 · '+formatSize(a.size)+' · '+formatTime(a.mtime)+'</span></div><span class="archive-btns"><button class="btn-admin outline t-xs py-3 px-10" onclick="openArchive(\''+sn+'\')">打开</button><button class="btn-admin outline t-xs py-3 px-10" onclick="purgeArchive(\''+sn+'\')">删除</button></span></div>';}).join('');}
+function renderArchives(d){var items=(d&&d.archives)||[];document.getElementById('archiveTotal').textContent=items.length;document.getElementById('archiveSize').textContent=formatSize((d&&d.total_size)||0);var box=document.getElementById('archiveList');if(!items.length){box.innerHTML='<div class="archive-empty">没有归档</div>';return;}box.innerHTML=items.map(function(a){var sn=a.name.replace(/'/g,"\\'");return '<div class="archive-row"><div class="archive-meta"><b>'+esc(a.name)+'</b><span>'+a.files+' 个文件 · '+formatSize(a.size)+' · '+formatTime(a.mtime)+'</span></div><span class="archive-btns"><button class="btn btn-xs btn-outline" onclick="openArchive(\''+sn+'\')">打开</button><button class="btn btn-xs btn-outline" onclick="purgeArchive(\''+sn+'\')">删除</button></span></div>';}).join('');}
 function purgeArchive(name){if(!confirm('永久删除归档 "'+name+'" ？'))return;if(!confirm('里面的文件会被真正删掉，无法恢复。确定继续？'))return;fetch('/api/users/archive/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({names:[name]})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已删除归档 '+name,'success');loadArchives();}else batchToast((d.failed&&d.failed[0]&&d.failed[0].error)||d.error||'删除失败','error');});}
 function purgeAllArchives(){var n=parseInt(document.getElementById('archiveTotal').textContent)||0;if(!n){batchToast('没有归档可清理','info');return;}if(!confirm('永久删除全部 '+n+' 个归档？'))return;if(!confirm('里面的文件会被真正删掉，无法恢复。确定继续？'))return;fetch('/api/users/archive/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({all:true})}).then(function(r){return r.json();}).then(function(d){if(d.success){batchToast('已清空 '+d.deleted+' 个归档','success');loadArchives();}else batchToast(d.error||'清空失败','error');});}
 function _applyUsers(users) {

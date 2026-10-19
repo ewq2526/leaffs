@@ -45,7 +45,7 @@
                     <span class="t-xs c-dim">（1024~65535）</span>
                     <button class="btn-admin primary t-xs" onclick="applyHttpPort()">保存</button>
                 </div>
-                <div class="t-xs c-danger mt-4">修改后需重启服务器生效</div>
+                <div class="config-hint c-warn">修改后需重启服务器生效</div>
             </div>
         </div>
 
@@ -59,7 +59,7 @@
                     <span class="t-xs c-dim">（1024~65535）</span>
                     <button class="btn-admin primary t-xs" onclick="applyWsPort()">保存</button>
                 </div>
-                <div class="t-xs c-danger mt-4">修改后需重启服务器生效</div>
+                <div class="config-hint c-warn">修改后需重启服务器生效</div>
             </div>
         </div>
 
@@ -76,7 +76,7 @@
                     <span class="flex-1"></span>
                     <button class="btn-admin primary t-xs" onclick="applyTls()">保存</button>
                 </div>
-                <div class="t-xs c-danger mt-4">修改后需重启服务器生效；开启后请使用 https:// 访问</div>
+                <div class="config-hint c-warn">修改后需重启服务器生效；开启后请使用 https:// 访问</div>
                 <div class="t-xs c-warn mt-4" id="tlsRoleNote" style="display:none">仅超级管理员可修改 TLS 设置（安全策略）。</div>
             </div>
         </div>
@@ -91,7 +91,7 @@
                     <span class="t-xs c-dim">（1024~65535，重启生效）</span>
                     <button class="btn-admin primary t-xs" onclick="applyTrustPort()">保存</button>
                 </div>
-                <div class="t-xs c-danger mt-4">修改后需重启服务器生效；不能与 HTTP / WebSocket 端口相同</div>
+                <div class="config-hint c-warn">修改后需重启服务器生效；不能与 HTTP / WebSocket 端口相同</div>
             </div>
         </div>
 
@@ -105,7 +105,7 @@
                     <span class="t-xs c-dim">MB（建议 1~64）</span>
                     <button class="btn-admin primary t-xs" onclick="applyBufferSize()">应用</button>
                 </div>
-                <div class="t-xs c-danger mt-4">修改后需重启服务器生效</div>
+                <div class="config-hint c-warn">修改后需重启服务器生效</div>
             </div>
         </div>
 
@@ -187,7 +187,7 @@
                     <button class="btn-admin primary t-xs" onclick="applyZipStream()">保存</button>
                     <span class="t-xs c-dim">立即生效，无需重启</span>
                 </div>
-                <div class="t-sm c-danger mt-10 lh-17 r-8 bd-danger pad-8-10" id="zipStreamWarn" style="display:none;background:rgba(220,60,60,.07)">
+                <div class="banner banner--danger" id="zipStreamWarn" style="display:none">
                     ⚠️ <strong>关闭流式 = 先打包、后发送</strong>：系统会把所有选中文件先压缩写进<strong>临时文件</strong>再开始下载。
                     打包大文件时会<strong>占用大量磁盘空间</strong>，磁盘写满会<strong>导致传输失败</strong>，而且<strong>耗时更久</strong>（必须等全部压缩完才开始出数据）。
                     没有特殊需求请保持流式开启。

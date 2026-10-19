@@ -29,104 +29,105 @@
         <a href="/me" class="active">My Account</a>
     </nav>
 
-    <div class="acc-card">
-        <div class="acc-avatar" id="accAvatar">?</div>
-        <div class="acc-name" id="accName">-</div>
-        <div class="acc-role" id="accRole">-</div>
+    <div class="banner" id="accWarn" style="display:none">You have not set your own password yet (the one in use is the random initial password generated on first start). Please set your own: <a onclick="openPwModal()">Change password →</a></div>
+    <div id="shareWarnSlot"></div>
 
-        <div class="acc-grid">
+    <div class="acc-grid">
         <div class="acc-col">
-        <div class="acc-sec">
-            <div class="acc-sec-title">Account Info</div>
-            <div class="acc-row"><span class="k">Username</span><span class="v" id="rowUser">-</span></div>
-            <div class="acc-row"><span class="k">Role</span><span class="v" id="rowRole">-</span></div>
-            <div class="acc-row"><span class="k">Guest Mode</span><span class="v" id="rowGuest">-</span></div>
-            <!-- Keep the address on its own line: squeezed between the warning and the button
-                 it gets so narrow that word-break turns it into several lines -->
-            <div class="acc-row items-start">
-                <span class="k">Server Address</span>
-                <span class="v flex flex-col items-end gap-6 min-w-0">
-                    <span id="rowServer">-</span>
-                    <span class="flex items-center gap-8">
-                        <span class="t-xs c-danger-strong" id="rowServerLanWarn" style="display:none">no LAN available</span>
-                        <button class="btn btn-sm btn-primary" onclick="copyServer()" id="copyBtn">Copy</button>
+            <section class="panel">
+                <div class="acc-head">
+                    <div class="acc-avatar" id="accAvatar">?</div>
+                    <div class="min-w-0">
+                        <div class="acc-name" id="accName">-</div>
+                        <div class="acc-role" id="accRole">-</div>
+                    </div>
+                </div>
+                <div class="info-row"><span class="info-label">Username</span><span class="info-value" id="rowUser">-</span></div>
+                <div class="info-row"><span class="info-label">Role</span><span class="info-value" id="rowRole">-</span></div>
+                <div class="info-row"><span class="info-label">Guest Mode</span><span class="info-value" id="rowGuest">-</span></div>
+                <!-- Keep the address on its own block: squeezed between the warning and the button it gets so narrow that word-break turns it into several lines -->
+                <div class="info-row acc-row-addr">
+                    <span class="info-label">Server Address</span>
+                    <span class="acc-srv">
+                        <span class="info-value" id="rowServer">-</span>
+                        <span class="acc-srv-btns">
+                            <span class="t-xs c-danger-strong" id="rowServerLanWarn" style="display:none">no LAN available</span>
+                            <button class="btn btn-sm btn-outline" onclick="copyServer()" id="copyBtn">Copy</button>
+                        </span>
                     </span>
-                </span>
-            </div>
-        </div>
+                </div>
+            </section>
 
-        <div class="acc-sec">
-            <div class="acc-sec-title">Preferences</div>
-            <div class="acc-row">
-                <span class="k">Language</span>
-                <span class="v flex items-center gap-8">
-                    <select class="t-md c-body r-6 bg-card pad-4-8 bd" id="langSel" onchange="onLangChange()">
+            <section class="panel">
+                <h3>Preferences</h3>
+                <div class="info-row">
+                    <span class="info-label">Language</span>
+                    <select class="search-input" id="langSel" onchange="onLangChange()">
                         <option value="zh">中文</option>
                         <option value="en" selected>English</option>
                     </select>
-                </span>
-            </div>
-            <div class="acc-row">
-                <span class="k">Theme Color</span>
-                <span class="v flex items-center gap-8 flex-wrap" id="accentBox">
-                    <button class="swatch" type="button" data-a="plain" onclick="setAccent('plain')" title="Plain"></button>
-                    <button class="swatch" type="button" data-a="blue" onclick="setAccent('blue')" title="Blue"></button>
-                    <button class="swatch" type="button" data-a="green" onclick="setAccent('green')"></button>
-                    <button class="swatch" type="button" data-a="purple" onclick="setAccent('purple')"></button>
-                    <button class="swatch" type="button" data-a="orange" onclick="setAccent('orange')"></button>
-                    <button class="swatch" type="button" data-a="red" onclick="setAccent('red')"></button>
-                </span>
-            </div>
-            <div class="acc-hint">English UI is AI-translated and may differ from Chinese.</div>
-        </div>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Theme Color</span>
+                    <span class="flex items-center gap-8 flex-wrap" id="accentBox">
+                        <button class="swatch" type="button" data-a="plain" onclick="setAccent('plain')" title="Plain"></button>
+                        <button class="swatch" type="button" data-a="blue" onclick="setAccent('blue')" title="Blue"></button>
+                        <button class="swatch" type="button" data-a="green" onclick="setAccent('green')" title="Green"></button>
+                        <button class="swatch" type="button" data-a="purple" onclick="setAccent('purple')" title="Purple"></button>
+                        <button class="swatch" type="button" data-a="orange" onclick="setAccent('orange')" title="Orange"></button>
+                        <button class="swatch" type="button" data-a="red" onclick="setAccent('red')" title="Red"></button>
+                    </span>
+                </div>
+                <div class="t-xs c-dim mt-8 lh-16">English UI is AI-translated and may differ from Chinese.</div>
+            </section>
         </div>
 
         <div class="acc-col">
-        <div class="acc-sec">
-            <div class="acc-sec-title" id="quotaTitle">Storage Usage</div>
-            <div class="usg-wrap">
-                <div class="usg-top"><span id="quotaUsed">-</span><span id="quotaLimit">-</span></div>
+            <section class="panel">
+                <h3 id="quotaTitle">Storage Usage</h3>
+                <div class="flex justify-between t-sm"><span id="quotaUsed">-</span><span class="c-dim" id="quotaLimit">-</span></div>
                 <div class="usg-bar"><div class="usg-fill" id="quotaBar" style="width:0%"></div></div>
-            </div>
-        </div>
+            </section>
 
-        <div class="acc-sec" id="curDevSec">
-            <div class="acc-sec-title">Current Device</div>
-            <div class="acc-row"><span class="k">IP Address</span><span class="v" id="rowCurIp">-</span></div>
-            <div class="acc-row"><span class="k">Session Expires</span><span class="v" id="rowCurExpiry">-</span></div>
-            <div class="acc-sub" id="rowCurUa"></div>
-        </div>
+            <section class="panel" id="curDevSec">
+                <h3>Current Device</h3>
+                <div class="info-row"><span class="info-label">IP Address</span><span class="info-value" id="rowCurIp">-</span></div>
+                <div class="info-row"><span class="info-label">Session Expires</span><span class="info-value" id="rowCurExpiry">-</span></div>
+                <div class="t-xs c-dim mt-8 lh-16" id="rowCurUa"></div>
+            </section>
 
-        <div class="acc-sec" id="sessSec" style="display:none">
-            <div class="acc-sec-title flex justify-between items-center">
-                <span>Logged-in Devices</span>
-                <button class="btn btn-sm" id="revokeBtn" onclick="revokeOthers()">Sign out other devices</button>
-            </div>
-            <div id="sessList"></div>
-            <div class="acc-sub">When the same account is used on other devices, it appears here. You can sign out all other devices with one click.</div>
+            <section class="panel" id="sessSec" style="display:none">
+                <div class="flex justify-between items-center mb-8">
+                    <h3 class="m-0">Devices</h3>
+                    <button class="btn btn-sm btn-outline" id="revokeBtn" onclick="revokeOthers()">Sign out others</button>
+                </div>
+                <div id="sessList"></div>
+                <div class="t-xs c-dim mt-8 lh-16">When the same account is used on other devices it appears here; sign them all out with one click.</div>
+            </section>
         </div>
-        </div>
-        </div>
-
-        <div class="acc-warn" id="accWarn">You haven't set your own password yet (currently using the random one generated on first start). Please set your own: <a onclick="openPwModal()">Change password →</a></div>
-
-        <div class="danger-zone">
-            <button class="btn btn-primary" id="pwBtn" onclick="openPwModal()">Change Password</button>
-            <button class="btn btn-danger" id="logoutBtn">Sign Out</button>
-        </div>
-        <div class="acc-hint">After signing out, this device must sign in (or scan the QR code) again to continue.</div>
     </div>
+
+    <div class="acc-actions">
+        <button class="btn btn-primary" id="pwBtn" onclick="openPwModal()">Change Password</button>
+        <button class="btn btn-danger" id="logoutBtn">Sign Out</button>
+    </div>
+    <div class="t-xs c-dim text-center mt-8 lh-16">After signing out, this device must sign in (or scan the QR code) again to continue.</div>
 </div>
 
-<div class="acc-modal" id="pwModal" style="display:none" onclick="if(event.target===this)closePwModal()">
-    <div class="acc-modal-box">
-        <h3>Change Password</h3>
-        <input type="password" id="pwOld" placeholder="Current password" autocomplete="current-password">
-        <input type="password" id="pwNew" placeholder="New password (8~128 chars)" autocomplete="new-password">
-        <input type="password" id="pwNew2" placeholder="Repeat new password" autocomplete="new-password">
-        <div class="acc-modal-actions">
-            <button class="btn" onclick="closePwModal()">Cancel</button>
-            <button class="btn btn-primary" id="pwOk" onclick="submitPw()">Save</button>
+<div class="modal-overlay" id="pwModal" onclick="if(event.target===this)closePwModal()">
+    <div class="modal-content acc-modal-box">
+        <div class="modal-header">
+            <span class="modal-title">Change Password</span>
+            <button class="modal-close-btn" onclick="closePwModal()">✕</button>
+        </div>
+        <div class="acc-modal-body">
+            <input class="search-input w-full" type="password" id="pwOld" placeholder="Current password" autocomplete="current-password">
+            <input class="search-input w-full" type="password" id="pwNew" placeholder="New password (8~128 chars)" autocomplete="new-password">
+            <input class="search-input w-full" type="password" id="pwNew2" placeholder="Repeat new password" autocomplete="new-password">
+            <div class="acc-modal-actions">
+                <button class="btn btn-outline" onclick="closePwModal()">Cancel</button>
+                <button class="btn btn-primary" id="pwOk" onclick="submitPw()">Save</button>
+            </div>
         </div>
     </div>
 </div>
@@ -134,6 +135,7 @@
 <script src="/static/app.js"></script>
 <script>
 var myRole = __MY_ROLE__;
+// Guests do not see the downloader / admin / share entries (same as the browse page)
 (function () {
     var isGuest = myRole === 'guest' || !myRole;
     var navDl = document.getElementById('accNavDownloader');
@@ -168,7 +170,7 @@ function fmtTime(ts) {
 }
 function _toast(msg, type) {
     if (window.batchToast) { window.batchToast(msg, type); return; }
-    alert(msg);
+    (type === 'error' ? alert : function (m) { alert(m); })(msg);
 }
 function copyServer() {
     var txt = (document.getElementById('rowServer').textContent || location.origin).trim();
@@ -187,7 +189,7 @@ function fallbackCopy(txt) {
 }
 function openPwModal() {
     if (IS_GUEST) return;
-    // Super admin: password changes go through the users management page
+    // Super admin: password changes go through the user management page
     if (myRole === 'super_admin') { location.href = '/admin/users'; return; }
     document.getElementById('pwModal').style.display = 'flex';
     setTimeout(function () { var i = document.getElementById('pwOld'); if (i) i.focus(); }, 50);
@@ -200,7 +202,7 @@ function submitPw() {
     var oldPw = document.getElementById('pwOld').value;
     var n1 = document.getElementById('pwNew').value;
     var n2 = document.getElementById('pwNew2').value;
-    // No password set yet → this is "set a password", old password may be left empty
+    // With no password set yet (fresh install) this is a "set password" and the old field may stay empty
     if (!n1) { _toast('Please enter a new password', 'error'); return; }
     if (n1 !== n2) { _toast('New passwords do not match', 'error'); return; }
     var btn = document.getElementById('pwOk');
@@ -242,20 +244,20 @@ function renderSessions(list) {
     var box = document.getElementById('sessList');
     box.innerHTML = '';
     if (!list || !list.length) {
-        box.innerHTML = '<div class="acc-sub">No other sessions.</div>';
+        box.innerHTML = '<div class="t-xs c-dim lh-16">No other sessions.</div>';
         return;
     }
     list.forEach(function (s) {
         var d = document.createElement('div');
         d.className = 'sess-item';
         var info = document.createElement('div');
-        info.className = 'si-info';
+        info.className = 'min-w-0';
         var ip = document.createElement('div');
-        ip.className = 'si-ip';
-        ip.textContent = s.ip || 'Unknown';
+        ip.className = 't-md fw-600 c-body';
+        ip.textContent = s.ip || 'unknown';
         var t = document.createElement('div');
-        t.className = 'si-time';
-        t.textContent = 'Expires ' + fmtTime(s.expiry);
+        t.className = 't-xs c-dim mt-2';
+        t.textContent = 'expires ' + fmtTime(s.expiry);
         info.appendChild(ip); info.appendChild(t);
         d.appendChild(info);
         if (s.current) {
@@ -268,7 +270,7 @@ function renderSessions(list) {
     });
 }
 function revokeOthers() {
-    if (!window.confirm('Sign out this account on all other devices? This device is not affected.')) return;
+    if (!window.confirm('Sign this account out on all other devices? This device stays signed in.')) return;
     var btn = document.getElementById('revokeBtn');
     btn.disabled = true;
     var xhr = new XMLHttpRequest();
@@ -299,16 +301,14 @@ function setAccent(a) {
     a = a || '';
     document.documentElement.setAttribute('data-accent', a);
     markAccent(a);
-    // The theme (light/dark + accent) is stored client-side only — never sent to the server,
-    // so every device keeps its own.
+    // Theme (dark/light + accent) stays local to the client: each device keeps its own
     try { document.cookie = 'leaf_accent=' + a + '; path=/; max-age=31536000'; } catch (e) {}
 }
 function onLangChange() {
     var sel = document.getElementById('langSel');
     var v = sel && sel.value === 'en' ? 'en' : 'zh';
     try { document.cookie = 'leaf_lang=' + v + '; path=/; max-age=31536000'; } catch (e) {}
-    // Incognito/webview clients cannot persist cookies: save the preference on the server
-    // account so it is restored after restart & sign-in.
+    // Cookie-less clients (webviews) cannot keep it: persist the preference on the account
     if (!IS_GUEST && window.fetch) {
         fetch('/api/account/lang', {
             method: 'POST',
@@ -330,7 +330,7 @@ function loadMe() {
             if (!d || typeof d !== 'object' || !d.success) return;
             var role = d.role || myRole || '';
             setTxt('rowServer', d.server_url || window.location.origin);
-            // 提醒放在 rowServer 之外：它是复制按钮的取值来源，提示文字不能被复制进去
+            // Keep the warning outside rowServer: it feeds the copy button, so the hint must not be copied
             var _srvWarn = document.getElementById('rowServerLanWarn');
             if (_srvWarn) _srvWarn.style.display = (d.server_has_lan === false ? '' : 'none');
             var name = d.username || (role === 'guest' ? 'Guest' : '');
@@ -338,20 +338,23 @@ function loadMe() {
             setTxt('accName', name || 'Guest');
             setTxt('rowRole', ROLE_TEXT[role] || role || '-');
             setTxt('accRole', (ROLE_TEXT[role] || role || '') + (role === 'guest' ? ' · public only' : ''));
-            setTxt('rowGuest', d.guest_mode ? 'On (guests can browse public folder)' : 'Off');
+            setTxt('rowGuest', d.guest_mode ? 'On (guests can browse the public folder)' : 'Off');
             var av = document.getElementById('accAvatar');
             if (av) av.textContent = (name || '?').charAt(0).toUpperCase();
+            // Quota scope: guest = public folder, user = own folder, admin = whole server
             var qt = 'Storage Usage';
             if (role === 'guest') qt = 'Storage Usage (public folder)';
             else if (role === 'user') qt = 'Storage Usage (my folder)';
-            else if (role === 'admin' || role === 'super_admin') qt = 'Storage Usage (server total)';
+            else if (role === 'admin' || role === 'super_admin') qt = 'Storage Usage (whole server)';
             setTxt('quotaTitle', qt);
             renderQuota(d.quota || {});
+            // Current device
             if (!IS_GUEST && d.current) {
                 setTxt('rowCurIp', d.current.ip || '-');
                 setTxt('rowCurExpiry', fmtTime(d.current.expiry));
                 if (d.current.ua) setTxt('rowCurUa', d.current.ua);
             }
+            // Devices (guests have none)
             if (!IS_GUEST) {
                 document.getElementById('sessSec').style.display = '';
                 renderSessions(d.sessions || []);
@@ -371,7 +374,7 @@ applyLangUi();
 
 document.getElementById('logoutBtn').addEventListener('click', function () {
     var T = function (s) { return window.i18n ? window.i18n.t(s) : s; };
-    if (!window.confirm(T('Sign out?'))) return;
+    if (!window.confirm(T('Sign out now?'))) return;
     var btn = document.getElementById('logoutBtn');
     btn.disabled = true; btn.textContent = T('Signing out…');
     var xhr = new XMLHttpRequest();
@@ -383,23 +386,25 @@ document.getElementById('logoutBtn').addEventListener('click', function () {
     };
     xhr.send('');
 });
-// Brute-force protection alert for shares (signed-in users only)
+// Share brute-force warning (logged-in users only; the server decides, this only renders)
 if (!IS_GUEST) {
     (function () {
         fetch('/api/share/status').then(function (r) { return r.json(); }).then(function (st) {
             if (!st || (!st.global_active && !st.ip_locked && !st.failed_today)) return;
             var msgs = [];
-            if (st.global_active) msgs.push('⚠️ Your share page may be under brute-force attack and is temporarily locked');
-            if (st.ip_locked) msgs.push(st.ip_locked + ' suspicious IP(s) locked');
+            if (st.global_active) msgs.push('⚠️ Your share page is under brute force and is temporarily locked');
+            if (st.ip_locked) msgs.push(st.ip_locked + ' suspicious IP(s) blocked');
             if (st.failed_today) msgs.push(st.failed_today + ' failed attempt(s) today');
+            var slot = document.getElementById('shareWarnSlot');
+            if (!slot) return;
             var bar = document.createElement('div');
-            bar.style.cssText = 'position:relative;z-index:5;margin:0 auto 12px;max-width:1100px;padding:10px 14px;border-radius:10px;background:rgba(208,86,107,.10);border:1px solid rgba(208,86,107,.4);color:#b03a50;font-size:13px;line-height:1.7;display:flex;gap:10px;align-items:center;flex-wrap:wrap';
+            bar.className = 'banner';
             var txt = document.createElement('span');
-            txt.style.cssText = 'flex:1';
+            txt.className = 'flex-1';
             txt.textContent = msgs.join(' · ');
             var btn = document.createElement('button');
+            btn.className = 'btn btn-sm btn-danger';
             btn.textContent = 'Reset now';
-            btn.style.cssText = 'border:0;background:#b03a50;color:#fff;border-radius:999px;padding:6px 16px;font-size:12px;font-weight:600;cursor:pointer';
             btn.onclick = function () {
                 fetch('/api/share/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
                   .then(function (r) { return r.json(); }).then(function (d) {
@@ -407,8 +412,7 @@ if (!IS_GUEST) {
                   }).catch(function () {});
             };
             bar.appendChild(txt); bar.appendChild(btn);
-            var app = document.querySelector('.app') || document.body;
-            app.insertBefore(bar, app.firstChild);
+            slot.appendChild(bar);
         }).catch(function () {});
     })();
 }

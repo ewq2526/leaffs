@@ -376,101 +376,61 @@ function genQR(name) {
         .then(function(r) { return r.json(); })
         .then(function(d) {
             if (!d.qr_url) { batchToast(_UI_EN ? 'Failed to generate QR code' : '生成二维码失败', 'error'); return; }
-            var sid = d.sid;
-            var qrUrl = d.qr_url;
+            var sid = d.sid, qrUrl = d.qr_url;
+            var finished = false, expireTimer = null;
 
-            var overlay = document.createElement('div');
-            overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:99999;background:var(--modal-overlay);display:flex;align-items:center;justify-content:center';
-
-            var card = document.createElement('div');
-            card.style.cssText = 'background:var(--card-bg);border-radius:12px;padding:32px;max-width:360px;width:90%;box-shadow:var(--shadow-hover);text-align:center;position:relative';
-
-            var closeBtn = document.createElement('button');
-            closeBtn.innerHTML = '✕';
-            closeBtn.style.cssText = 'position:absolute;top:8px;right:10px;width:28px;height:28px;border-radius:50%;border:none;background:var(--chip-bg);color:var(--muted);font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center';
-            closeBtn.onclick = function() { document.body.removeChild(overlay); };
-
-            var title = document.createElement('div');
-            title.style.cssText = 'font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px';
-            title.textContent = _UI_EN ? 'Scan to sign in' : '扫码连接';
-
+            var m = buildModal(_UI_EN ? 'Scan to sign in' : '扫码连接', 340, cleanup);
+            m.body.className = 'qr-modal-body';
             var sub = document.createElement('div');
-            sub.style.cssText = 'font-size:12px;color:var(--muted);margin-bottom:16px';
-            sub.textContent = _UI_EN
-                ? ('Signs in as ' + name + ' after scanning')
-                : ('扫描后自动登录（' + name + '）');
-
-            var qrWrap = document.createElement('div');
-            qrWrap.style.cssText = 'text-align:center;padding:12px 0';
-            // 二维码外框（与游客卡片同款：描边+圆角+底色，暗色模式下配合白底黑格二维码）
+            sub.className = 'qr-sub';
+            sub.textContent = _UI_EN ? ('Signs in as ' + name + ' after scanning') : ('扫描后自动登录（' + name + '）');
             var qrFrame = document.createElement('div');
+            qrFrame.className = 'qr-frame';
             qrFrame.id = 'embedQr';
-            qrFrame.style.cssText = 'display:inline-block;border:2px solid var(--border);border-radius:10px;padding:8px;background:var(--card-bg);line-height:0';
-            qrWrap.appendChild(qrFrame);
-
             var statusMsg = document.createElement('div');
+            statusMsg.className = 'qr-status ok';
             statusMsg.id = 'embedQrStatus';
-            statusMsg.style.cssText = 'font-size:12px;font-weight:600;color:var(--success);margin-top:10px;display:none';
+            statusMsg.style.display = 'none';
             statusMsg.textContent = _UI_EN ? 'Signed in successfully' : '已扫码登录成功';
-
             var expiredMsg = document.createElement('div');
+            expiredMsg.className = 'qr-status err';
             expiredMsg.id = 'embedQrExpired';
-            expiredMsg.style.cssText = 'font-size:12px;font-weight:600;color:var(--danger);margin-top:10px;display:none';
+            expiredMsg.style.display = 'none';
             expiredMsg.textContent = _UI_EN ? 'QR code expired' : '二维码已失效';
+            m.body.appendChild(sub); m.body.appendChild(qrFrame);
+            m.body.appendChild(statusMsg); m.body.appendChild(expiredMsg);
 
-            card.appendChild(closeBtn);
-            card.appendChild(title);
-            card.appendChild(sub);
-            card.appendChild(qrWrap);
-            card.appendChild(statusMsg);
-            card.appendChild(expiredMsg);
-            overlay.appendChild(card);
-            document.body.appendChild(overlay);
-
-            var qrContainer = document.getElementById('embedQr');
-            qrContainer.innerHTML = '';
-            var _qo = { text: qrUrl, width: 220, height: 220 };
+            var _qo = { text: qrUrl, width: 200, height: 200 };
             if (typeof qrThemeColors === 'function') { var _qc = qrThemeColors(); _qo.colorDark = _qc.colorDark; _qo.colorLight = _qc.colorLight; }
-            var qrcode = new QRCode(qrContainer, _qo);
-            var cvs = qrContainer.querySelector('canvas');
-            var img = qrContainer.querySelector('img');
+            new QRCode(qrFrame, _qo);
+            var cvs = qrFrame.querySelector('canvas');
+            var img = qrFrame.querySelector('img');
             if (cvs) cvs.style.display = 'none';
             if (img) { img.style.display = 'block'; img.style.margin = '0 auto'; }
 
+            function cleanup() {
+                clearTimeout(expireTimer);
+                if (!finished) { finished = true; delete _qrWindows[sid]; sendWS({ type: 'qr-unsub', sid: sid }); }
+            }
             // 等待服务器 WS 推送 qr_consumed（扫码即时完成，无需轮询）
-            var finished = false;
             function finishQRConsumed() {
                 if (finished) return; finished = true;
-                qrWrap.style.display = 'none';
+                clearTimeout(expireTimer); delete _qrWindows[sid];
+                qrFrame.style.display = 'none';
                 expiredMsg.style.display = 'none';
                 statusMsg.style.display = 'block';
-                setTimeout(function() {
-                    if (document.body.contains(overlay)) document.body.removeChild(overlay);
-                }, 2000);
+                setTimeout(function() { m.destroy(); }, 2000);
             }
             _qrWindows[sid] = finishQRConsumed;
             if (ws && ws.readyState === WebSocket.OPEN) sendWS({ type: 'qr-sub', sid: sid });
             // 兜底：二维码有效期 2 分钟，超时未扫码则显示失效
-            var qrExpireTimer = setTimeout(function() {
+            expireTimer = setTimeout(function() {
                 if (finished) return; finished = true;
                 delete _qrWindows[sid];
-                qrWrap.style.display = 'none';
+                qrFrame.style.display = 'none';
                 statusMsg.style.display = 'none';
                 expiredMsg.style.display = 'block';
             }, 120000);
-            function qrClose() {
-                if (!finished) {
-                    finished = true;
-                    clearTimeout(qrExpireTimer);
-                    delete _qrWindows[sid];
-                    sendWS({ type: 'qr-unsub', sid: sid });
-                }
-                if (document.body.contains(overlay)) document.body.removeChild(overlay);
-            }
-            closeBtn.onclick = qrClose;
-            overlay.onclick = function(e) {
-                if (e.target === overlay) qrClose();
-            };
         });
 }
 

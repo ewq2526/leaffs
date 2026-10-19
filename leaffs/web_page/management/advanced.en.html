@@ -46,7 +46,7 @@
                     <span class="t-xs c-dim">(1024~65535)</span>
                     <button class="btn-admin primary t-xs" onclick="applyHttpPort()">Save</button>
                 </div>
-                <div class="t-xs c-danger mt-4">Changing it requires a server restart to take effect</div>
+                <div class="config-hint c-warn">Changing it requires a server restart to take effect</div>
             </div>
         </div>
 
@@ -60,7 +60,7 @@
                     <span class="t-xs c-dim">(1024~65535)</span>
                     <button class="btn-admin primary t-xs" onclick="applyWsPort()">Save</button>
                 </div>
-                <div class="t-xs c-danger mt-4">Changing it requires a server restart to take effect</div>
+                <div class="config-hint c-warn">Changing it requires a server restart to take effect</div>
             </div>
         </div>
 
@@ -77,7 +77,7 @@
                     <span class="flex-1"></span>
                     <button class="btn-admin primary t-xs" onclick="applyTls()">Save</button>
                 </div>
-                <div class="t-xs c-danger mt-4">Changing it requires a server restart; once enabled, access via https://</div>
+                <div class="config-hint c-warn">Changing it requires a server restart; once enabled, access via https://</div>
                 <div class="t-xs c-warn mt-4" id="tlsRoleNote" style="display:none">Only the Super Admin can change TLS settings (security policy).</div>
             </div>
         </div>
@@ -92,7 +92,7 @@
                     <span class="t-xs c-dim">(1024~65535, applies after restart)</span>
                     <button class="btn-admin primary t-xs" onclick="applyTrustPort()">Save</button>
                 </div>
-                <div class="t-xs c-danger mt-4">Changing it requires a server restart; it must not be the same as the HTTP / WebSocket port</div>
+                <div class="config-hint c-warn">Changing it requires a server restart; it must not be the same as the HTTP / WebSocket port</div>
             </div>
         </div>
 
@@ -106,7 +106,7 @@
                     <span class="t-xs c-dim">MB (1~64 recommended)</span>
                     <button class="btn-admin primary t-xs" onclick="applyBufferSize()">Apply</button>
                 </div>
-                <div class="t-xs c-danger mt-4">Changing it requires a server restart to take effect</div>
+                <div class="config-hint c-warn">Changing it requires a server restart to take effect</div>
             </div>
         </div>
 
@@ -188,7 +188,7 @@
                     <button class="btn-admin primary t-xs" onclick="applyZipStream()">Save</button>
                     <span class="t-xs c-dim">Takes effect immediately, no restart needed</span>
                 </div>
-                <div class="t-sm c-danger mt-10 lh-17 r-8 bd-danger pad-8-10" id="zipStreamWarn" style="display:none;background:rgba(220,60,60,.07)">
+                <div class="banner banner--danger" id="zipStreamWarn" style="display:none">
                     ⚠️ <strong>Turning streaming off = package first, send later</strong>: the system compresses all selected files into a <strong>temporary file</strong> before the download starts.
                     Packaging large files <strong>uses a lot of disk space</strong>; a full disk can <strong>make the transfer fail</strong>, and it <strong>takes much longer</strong> (no data is sent until everything is fully compressed).
                     Keep streaming on unless you have a specific reason.
