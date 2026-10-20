@@ -225,8 +225,8 @@ def _palette_colors(theme, accent):
         # ---- 玻璃拟态：这些必须保留原始透明度（原生不能压成不透明色块）----
         'cardRaw': _argb_keep_alpha(_parse_color(p.get('--card-bg')),
                                     (255, 255, 255), 0.62),
-        'glassRaw': _argb_keep_alpha(_parse_color(p.get('--glass-bg')),
-                                     (255, 255, 255), 0.45),
+        # 不透明的"面"：原生卡片要当实心背景用（见 native_colors 里的 cardPalette）
+        'cardSolid': _argb(opaque('--card-solid', (255, 255, 255))),
         'hoverRaw': _argb_keep_alpha(_parse_color(p.get('--hover-bg')),
                                      (110, 140, 255), 0.09),
         # 卡片边缘高光（网页用 4 个径向渐变叠出玻璃反光）
@@ -242,8 +242,9 @@ def _palette_colors(theme, accent):
                                  (150, 225, 255), 0.50),
         'orb3': _argb_keep_alpha(_parse_color(p.get('--orb3')),
                                  (150, 190, 255), 0.35),
-        # 玻璃模糊半径（--glass-blur，原生在 API 31+ 可用于真实背景模糊）
-        'blur': _px_to_dp(p.get('--glass-blur'), 18),
+        # 背景模糊半径：网页侧已经不做 backdrop-filter（--glass-blur 已删），原生这层
+        # 也关掉 —— API 31+ 的 setBackgroundBlurRadius 会在 GPU 上再开一次全屏模糊
+        'blur': _px_to_dp(p.get('--glass-blur'), 0),
     }
 
 
@@ -262,6 +263,12 @@ def native_colors(theme='dark', accent=''):
         return None
     other = _palette_colors('dark' if theme == 'light' else 'light', accent)
     if other:
+        # 卡片填充改用**不透明的面**，不能拿 --card-bg。
+        # 两套主题的 --card-bg 都是白底半透明（暗 7% / 亮 90%），Android 侧再把它抬到
+        # 85% 不透明度，"反主题的暗卡"其实是一张**白卡**，而文字取的是对面那套的
+        # --text（暗主题＝纯白）→ 亮页面上白底白字，长按菜单/确认框整个看不见。
+        # --card-solid 是各自主题真正的不透明底色（暗 #151726 / 亮 #fff）。
+        other['cardRaw'] = other['cardSolid']
         colors['cardPalette'] = other
     return colors
 
