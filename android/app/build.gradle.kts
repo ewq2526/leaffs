@@ -114,9 +114,6 @@ chaquopy {
             install("websockets==16.0")
             // dl 模块（tracker/m3u8 探测）依赖；纯 Python，Chaquopy 镜像有 wheel
             install("httpx")
-            // 安卓没有 openssl.exe：TLS 自签证书由它生成（leaffs/server/tls.py）。
-            // 带原生扩展，Chaquopy 官方镜像提供对应 wheel
-            install("cryptography")
         }
     }
     sourceSets {

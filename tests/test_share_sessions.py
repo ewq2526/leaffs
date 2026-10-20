@@ -214,8 +214,12 @@ def test_visitor_share_page(client, data_root):
         assert 'pic.jpg' in names and 'doc.txt' in names
         assert 'gone.txt' not in names            # 源失效不展示
         assert all(f['url'].startswith('/download/public/shares/admin/') for f in d['files'])
+        # 源路径不外泄：API 里没有 src 字段，页面上也不出现任何分享的源路径
+        assert all('src' not in f for f in d['files'])
         body = pg.text
-        assert 'src' not in body.replace('sources', '')
+        assert 'users/admin' not in body
+        # 页面上唯一允许的 src 是静态资源（品牌图标）
+        assert body.count('src=') == body.count('src="/static/')
         # 无分享用户：api 空数组、页面 200（空态由前端渲染）
         nobody = anon.get('/p/nobody/api').json()
         assert nobody['files'] == []
