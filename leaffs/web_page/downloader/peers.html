@@ -19,15 +19,15 @@
         <button class="btn btn-sm btn-outline t-xs" onclick="toggleAutoRefresh()" id="refreshBtn" style="padding:4px 10px">暂停刷新</button>
     </div>
 
-    <div class="dl-input-area">
+    <section class="panel">
         <h3>传输概览</h3>
         <div class="summary-grid" id="summaryGrid"></div>
-    </div>
+    </section>
 
-    <div class="dl-input-area">
+    <section class="panel">
         <h3>对等节点列表 <span class="t-xs c-dim fw-400" id="peerCount">(0)</span></h3>
         <div id="peerList"><div class="empty-msg">加载中...</div></div>
-    </div>
+    </section>
 </div>
 <script>
 var API = '/api/url-download';
@@ -131,7 +131,7 @@ function fetchPeers() {
             '<div class="summary-card"><div class="val c-primary">' + formatSpeed(dlSpeed) + '</div><div class="lbl">下载速度</div><div class="trend" style="color:' + (dlSpeed > 0 ? 'var(--success)' : 'var(--text-light)') + '">峰值 ' + formatSpeed(maxDl) + '</div></div>' +
             '<div class="summary-card"><div class="val c-warn">' + formatSpeed(ulSpeed) + '</div><div class="lbl">上传速度</div><div class="trend" style="color:' + (ulSpeed > 0 ? 'var(--success)' : 'var(--text-light)') + '">峰值 ' + formatSpeed(maxUl) + '</div></div>' +
             '<div class="summary-card"><div class="val">' + progress + '%</div><div class="lbl">下载进度</div><div class="trend c-dim">' + formatSize(completed) + (total > 0 ? ' / ' + formatSize(total) : '') + '</div></div>' +
-            '<div class="summary-card"><div class="val" style="color:#8e44ad">' + peers.length + '</div><div class="lbl">对等节点</div><div class="trend c-dim">最多 ' + getMaxHistory('peers') + '</div></div>' +
+            '<div class="summary-card"><div class="val">' + peers.length + '</div><div class="lbl">对等节点</div><div class="trend c-dim">最多 ' + getMaxHistory('peers') + '</div></div>' +
             '<div class="summary-card"><div class="val">' + (status.numSeeders || '0') + '</div><div class="lbl">完成源</div><div class="trend c-dim">连接 ' + (status.connections || '0') + '</div></div>' +
             '<div class="summary-card"><div class="val">' + (status.connections || '0') + '</div><div class="lbl">总连接数</div><div class="trend c-dim">GID: ' + (status.gid || '').substring(0, 8) + '</div></div>';
 

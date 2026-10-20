@@ -39,7 +39,6 @@
     --warn-deep: #d97706;
     --card-bg: rgba(255, 255, 255, 0.07);
     --card-solid: #151726;
-    --glass-bg: rgba(255, 255, 255, 0.05);
     --paper: #ffffff;
     --text: #ffffff;
     --text-secondary: rgba(255, 255, 255, 0.78);
@@ -49,7 +48,6 @@
     --border: rgba(255, 255, 255, 0.16);
     --hover-bg: rgba(255, 255, 255, 0.08);
     --chip-bg: rgba(255, 255, 255, 0.09);
-    --nav-hover: rgba(255, 255, 255, 0.12);
     --modal-overlay: rgba(8, 9, 26, 0.66);
     --shadow: 0 0 0 1px rgba(255, 255, 255, 0.04),
               0 30px 80px -24px rgba(0, 0, 0, 0.8),
@@ -57,11 +55,9 @@
     --shadow-hover: 0 0 0 1px rgba(255, 255, 255, 0.06),
                     0 40px 110px -28px rgba(0, 0, 0, 0.85),
                     0 0 calc(130px * var(--glow-k)) -34px rgba(var(--primary-rgb), 0.6);
-    --upload-zone-bg: rgba(255, 255, 255, 0.04);
     --upload-zone-dash: rgba(255, 255, 255, 0.28);
     --preview-bg: #12132e;
     --preview-text: #dfe3ff;
-    --tint: rgba(255, 255, 255, 0.08);
     --tint-ok: rgba(52, 211, 153, 0.18);
     --tint-err: rgba(251, 113, 133, 0.18);
     --tint-warn: rgba(251, 191, 36, 0.18);
@@ -80,7 +76,6 @@
     --warn-deep: #92400e;
     --card-bg: rgba(255, 255, 255, 0.9);
     --card-solid: #ffffff;
-    --glass-bg: rgba(255, 255, 255, 0.74);
     --paper: #ffffff;
     --text: #10101a;
     --text-secondary: rgba(16, 16, 26, 0.78);
@@ -90,7 +85,6 @@
     --border: rgba(12, 14, 34, 0.18);
     --hover-bg: rgba(12, 14, 34, 0.065);
     --chip-bg: rgba(12, 14, 34, 0.08);
-    --nav-hover: rgba(12, 14, 34, 0.09);
     --modal-overlay: rgba(16, 18, 32, 0.46);
     --shadow: 0 1px 2px rgba(18, 22, 54, 0.1),
               0 16px 40px -20px rgba(18, 22, 54, 0.5),
@@ -98,11 +92,9 @@
     --shadow-hover: 0 2px 8px rgba(18, 22, 54, 0.12),
                     0 26px 56px -22px rgba(18, 22, 54, 0.56),
                     0 0 calc(58px * var(--glow-k)) -18px rgba(var(--primary-rgb), 0.36);
-    --upload-zone-bg: rgba(12, 14, 34, 0.04);
     --upload-zone-dash: rgba(12, 14, 34, 0.24);
     --preview-bg: #141520;
     --preview-text: #cdd6f4;
-    --tint: rgba(12, 14, 34, 0.06);
     --tint-ok: rgba(5, 150, 105, 0.12);
     --tint-err: rgba(190, 18, 60, 0.1);
     --tint-warn: rgba(180, 83, 9, 0.13);
@@ -1906,11 +1898,6 @@
 .header-bar h2 { font-size: 15px; font-weight: 600; color: var(--text); margin: 0; }
 .header-bar .back-btn { padding: 6px 14px; border: 1px solid var(--border); border-radius: 8px; text-decoration: none; color: var(--text); font-size: 13px; }
 .header-bar .back-btn:hover { border-color: var(--primary); color: var(--primary-ink); }
-.dl-input-area {
-    background: var(--card-bg); border-radius: var(--radius); padding: 16px;
-    border: 1px solid var(--border); margin-bottom: 14px;
-}
-.dl-input-area h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--text); }
 .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; margin-bottom: 14px; }
 .summary-card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; text-align: center; }
 .summary-card .val { font-size: 18px; font-weight: 700; color: var(--text); }
@@ -1951,6 +1938,16 @@
 .progress-wrap .bar { height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent2)); width: 0; transition: width 0.3s var(--ease); }
 
 .search-hl { background: var(--ring-soft); padding: 0 2px; border-radius: 3px; }
+
+/* 浏览页两个弹层（发布结果 / 搜索）的内容块。
+   这两个弹层原来是自己 div + style.cssText 拼的，底色写 var(--card-bg)，
+   去掉背景模糊之后就成了半透明、底下的文字直接透上来；现在都走 buildModal()。 */
+.pub-row { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--border); }
+.pub-row:last-child { border-bottom: none; }
+.pub-name { flex: 1; min-width: 0; color: var(--text); font-size: 13px; word-break: break-all; }
+.pub-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+/* 弹层里的输入框要占满宽度（.search-input 自带 max-width: 240px） */
+.modal-body-plain .search-input { max-width: none; flex: none; width: 100%; }
 
 /* ---- login ---- */
 .auth {

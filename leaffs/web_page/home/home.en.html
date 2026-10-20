@@ -514,73 +514,73 @@ function shareCopyText(t) {
 }
 
 function openPublishModal(published) {
-    var overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:var(--modal-overlay);display:flex;align-items:flex-start;justify-content:center;padding:40px 12px;overflow:auto';
-    overlay.onclick = function(e) { if (e.target === overlay) document.body.removeChild(overlay); };
-    var box = document.createElement('div');
-    box.style.cssText = 'background:var(--card-bg);border-radius:14px;padding:22px;max-width:520px;width:100%;box-shadow:var(--shadow-hover);margin:auto';
-    var title = document.createElement('div');
-    title.style.cssText = 'font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px';
-    title.textContent = 'Published to public folder ✓';
+    var m = buildModal('Published to public folder ✓', 520);
     var tip = document.createElement('div');
-    tip.style.cssText = 'font-size:12px;color:var(--muted,#8a97bd);margin-bottom:12px;line-height:1.7';
+    tip.className = 't-xs c-dim lh-17';
     tip.textContent = 'Files are mapped to public/shares/' + (myUsername || 'me') + '/ — visitors can browse and download them in the public area without login. Original files are never moved. Each file has its own direct link:';
-    box.appendChild(title); box.appendChild(tip);
+    m.body.appendChild(tip);
     if (window.__HAS_LAN__ === false) {
         var lanWarn = document.createElement('div');
-        lanWarn.style.cssText = 'font-size:12px;color:#b03a50;margin-bottom:12px;line-height:1.7';
+        lanWarn.className = 'banner banner--danger mt-10';
         lanWarn.textContent = 'No LAN available — these links only work on this device';
-        box.appendChild(lanWarn);
+        m.body.appendChild(lanWarn);
     }
     var listBox = document.createElement('div');
+    listBox.className = 'mt-6';
     published.forEach(function(it) {
         // The public base URL comes from the server: the desktop window is localhost and the
         // Android webview is 127.0.0.1, so links built from location.origin cannot be opened
         // by anyone else (same rule as the share management page)
         var full = (window.__SERVER_BASE__ || location.origin) + it.url;
         var row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border,#eef1f8);font-size:13px';
+        row.className = 'pub-row';
         var nm = document.createElement('span');
-        nm.style.cssText = 'flex:1;color:var(--text);word-break:break-all;min-width:0';
+        nm.className = 'pub-name';
         nm.textContent = it.name;
         var cp = document.createElement('button');
-        cp.className = 'btn btn-sm btn-primary'; cp.style.cssText = 'font-size:11px';
+        cp.className = 'btn btn-sm btn-primary';
         cp.textContent = 'Copy link';
         cp.onclick = function() { shareCopyText(full); };
         row.appendChild(nm); row.appendChild(cp);
         listBox.appendChild(row);
     });
-    box.appendChild(listBox);
+    m.body.appendChild(listBox);
     var btnRow = document.createElement('div');
-    btnRow.style.cssText = 'display:flex;gap:8px;margin-top:12px';
+    btnRow.className = 'pub-actions';
     var mgr = document.createElement('button');
     mgr.className = 'btn btn-sm btn-outline';
     mgr.textContent = 'Manage shares';
     mgr.onclick = function() { location.href = '/share'; };
     var closeBtn = document.createElement('button');
     closeBtn.className = 'btn btn-sm btn-outline';
-    closeBtn.style.cssText = 'flex:1';
     closeBtn.textContent = 'Close';
-    closeBtn.onclick = function() { document.body.removeChild(overlay); };
+    closeBtn.onclick = m.destroy;
     btnRow.appendChild(mgr); btnRow.appendChild(closeBtn);
-    box.appendChild(btnRow);
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
+    m.body.appendChild(btnRow);
 }
 
 function openSearch(mode) {
-    var overlay = document.createElement('div'); overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:var(--modal-overlay);display:flex;align-items:flex-start;justify-content:center;padding-top:80px';
-    overlay.onclick = function(e) { if (e.target === overlay) document.body.removeChild(overlay); };
-    var box = document.createElement('div'); box.style.cssText = 'background:var(--card-bg);border-radius:12px;padding:20px;max-width:380px;width:90%;box-shadow:var(--shadow-hover)';
-    var title = document.createElement('div'); title.style.cssText = 'font-size:14px;font-weight:600;color:var(--text);margin-bottom:10px'; title.textContent = mode === 'local' ? 'Search current page' : 'Search all files';
-    var input = document.createElement('input'); input.type = 'text'; input.placeholder = mode === 'local' ? 'Search this folder...' : 'Search all folders...';
-    input.style.cssText = 'width:100%;padding:10px 12px;border:2px solid var(--border);border-radius:8px;font-size:13px;outline:none;background:var(--card-bg);color:var(--text);margin-bottom:12px'; input.focus();
-    var br = document.createElement('div'); br.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
-    var cb = document.createElement('button'); cb.textContent = 'Cancel'; cb.style.cssText = 'padding:6px 14px;border:1px solid var(--border);border-radius:8px;background:var(--card-bg);color:var(--text-light);font-size:12px;cursor:pointer'; cb.onclick = function() { document.body.removeChild(overlay); };
-    var sb = document.createElement('button'); sb.textContent = 'Search'; sb.style.cssText = 'padding:6px 14px;border:none;border-radius:8px;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer'; sb.onclick = function() { doSearch(mode, input.value.trim()); document.body.removeChild(overlay); };
+    var m = buildModal(mode === 'local' ? 'Search current page' : 'Search all files', 380);
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'search-input mb-12';
+    input.placeholder = mode === 'local' ? 'Search this folder...' : 'Search all folders...';
+    m.body.appendChild(input);
+    var br = document.createElement('div');
+    br.className = 'pub-actions';
+    var cb = document.createElement('button');
+    cb.className = 'btn btn-sm btn-outline';
+    cb.textContent = 'Cancel';
+    cb.onclick = m.destroy;
+    var sb = document.createElement('button');
+    sb.className = 'btn btn-sm btn-primary';
+    sb.textContent = 'Search';
+    sb.onclick = function() { doSearch(mode, input.value.trim()); m.destroy(); };
+    br.appendChild(cb); br.appendChild(sb);
+    m.body.appendChild(br);
     input.onkeydown = function(e) { if (e.key === 'Enter') sb.click(); };
-    br.appendChild(cb); br.appendChild(sb); box.appendChild(title); box.appendChild(input); box.appendChild(br); overlay.appendChild(box); document.body.appendChild(overlay);
-    _searchOverlay = overlay;
+    input.focus();
+    _searchOverlay = m.overlay;
 }
 
 function doSearch(mode, q) {
