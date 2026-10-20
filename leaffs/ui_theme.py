@@ -207,6 +207,8 @@ def _palette_colors(theme, accent):
         'theme': 'light' if theme == 'light' else 'dark',
         'accent': accent if accent in ACCENTS else '',
         'primary': _argb(primary[:3] if primary else (14, 165, 233)),
+        # 主色面上的字色：暗底 plain 的主色是白色，写死白字就是白底白字
+        'btnFg': _argb(opaque('--btn-fg', (255, 255, 255))),
         'primaryHover': _argb(primary_hover[:3] if primary_hover else
                               (primary[:3] if primary else (2, 132, 199))),
         'bg': _argb(bg_rgb),

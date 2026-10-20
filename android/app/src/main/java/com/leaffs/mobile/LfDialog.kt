@@ -61,9 +61,6 @@ object LfDialog {
         return fallback
     }
 
-    private fun color(activity: Activity, key: String, fallbackRes: Int): Int =
-        colorOf(key, activity.getColor(fallbackRes))
-
     /**
      * 卡片取色：**反主题** —— 亮主题用暗卡、暗主题用亮卡。
      *
@@ -268,8 +265,8 @@ object LfDialog {
         }
         val activity = activityOf(view)
         if (primary) {
-            tv.setTextColor(Color.WHITE)
-            tint(tv, color(activity, "primary", R.color.lf_primary))
+            tv.setTextColor(cardColorOf("btnFg", Color.WHITE))
+            tint(tv, cardColor(activity, "primary", R.color.lf_primary))
         } else {
             tv.setTextColor(cardColor(activity, "textSecondary", R.color.lf_text_secondary))
             tv.backgroundTintList = ColorStateList.valueOf(
@@ -289,7 +286,7 @@ object LfDialog {
         onPick: (Int) -> Unit
     ): View {
         val textColor = cardColor(activity, "text", R.color.lf_text)
-        val checkColor = color(activity, "primary", R.color.lf_primary)
+        val checkColor = cardColor(activity, "primary", R.color.lf_primary)
         val column = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
         items.forEachIndexed { i, label ->
             val row = LayoutInflater.from(activity)
@@ -631,11 +628,11 @@ object LfDialog {
             setSelection(text.length)
             setSingleLine()
             textSize = 14f
-            setTextColor(color(activity, "text", R.color.lf_text))
-            setHintTextColor(color(activity, "textLight", R.color.lf_text_light))
+            setTextColor(cardColor(activity, "text", R.color.lf_text))
+            setHintTextColor(cardColor(activity, "textLight", R.color.lf_text_light))
             background = activity.getDrawable(R.drawable.lf_input_bg)
             backgroundTintList = ColorStateList.valueOf(
-                color(activity, "bg", R.color.lf_bg))
+                cardColor(activity, "bg", R.color.lf_bg))
             setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 10))
         }
         content(d.view, input)
