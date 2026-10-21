@@ -11,6 +11,8 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 import json
 import socket
+import shutil
+import subprocess
 import webbrowser
 import urllib.parse
 import asyncio
@@ -312,6 +314,55 @@ class _LocalBridge:
         return str(picked)
 
 
+_GUI_BROWSERS = (
+    'google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser',
+    'microsoft-edge', 'microsoft-edge-stable', 'brave-browser', 'vivaldi',
+)
+
+# WebKitGTK 2.36（Safari 15.4 同代）才开始支持 CSS @layer，而 style.css 第一行
+# 就是 @layer —— 低于这个版本的页面整套样式层全部失效。
+_WEBKIT_MIN = (2, 36)
+
+
+def _webkit_gtk_version():
+    """返回系统 WebKitGTK 的 (major, minor)；没装 PyGObject 或两个 ABI 都没有时返回 None。
+
+    探测顺序与 pywebview 的 gtk 后端一致：先 4.1，再 4.0。
+    """
+    try:
+        import gi
+    except ImportError:
+        return None
+    for ns in ('4.1', '4.0'):
+        try:
+            gi.require_version('WebKit2', ns)
+            from gi.repository import WebKit2
+        except (ValueError, ImportError):
+            continue
+        return (WebKit2.get_major_version(), WebKit2.get_minor_version())
+    return None
+
+
+def _open_app_window(url):
+    """用系统已装的 Chrome/Chromium 开一个 `--app` 窗口（无地址栏、无标签栏）。
+
+    内嵌内核这条路在 Linux 上走不通：绑系统 WebKitGTK 的话版本不可控，自带
+    Chromium 要 200 MB 以上。`--app` 用的是同一套内核，只是由系统管版本。
+    返回是否找到可用浏览器；没有则调用方退回系统默认浏览器。
+    """
+    for name in _GUI_BROWSERS:
+        exe = shutil.which(name)
+        if not exe:
+            continue
+        try:
+            subprocess.Popen([exe, '--app=' + url],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except OSError:
+            continue
+    return False
+
+
 def _start_webview_window():
     """pywebview 原生窗口（D4：URL 带一次性令牌 ?leaf=，本机自动登录走令牌而非无条件免密）
 
@@ -326,6 +377,17 @@ def _start_webview_window():
         if _ltok:
             url += '?leaf=' + _ltok
         return url
+    if not sys.platform.startswith('win'):
+        ver = _webkit_gtk_version()
+        if ver is None or ver < _WEBKIT_MIN:
+            # 系统 WebKitGTK 太旧（或没装 PyGObject）：内嵌窗口渲染不了这个页面，
+            # 改用系统浏览器；版本够就继续往下走 pywebview 的 gtk 后端
+            if not _open_app_window(_local_url()):
+                try:
+                    webbrowser.open(_local_url())
+                except Exception:
+                    pass
+            return False
     try:
         import webview
 
@@ -357,7 +419,12 @@ def _start_webview_window():
                 都在同一个构造函数里），只等 native 会拿到 None；
               - CoreWebView2 只能从 UI 线程访问，所以真正的装配放进
                 CoreWebView2InitializationCompleted 回调（那个回调在 UI 线程）。
+
+            三层守卫是 WebView2 专属，gtk 后端没有这套接口 —— 非 Windows 上直接
+            跳过，否则会白等满 20 秒超时才退出。
             """
+            if not sys.platform.startswith('win'):
+                return
             win = webview.windows[0]
             wv = None
             deadline = time.time() + 20
