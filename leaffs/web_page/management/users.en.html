@@ -118,8 +118,12 @@ function genQR(name) {
                 var opts = { text: qrUrl, width: 200, height: 200 };
                 if (typeof qrThemeColors === 'function') { var c = qrThemeColors(); opts.colorDark = c.colorDark; opts.colorLight = c.colorLight; }
                 new QRCode(frame, opts);
+                // qrcodejs 按 UA 里的 "Android x.y" 判断版本，现代 UA 是 "Android 14"
+                // 匹配不上，makeImage() 被跳过 —— 安卓上 img 不生成，只能显示 canvas
                 var img = frame.querySelector('img');
-                if (img) { img.style.display = 'block'; img.style.margin = '0 auto'; }
+                if (img) img.style.display = 'none';
+                var cvs = frame.querySelector('canvas');
+                if (cvs) { cvs.style.display = 'block'; cvs.style.margin = '0 auto'; }
             }
 
             function cleanup() {

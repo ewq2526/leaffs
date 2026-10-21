@@ -405,8 +405,11 @@ function genQR(name) {
             new QRCode(qrFrame, _qo);
             var cvs = qrFrame.querySelector('canvas');
             var img = qrFrame.querySelector('img');
-            if (cvs) cvs.style.display = 'none';
-            if (img) { img.style.display = 'block'; img.style.margin = '0 auto'; }
+            // qrcodejs 用 UA 里的 "Android x.y" 判断版本；现代 UA 是 "Android 14"（两位
+            // 主版本）匹配不上，_android 退化成布尔 true，makeImage() 被跳过 —— 安卓上
+            // img 永远不生成，只有 canvas 有内容
+            if (img) img.style.display = 'none';
+            if (cvs) { cvs.style.display = 'block'; cvs.style.margin = '0 auto'; }
 
             function cleanup() {
                 clearTimeout(expireTimer);
@@ -451,10 +454,9 @@ function initQR() {
         var _qg = { text: url, width: 105, height: 105 };
         if (typeof qrThemeColors === 'function') { var _qgc = qrThemeColors(); _qg.colorDark = _qgc.colorDark; _qg.colorLight = _qgc.colorLight; }
         new QRCode(container, _qg);
-        // qrcodejs 会同时生成 canvas 和 img 两套渲染结果；容器是个固定 105px 的格子，
-        // 两个都留着就会并排撑成 210px，把二维码顶出边框外。只留 img（透明底，可缩）。
-        var _cvs = container.querySelector('canvas');
-        if (_cvs) _cvs.style.display = 'none';
+        // 同上：只留 canvas，img 在安卓上不会生成
+        var _img = container.querySelector('img');
+        if (_img) _img.style.display = 'none';
         setCap(cap || (_UI_EN ? 'Scan to open the file service' : '手机扫码访问文件服务'));
     }
     Promise.all([
