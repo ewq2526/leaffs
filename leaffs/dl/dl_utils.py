@@ -207,12 +207,16 @@ def validate_download_url(url, allow_private=None):
 
 from leaffs.paths import BASE_DIR, CACHE_DIR, find_bundled_exe
 
+_IS_WIN = os.name == 'nt'
+# Windows 用这个标志隐藏子进程的控制台窗口；其它平台没有该常量
+_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
 # aria2c 内置依赖：统一走资源根查找（与 ffmpeg 同一套逻辑，兼容源码/打包）
-ARIA2C_PATH = find_bundled_exe('aria2c.exe')
+ARIA2C_PATH = find_bundled_exe('aria2c')
 if ARIA2C_PATH is None:
     try:
         subprocess.run(['aria2c', '--version'], capture_output=True, check=True,
-                       creationflags=subprocess.CREATE_NO_WINDOW)
+                       creationflags=_NO_WINDOW)
         ARIA2C_PATH = 'aria2c'   # PATH 中的全局 aria2c 兜底
     except Exception:
         ARIA2C_PATH = None
@@ -224,8 +228,10 @@ def has_aria2c(): return ARIA2C_PATH is not None
 _CTRL_HANDLER_REF = None  # 模块级引用防止 GC
 
 def _register_ctrl_handler():
-    """注册控制台事件处理器，关闭终端时立即杀死 aria2c"""
+    """注册控制台事件处理器，关闭终端时立即杀死 aria2c（仅 Windows）"""
     global _CTRL_HANDLER_REF
+    if not _IS_WIN:
+        return
     try:
         import ctypes
         kernel32 = ctypes.windll.kernel32
@@ -257,15 +263,82 @@ def _kill_aria2c_proc(proc):
             proc.terminate()
             try: proc.wait(timeout=2)
             except: pass
-        if proc.poll() is None:
-            import subprocess as _sp
+        if proc.poll() is None and _IS_WIN:
             try:
-                _sp.run(['taskkill', '/f', '/t', '/pid', str(proc.pid)], capture_output=True, timeout=5,
-                        creationflags=subprocess.CREATE_NO_WINDOW)
+                subprocess.run(['taskkill', '/f', '/t', '/pid', str(proc.pid)],
+                               capture_output=True, timeout=5,
+                               creationflags=_NO_WINDOW)
             except Exception:
-                try: proc.kill(); proc.wait(timeout=2)
-                except: pass
+                pass
+        if proc.poll() is None:
+            try: proc.kill(); proc.wait(timeout=2)
+            except: pass
     except: pass
+
+def _proc_cmdlines():
+    """Linux：遍历 /proc 读出各进程的 argv（读不到的跳过）"""
+    try:
+        entries = os.listdir('/proc')
+    except OSError:
+        return
+    for ent in entries:
+        if not ent.isdigit():
+            continue
+        try:
+            with open('/proc/%s/cmdline' % ent, 'rb') as f:
+                raw = f.read()
+        except OSError:
+            continue
+        if raw:
+            yield int(ent), [p.decode('utf-8', 'replace') for p in raw.split(b'\0') if p]
+
+
+def _aria2c_pids_by_rpc_port(port):
+    """按命令行里的 `--rpc-listen-port=<port>` 找出本实例的 aria2c。
+
+    Windows 没有 /proc，用 CIM 取命令行（`wmic` 在新 Windows 上已弃用，纯 ctypes
+    枚举 PEB 又太重；清理不是热路径，这一趟 PowerShell 的开销可以接受）；
+    其它平台直接读 /proc/<pid>/cmdline。
+    """
+    flag = '--rpc-listen-port=%d' % port
+    if not _IS_WIN:
+        return [pid for pid, argv in _proc_cmdlines()
+                if argv and flag in argv and os.path.basename(argv[0]) == 'aria2c']
+    try:
+        script = (
+            "Get-CimInstance Win32_Process -Filter \"Name='aria2c.exe'\" | "
+            "Where-Object { $_.CommandLine -like '*%s*' } | "
+            "Select-Object -ExpandProperty ProcessId" % flag
+        )
+        out = subprocess.run(
+            ['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
+            capture_output=True, text=True, timeout=15,
+            creationflags=_NO_WINDOW,
+        )
+        return [int(t) for t in (out.stdout or '').split() if t.isdigit()]
+    except Exception:
+        return []
+
+
+def _kill_pid(pid):
+    """终止一个进程：先 SIGTERM，1 秒内没退再 SIGKILL"""
+    import signal
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return False
+    for _ in range(10):
+        time.sleep(0.1)
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return True
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        return False
+    return True
+
 
 def kill_own_aria2c_by_rpc_port(port=None):
     """只杀**本实例**的 aria2c：按命令行里的 `--rpc-listen-port=<port>` 匹配。
@@ -275,9 +348,7 @@ def kill_own_aria2c_by_rpc_port(port=None):
     拉起，两边就互相抢杀，同时挂着的服务和正在跑的测试都不正常。
 
     RPC 端口是各实例唯一的（同一个端口的第二个实例根本起不来），拿它当标识
-    精确且稳定。用 CIM 取命令行是因为 `taskkill` 给不了这个信息；`wmic` 在新
-    Windows 上已弃用，纯 ctypes 枚举 PEB 又太重 —— 而清理不是热路径（只在启动、
-    退出、异常时走），这一趟 PowerShell 的开销可以接受。
+    精确且稳定。
 
     返回被杀的进程数（0 也包括"没找到"与"查询失败"，两种情况都无需区分）。
     """
@@ -293,32 +364,19 @@ def kill_own_aria2c_by_rpc_port(port=None):
         return 0
     if not port:
         return 0
-    try:
-        script = (
-            "Get-CimInstance Win32_Process -Filter \"Name='aria2c.exe'\" | "
-            "Where-Object { $_.CommandLine -like '*--rpc-listen-port=%d*' } | "
-            "Select-Object -ExpandProperty ProcessId" % port
-        )
-        out = subprocess.run(
-            ['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
-            capture_output=True, text=True, timeout=15,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        killed = 0
-        for tok in (out.stdout or '').split():
-            if tok.isdigit():
-                try:
-                    subprocess.run(
-                        ['taskkill', '/f', '/t', '/pid', tok],
-                        capture_output=True, timeout=5,
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                    )
-                    killed += 1
-                except Exception:
-                    pass
-        return killed
-    except Exception:
-        return 0
+    killed = 0
+    for pid in _aria2c_pids_by_rpc_port(port):
+        if _IS_WIN:
+            try:
+                subprocess.run(['taskkill', '/f', '/t', '/pid', str(pid)],
+                               capture_output=True, timeout=5,
+                               creationflags=_NO_WINDOW)
+                killed += 1
+            except Exception:
+                pass
+        elif _kill_pid(pid):
+            killed += 1
+    return killed
 
 
 def _cleanup_all_aria2c():
@@ -326,13 +384,10 @@ def _cleanup_all_aria2c():
         procs = list(_ARIA2C_PROCESSES)
         _ARIA2C_PROCESSES.clear()
     for proc in procs: _kill_aria2c_proc(proc)
-    # 兜底只清**本实例**的（按 RPC 端口匹配）—— 不再 taskkill /im 全杀，
-    # 免得把别的 LeafFS 实例的下载器一起干掉（见上函数说明）
-    kill_own_aria2c_by_rpc_port()
-
-def _assign_to_job(proc):
-    """保持兼容性 - 实际清理由 SetConsoleCtrlHandler + taskkill 完成"""
-    return False
+    # 只有本进程确实拉起过 aria2c 才按端口补齐：只是 import 了这个模块的进程
+    # （测试、工具脚本）退出时，端口上那个 aria2c 属于正在跑的 LeafFS 实例。
+    if procs:
+        kill_own_aria2c_by_rpc_port()
 
 def track_aria2c_process(proc):
     with _ARIA2C_LOCK: _ARIA2C_PROCESSES.append(proc)

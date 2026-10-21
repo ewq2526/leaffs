@@ -15,7 +15,8 @@ import urllib.error
 import threading
 import subprocess
 
-from .dl_utils import _log, ARIA2C_PATH, load_trackers, refresh_trackers_async, _assign_to_job
+from .dl_utils import _log, ARIA2C_PATH, load_trackers, refresh_trackers_async, \
+    track_aria2c_process, _NO_WINDOW
 from . import dl_config
 from leaffs.paths import UPLOAD_DIR, CACHE_DIR
 
@@ -286,6 +287,10 @@ def _kill_aria2c_force():
     直接使用 taskkill 通过进程名杀死
     """
     global _ARIA2C_PROC, _ARIA2C_PID
+    # 本进程没启动过 aria2c（只是 import 了这个模块）：端口上那个属于正在跑的
+    # LeafFS 实例，不能碰
+    if not _ARIA2C_PID and _ARIA2C_PROC is None:
+        return
     _log('强制终止 aria2c 进程...')
 
     # 方法1：通过保存的 PID 终止
@@ -295,7 +300,7 @@ def _kill_aria2c_force():
             subprocess.run(
                 ['taskkill', '/f', '/t', '/pid', str(pid_to_kill)],
                 capture_output=True, timeout=5,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                creationflags=_NO_WINDOW
             )
             _log(f'taskkill PID {pid_to_kill}')
         except Exception:
@@ -304,12 +309,13 @@ def _kill_aria2c_force():
     # 方法2：按本实例的 RPC 端口匹配（兜底）
     # ⚠️ 原来这里是 `taskkill /f /im aria2c.exe` —— 按镜像名全杀，会连别的 LeafFS
     #    实例的下载器一起干掉，对方重新拉起后两边互相抢杀。改成只清本实例的。
-    try:
-        from leaffs.dl import dl_utils as _du
-        _n = _du.kill_own_aria2c_by_rpc_port(RPC_PORT)
-        _log(f'按 RPC 端口 {RPC_PORT} 清理 aria2c：{_n} 个')
-    except Exception:
-        pass
+    if pid_to_kill or _ARIA2C_PROC:
+        try:
+            from leaffs.dl import dl_utils as _du
+            _n = _du.kill_own_aria2c_by_rpc_port(RPC_PORT)
+            _log(f'按 RPC 端口 {RPC_PORT} 清理 aria2c：{_n} 个')
+        except Exception:
+            pass
 
     # 方法3：terminate 已保存的进程对象
     if _ARIA2C_PROC:
@@ -411,12 +417,11 @@ def start_aria2c_daemon(base_dir=None):
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+            creationflags=_NO_WINDOW
         )
         _ARIA2C_PID = _ARIA2C_PROC.pid
         _log(f'aria2c RPC 守护进程已启动, PID={_ARIA2C_PID}')
-        # 加入 Windows Job Object - Python 被强制终止时自动杀死 aria2c
-        _assign_to_job(_ARIA2C_PROC)
+        track_aria2c_process(_ARIA2C_PROC)
         # 等待 RPC 就绪：轮询探测，就绪即返回（不再固定 sleep 拖慢服务器启动）
         ready = False
         deadline = time.time() + 8.0

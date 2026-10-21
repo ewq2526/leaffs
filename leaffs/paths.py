@@ -130,28 +130,34 @@ def is_inside_virtual_container(rel):
 
 
 def find_bundled_exe(name):
-    """按通用顺序定位内置依赖可执行文件（如 aria2c.exe / ffmpeg.exe）
+    """按通用顺序定位内置依赖可执行文件（如 aria2c / ffmpeg）
 
+    名字传不带后缀的基名：Windows 试 name.exe，其它平台试 name（传 .exe 也认）。
     查找顺序：打包解包根 → 主程序所在目录 → 源码资源目录(_CODE_DIR) → PATH。
     找不到返回 None。
     """
+    base = name[:-4] if name.lower().endswith('.exe') else name
+    names = [base + '.exe', base] if os.name == 'nt' else [base]
     candidates = []
     if _FROZEN:
-        candidates.append(os.path.join(_bundle_root(), name))
-        candidates.append(os.path.join(APP_DIR, name))
-    candidates.append(os.path.join(_CODE_DIR, name))
+        for n in names:
+            candidates.append(os.path.join(_bundle_root(), n))
+            candidates.append(os.path.join(APP_DIR, n))
+    for n in names:
+        candidates.append(os.path.join(_CODE_DIR, n))
     for p in candidates:
         try:
             if os.path.isfile(p):
                 return p
         except Exception:
             continue
-    try:
-        found = shutil.which(name)
-        if found:
-            return found
-    except Exception:
-        pass
+    for n in names:
+        try:
+            found = shutil.which(n)
+            if found:
+                return found
+        except Exception:
+            pass
     return None
 
 

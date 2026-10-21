@@ -30,6 +30,8 @@ from leaffs.paths import (  # noqa: E402
 FOLDER_SIZE_DB = os.path.join(CACHE_DIR, 'folder_sizes.json')
 
 # ========== 常量 ==========
+# Windows 用这个标志隐藏子进程的控制台窗口；其它平台没有该常量
+_NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 COPY_BUFFER_SIZE = 16777216
 CACHE_MAX_ITEMS = 50
 CACHE_TTL = 5
@@ -790,11 +792,11 @@ def invalidate_folder_cache_smart(path):
         # else: 同一路径的后续调用，不做任何操作，让已有定时器自然到期
 
 # ========== 视频缩略图 ==========
-FFMPEG_PATH = find_bundled_exe('ffmpeg.exe')
+FFMPEG_PATH = find_bundled_exe('ffmpeg')
 if FFMPEG_PATH is None:
     try:
         subprocess.run(['ffmpeg', '-version'], capture_output=True, check=True,
-                       creationflags=subprocess.CREATE_NO_WINDOW)
+                       creationflags=_NO_WINDOW)
         FFMPEG_PATH = 'ffmpeg'   # PATH 中的全局 ffmpeg 兜底
     except Exception:
         FFMPEG_PATH = None
@@ -970,14 +972,14 @@ def _generate_thumbnail(file_path):
                     [FFMPEG_PATH, '-i', file_path, '-ss', '00:00:01',
                      '-vf', 'scale=256:-1', '-vframes', '1', '-q:v', '3', '-y', thumb],
                     capture_output=True, timeout=30,
-                    creationflags=subprocess.CREATE_NO_WINDOW
+                    creationflags=_NO_WINDOW
                 )
             else:
                 r = subprocess.run(
                     [FFMPEG_PATH, '-i', file_path, '-vf', 'scale=256:-1',
                      '-q:v', '3', '-y', thumb],
                     capture_output=True, timeout=30,
-                    creationflags=subprocess.CREATE_NO_WINDOW
+                    creationflags=_NO_WINDOW
                 )
             if r.returncode != 0:
                 _thumb_fail_log(file_path, 'ffmpeg 返回码 %s' % r.returncode, r.stderr)
