@@ -225,6 +225,34 @@ _ACCESS_SENSITIVE_PARAM = re.compile(r'([?&](?:sid|token|leaf|password|pass|pw|c
 def _sanitize_path_for_log(p):
     return _ACCESS_SENSITIVE_PARAM.sub(r'\1***', p or '')
 
+_WILDCARD_HOSTS = ('', '0.0.0.0', '::', '[::]', 'any')
+_IPV6_AVAILABLE = None
+
+
+def _ipv6_available():
+    """系统有没有可用的 IPv6 栈；没有就只能退回 IPv4 绑定"""
+    global _IPV6_AVAILABLE
+    if _IPV6_AVAILABLE is None:
+        try:
+            socket.socket(socket.AF_INET6, socket.SOCK_STREAM).close()
+            _IPV6_AVAILABLE = True
+        except OSError:
+            _IPV6_AVAILABLE = False
+    return _IPV6_AVAILABLE
+
+
+def _strip_v4_mapped(client_address):
+    """::ffff:1.2.3.4 → 1.2.3.4。
+
+    双栈监听下 IPv4 客户端经 IPv6 socket 进来时带这个前缀，而会话的 IP 绑定、
+    登录限速、本机判定（127.0.0.1 / ::1）全都按裸地址比较。
+    """
+    host = client_address[0] or ''
+    if host.startswith('::ffff:'):
+        host = host[7:]
+    return (host, client_address[1])
+
+
 class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
@@ -232,6 +260,30 @@ class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     # 避免“快速 API 自由并发”下（如数百并发探活）瞬时连接在 accept 前被内核 RST。
     # 实际处理并发仍由整机总准入（cfg_core.max_total_conns=256）在 handle() 收敛，此处只防背压丢连接。
     request_queue_size = 256
+
+    def __init__(self, server_address, RequestHandlerClass, bind_and_activate=True):
+        """通配地址或 IPv6 字面量走 AF_INET6 双栈，具体 IPv4 地址仍走 AF_INET"""
+        host, port = server_address[0], server_address[1]
+        if _ipv6_available() and (host in _WILDCARD_HOSTS or ':' in host):
+            self.address_family = socket.AF_INET6
+            if host in _WILDCARD_HOSTS:
+                server_address = ('::', port)
+        super().__init__(server_address, RequestHandlerClass, bind_and_activate)
+
+    def server_bind(self):
+        if self.address_family == socket.AF_INET6:
+            # Windows 的 IPV6_V6ONLY 默认是 1，不关掉的话绑 :: 只收 IPv6，
+            # 局域网里所有 IPv4 客户端直接连不上
+            try:
+                self.socket.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+            except OSError:
+                pass
+        super().server_bind()
+
+    def finish_request(self, request, client_address):
+        if self.address_family == socket.AF_INET6:
+            client_address = _strip_v4_mapped(client_address)
+        super().finish_request(request, client_address)
 
     def process_request(self, request, client_address):
         # 线程创建失败（系统线程上限等）不拖垮 serve_forever：记日志并关闭该请求

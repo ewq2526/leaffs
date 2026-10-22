@@ -91,12 +91,19 @@ def _ws_get_session(websocket):
                         cookies_raw = headers.get('Cookie') or ''
                 except Exception:
                     cookies_raw = ''
-        ws_ip = getattr(websocket, 'remote_address', ('', 0))[0]
+        ws_ip = _ws_ip(websocket)
         role, sid = _ac.get_session(cookies_raw, ws_ip)
         username = _ac.get_session_username(sid) if sid else ''
         return role, username, sid, cookies_raw
     except Exception:
         return None, '', '', ''
+
+
+def _ws_ip(websocket):
+    """对端 IP；双栈监听下 IPv4 客户端带 ::ffff: 前缀，这里去掉（同 handler 那份）"""
+    addr = getattr(websocket, 'remote_address', None) or ('', 0)
+    ip = addr[0] or ''
+    return ip[7:] if ip.startswith('::ffff:') else ip
 
 
 def _normalize_ws_rel_path(rel_path):
@@ -336,7 +343,7 @@ async def ws_handler(websocket):
     admin_sub = False
     ip = ''
     try:
-        ip = getattr(websocket, 'remote_address', ('', 0))[0]
+        ip = _ws_ip(websocket)
     except Exception:
         ip = ''
     # A-06：单 IP 活跃 WS 连接登记。配额满时优先自动淘汰该 IP 最旧的空闲连接
@@ -471,7 +478,7 @@ async def ws_handler(websocket):
                 if t in _WS_REVALIDATE_TYPES:
                     _ws_cached_sid = getattr(websocket, 'cached_sid', None)
                     if _ws_cached_sid:
-                        _ws_chk_ip = getattr(websocket, 'remote_address', ('', 0))[0]
+                        _ws_chk_ip = _ws_ip(websocket)
                         try:
                             _ws_fresh = _ac.refresh_session_role(_ws_cached_sid, _ws_chk_ip)
                         except Exception:
@@ -582,7 +589,7 @@ async def ws_handler(websocket):
                             return _sacc.code_gate(
                                 label, owner,
                                 getattr(websocket, 'cached_cookie', ''),
-                                getattr(websocket, 'remote_address', ('', 0))[0],
+                                _ws_ip(websocket),
                                 ws_user or '')
                         except Exception:
                             return False
@@ -699,7 +706,7 @@ async def ws_handler(websocket):
                     # 仅凭 cookie 会话的游客连接在此兜底对齐归属键
                     # （原来这里写的是"未走 auth 消息"—— auth 分支已于 2026-09-16 删除）
                     if ws_role == 'guest' and ws_user == '游客':
-                        ws_ip = getattr(websocket, 'remote_address', ('', 0))[0]
+                        ws_ip = _ws_ip(websocket)
                         ws_user = '游客@' + ws_ip
                         websocket.cached_user = ws_user
                     _push.dl_sub_add(websocket)
@@ -792,8 +799,7 @@ async def _ws_http_probe(connection, request):
     #   不合法连接照样进了连接计数，客户端拿到的是"连上又断"而不是明确被拒。）
     if not _ws_origin_host_ok(request.headers):
         try:
-            _ra = getattr(connection, 'remote_address', None)
-            _ip = _ra[0] if _ra else '?'
+            _ip = _ws_ip(connection) or '?'
         except Exception:
             _ip = '?'
         try:
@@ -813,7 +819,9 @@ async def run_ws():
         # LF-16：Server 头与另外两台服务一致（HTTP 主站 handler.server_version、
         # 8082 cert_remind 都是 'LeafFS'）。不传的话 websockets 用库默认值
         # `Python/3.12 websockets/16.0` —— 等于把 Python 与库版本一起报出去。
-        ws_server = await websockets.serve(ws_handler, '0.0.0.0', _cfg.WS_PORT,
+        # host 传 None = 绑定本机所有接口（asyncio 同时建 IPv4 与 IPv6 的 socket），
+        # 与主站 HTTP、8082 提示页的双栈监听保持一致
+        ws_server = await websockets.serve(ws_handler, None, _cfg.WS_PORT,
                                           ssl=tls_ctx, process_request=_ws_http_probe,
                                           server_header='LeafFS')
     except Exception as e:
