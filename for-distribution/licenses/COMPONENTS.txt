@@ -25,6 +25,7 @@ GeckoView            146.x             MPL-2.0                 (Android APK runt
 Android Gradle Plugin 9.3.0           Apache-2.0              (Android build only)             https://developer.android.com/build
 Gradle               9.5.0             Apache-2.0              (Android build only)             https://gradle.org/
 Kotlin               (via AGP 9)       Apache-2.0              (Android build only)             https://kotlinlang.org/
+Noto Sans CJK        20240730          SIL OFL 1.1             (system font: NotoSansCJK-Regular.ttc)  https://github.com/notofonts/noto-cjk
 
 Redistribution notes / 再分发注意
 1. All components are used unmodified. / 上述组件均原样使用、未修改。
@@ -41,3 +42,11 @@ Redistribution notes / 再分发注意
    distribution (see files in this folder). / MIT/BSD/Apache/PSF 组件：随分发保留版权与许可声明。
 4. License texts are provided for reference; the upstream official texts govern.
    / 许可文本仅供参考，以各组件上游官方文本为准。
+5. Noto Sans CJK is distributed under the SIL Open Font License 1.1 (OFL-1.1), which permits
+   bundling and embedding in a product. Requirements when redistributing the OS image: keep
+   LICENSE.noto-sans-cjk-OFL-1.1.txt with the distribution, do not sell the font by itself, and
+   do not redistribute a **modified** font under the reserved name (modified versions must be
+   renamed). The font is used unmodified here.
+   / Noto Sans CJK 使用 SIL Open Font License 1.1：允许随产品分发与嵌入。再分发系统镜像时须随附
+     LICENSE.noto-sans-cjk-OFL-1.1.txt，不得单独售卖该字体，修改后的版本不得继续使用原名（须改名）。
+     本项目原样使用、未做修改。

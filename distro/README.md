@@ -21,6 +21,7 @@
 | `etc/modprobe.d/intel-microcode-blacklist.conf` | 微码不随内核加载 |
 | `usr/local/bin/` | kiosk 会话脚本、证书同步、网络诊断、最终自检、插盘自动挂载 |
 | `etc/udev/rules.d/90-leafos-automount.rules` | 分区出现即挂到 `/media/<卷标>`，拔盘由 systemd 自动卸载 |
+| `etc/fonts/local.conf` | 打开 RGB 次像素渲染、中文优先 Noto Sans CJK SC（依赖系统装 `fonts-noto-cjk`）|
 
 ## 不含的东西（有意）
 
