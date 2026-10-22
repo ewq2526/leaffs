@@ -5,6 +5,7 @@
 """
 
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -84,28 +85,68 @@ def _usage(path):
 
 
 def disks():
-    """已挂载的块设备 + /media 下可挂载的目录。
+    """按物理盘枚举，而不是按挂载点。
 
-    /media 下的东西由 udev 规则挂载，属于"插上就出现在系统里"那一层；
-    两者合成一份列表，界面上不用区分来源。
+    以前只列"已挂载的文件系统"，于是没挂的盘（启动盘的 ESP、内置盘的分区）完全不出现，
+    也看不出"哪块盘在读写"。现在每块盘给出型号、容量、是否机械盘，下面挂它的分区与用量。
     """
-    out = []
+    mounts = {}
     for m in _read_mounts():
-        u = _usage(m['mount']) or {}
-        out.append({
-            'device': m['device'],
-            'mount': m['mount'],
-            'fstype': m['fstype'],
-            'readonly': 'ro' in m['options'].split(','),
-            'removable': m['mount'].startswith('/media/'),
-            'total': u.get('total', 0),
-            'used': u.get('used', 0),
-            'free': u.get('free', 0),
-            'percent': u.get('percent', 0),
-        })
-    out.sort(key=lambda d: (not d['removable'], d['mount']))
-    return out
+        mounts[m['device']] = m
 
+    out = []
+    try:
+        names = sorted(os.listdir('/sys/block'))
+    except OSError:
+        names = []
+    for name in names:
+        if not _DISK_RE.match(name):
+            continue
+        base = os.path.join('/sys/block', name)
+        try:
+            size = int(_read(os.path.join(base, 'size'), '0') or 0) * 512
+        except ValueError:
+            size = 0
+        model = _read(os.path.join(base, 'device', 'model')).strip() or name
+        rotational = _read(os.path.join(base, 'queue', 'rotational')) == '1'
+        parts = []
+        try:
+            entries = sorted(os.listdir(base))
+        except OSError:
+            entries = []
+        for part in entries:
+            pdir = os.path.join(base, part)
+            if not os.path.exists(os.path.join(pdir, 'partition')):
+                continue
+            dev = '/dev/' + part
+            mnt = mounts.get(dev)
+            u = _usage(mnt['mount']) if mnt else None
+            fstype = mnt['fstype'] if mnt else ''
+            if not fstype:
+                for line in _read(os.path.join(pdir, 'uevent')).splitlines():
+                    if line.startswith('FSTYPE='):
+                        fstype = line.split('=', 1)[1]
+                        break
+            parts.append({
+                'name': part,
+                'device': dev,
+                'size': int(_read(os.path.join(pdir, 'size'), '0') or 0) * 512,
+                'mount': mnt['mount'] if mnt else '',
+                'fstype': fstype,
+                'readonly': ('ro' in mnt['options'].split(',')) if mnt else False,
+                'total': (u or {}).get('total', 0),
+                'used': (u or {}).get('used', 0),
+                'percent': (u or {}).get('percent', 0),
+            })
+        out.append({
+            'name': name,
+            'model': model,
+            'size': size,
+            'rotational': rotational,
+            'partitions': parts,
+        })
+    out.sort(key=lambda d: d['name'])
+    return out
 
 def _service_state(name):
     """systemctl 一次只问一个单元：批量时某个单元不存在会拖垮整条命令。"""
@@ -307,6 +348,58 @@ def power():
     return {'battery': battery, 'ac_online': ac_online}
 
 
+# ---------- 磁盘 I/O：/proc/diskstats 也是累计值，同样靠两次采样相减 ----------
+
+_io_lock = threading.Lock()
+_last_io = {}
+_DISK_RE = re.compile(r'^(sd[a-z]+|nvme\d+n\d+|mmcblk\d+)$')
+
+
+def _diskstats():
+    """整盘计数（不含分区，否则同一次写入会被算两遍）。"""
+    rows = {}
+    for line in _read('/proc/diskstats').splitlines():
+        parts = line.split()
+        if len(parts) < 14:
+            continue
+        name = parts[2]
+        if not _DISK_RE.match(name):
+            continue
+        try:
+            # 5/9 是读/写扇区，3/7 是读/写次数，12 是 io_ticks（设备忙碌的毫秒数）
+            rows[name] = (int(parts[5]), int(parts[9]), int(parts[3]), int(parts[7]), int(parts[12]))
+        except ValueError:
+            continue
+    return rows
+
+
+def io():
+    """每块盘的读写速率与 IOPS。首次调用没有基线，返回空字典。"""
+    now = time.time()
+    rows = _diskstats()
+    out = {}
+    with _io_lock:
+        for name, cur in rows.items():
+            prev = _last_io.get(name)
+            if prev is not None:
+                dt = now - prev[0]
+                if dt > 0.2:                    # 间隔太短算出来的百分比没意义
+                    rd, wr, rdi, wri, ticks = cur
+                    prd, pwr, prdi, pwri, pticks = prev[1]
+                    # busy：io_ticks 是"设备有 I/O 在跑"的毫秒数，除以间隔就是占用率，
+                    # 与任务管理器的"活动时间"同口径；单核排队再重也不会超过 100%
+                    busy = min(100.0, max(0.0, (ticks - pticks) / 1000.0 / dt * 100.0))
+                    out[name] = {
+                        'read_bps': max(0, (rd - prd) * 512 / dt),
+                        'write_bps': max(0, (wr - pwr) * 512 / dt),
+                        'read_iops': max(0, (rdi - prdi) / dt),
+                        'write_iops': max(0, (wri - pwri) / dt),
+                        'busy': round(busy, 1),
+                    }
+            _last_io[name] = (now, cur)
+    return out
+
+
 def collect():
     return {
         'summary': summary(),
@@ -315,6 +408,7 @@ def collect():
             'memory': memory(),
             'temperatures': temperatures(),
             'power': power(),
+            'io': io(),
         },
         'disks': disks(),
         'services': services(),

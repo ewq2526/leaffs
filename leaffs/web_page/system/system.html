@@ -29,6 +29,24 @@
 .sys-head .big { font-size: 20px; font-weight: 600; color: var(--text); }
 .sys-head .unit { font-size: 11px; color: var(--text-light); }
 .sys-head .spacer { flex: 1; }
+/* 磁盘卡片：一块盘一张带框的卡，点标题展开详情 */
+.disk-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--card-bg); }
+.disk-card:last-child { margin-bottom: 0; }
+.disk-head { display: flex; align-items: baseline; gap: 8px; cursor: pointer; flex-wrap: wrap; }
+.disk-head .name { font-weight: 600; font-size: 13px; color: var(--text); }
+.disk-head .meta { font-size: 11px; color: var(--text-light); }
+.disk-head .io { margin-left: auto; font-size: 11.5px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.disk-head .io b { font-weight: 600; color: var(--text); }
+.disk-card .detail { display: none; margin-top: 8px; }
+.disk-card.open .detail { display: block; }
+.disk-chart-box { border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px; margin: 8px 0 6px; }
+.sys-chart path.grid { fill: none; stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+.disk-part { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 11.5px; }
+.disk-part:first-child { border-top: none; }
+.disk-part .pname { font-weight: 600; color: var(--text); min-width: 52px; }
+.disk-part .pmeta { color: var(--text-light); flex: 1 1 auto; word-break: break-all; }
+.disk-part .puse { color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.disk-part .dl-progress-bar { width: 64px; flex: 0 0 64px; }
 .sys-stack { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--border); margin-top: 6px; }
 .sys-stack > i { display: block; height: 100%; }
 </style>
@@ -133,6 +151,8 @@
 // 不把历史放到服务端 —— 服务端一旦存历史，重启就丢，页面还要处理缺口。
 var HISTORY = 120;
 var hist = { cpu: [], mem: [], temp: [] };
+var lastIo = {};
+var histIo = {};   // 每块盘的读写历史（MB/s 合计），只画在展开的详情里
 
 function fmtBytes(n) {
     if (!n) return '0';
@@ -166,8 +186,33 @@ function drawChart(el, data, cls) {
     if (pts.length === 1) pts.push(pts[0]);
     var line = 'M' + pts.join(' L');
     var area = line + ' L' + ((data.length - 1) * step).toFixed(2) + ' ' + h + ' L0 ' + h + ' Z';
-    el.innerHTML = '<path class="area ' + cls + '" d="' + area + '"></path>' +
+    '<path class="area ' + cls + '" d="' + area + '"></path>' +
                    '<path class="line ' + cls + '" d="' + line + '"></path>';
+}
+
+// I/O 曲线用动态量程：读写速率没有固定上限，按历史峰值缩放，峰值写在标题上
+// I/O 曲线用动态量程：读写速率没有固定上限，按历史峰值缩放。
+// 关键在留边距 —— 速率常常是 0，若把 0 映射到 y=h 就正好压在裁切边界上，看起来像没画。
+function drawChartMax(el, data, cls) {
+    var w = 100, h = 30, pad = 3, n = HISTORY;
+    if (!data.length) { el.innerHTML = ''; return 0; }
+    var peak = Math.max.apply(null, data);
+    if (!(peak > 0)) peak = 1;
+    var step = w / (n - 1);
+    var pts = [];
+    for (var i = 0; i < data.length; i++) {
+        var x = i * step;
+        var v = Math.max(0, data[i]) / peak;
+        var y = (h - pad) - v * (h - 2 * pad);
+        pts.push(x.toFixed(2) + ' ' + y.toFixed(2));
+    }
+    if (pts.length === 1) pts.push(pts[0]);
+    var line = 'M' + pts.join(' L');
+    var area = line + ' L' + ((data.length - 1) * step).toFixed(2) + ' ' + (h - pad) + ' L0 ' + (h - pad) + ' Z';
+    el.innerHTML = '<line class="grid" x1="0" y1="' + (h - pad) + '" x2="' + w + '" y2="' + (h - pad) + '"></line>' +
+                   '<path class="area ' + cls + '" d="' + area + '"></path>' +
+                   '<path class="line ' + cls + '" d="' + line + '"></path>';
+    return peak;
 }
 
 function setBar(el, pct) {
@@ -311,21 +356,114 @@ function renderServices(list) {
     if (!list || !list.length) box.innerHTML = '<div class="srow"><span class="srow-path">没有可显示的服务</span></div>';
 }
 
+function fmtRate(bps) {
+    if (!bps) return '0';
+    var u = ['B/s', 'KB/s', 'MB/s', 'GB/s'], i = 0;
+    while (bps >= 1024 && i < u.length - 1) { bps /= 1024; i++; }
+    return (bps >= 100 ? bps.toFixed(0) : bps.toFixed(1)) + ' ' + u[i];
+}
+
+function diskOf(dev) {
+    // /dev/sda2 → sda；/dev/nvme0n1p1 → nvme0n1（分区计数要归到整盘）
+    var name = (dev || '').replace(/^\/dev\//, '');
+    var m = name.match(/^(nvme\d+n\d+|mmcblk\d+)/);
+    if (m) return m[1];
+    return name.replace(/\d+$/, '');
+}
+
+function renderIo(io) {
+    lastIo = io || {};
+    // 每块盘各存一条历史，曲线画在各自卡片的详情里（常显占地方，也不好看）
+    Object.keys(lastIo).forEach(function (k) {
+        var v = (lastIo[k].read_bps + lastIo[k].write_bps) / 1048576;
+        if (!histIo[k]) histIo[k] = [];
+        histIo[k].push(v);
+        if (histIo[k].length > HISTORY) histIo[k].shift();
+    });
+}
+
 function renderDisks(list) {
     var box = document.getElementById('diskList');
-    box.innerHTML = '';
-    (list || []).forEach(function (d) {
-        var row = document.createElement('div');
-        row.className = 'srow';
-        var txt = d.total
-            ? fmtBytes(d.used) + ' / ' + fmtBytes(d.total) + '（' + d.percent + '%）'
-            : '未挂载容量信息';
-        row.innerHTML = '<span class="srow-name">' + esc(d.mount) + '</span>' +
-                        '<span class="srow-path">' + esc(d.device + ' · ' + d.fstype + (d.readonly ? ' · 只读' : '')) + '</span>' +
-                        '<span class="srow-path" style="flex:0 0 auto">' + esc(txt) + '</span>';
-        box.appendChild(row);
+    var open = {};
+    Array.prototype.forEach.call(box.querySelectorAll('.disk-card.open'), function (c) {
+        open[c.dataset.disk] = true;
     });
-    if (!list || !list.length) box.innerHTML = '<div class="srow"><span class="srow-path">没有已挂载的磁盘</span></div>';
+    box.innerHTML = '';
+    if (!list || !list.length) {
+        box.innerHTML = '<div class="srow"><span class="srow-path">没有检测到磁盘</span></div>';
+        return;
+    }
+    list.forEach(function (d) {
+        var io = lastIo[d.name];
+        var card = document.createElement('div');
+        card.className = 'disk-card' + (open[d.name] ? ' open' : '');
+        card.dataset.disk = d.name;
+
+        var head = document.createElement('div');
+        head.className = 'disk-head';
+        head.innerHTML =
+            '<span class="name">' + esc(d.name) + '</span>' +
+            '<span class="meta">' + esc(d.model || '-') + ' · ' + fmtBytes(d.size) +
+            (d.rotational ? ' · 机械盘' : ' · 固态') + ' · ' + (d.partitions || []).length + ' 个分区</span>' +
+            '<span class="io">' + (io
+                ? '繁忙 <b>' + (io.busy || 0).toFixed(0) + '%</b>　读 <b>' + fmtRate(io.read_bps) +
+                  '</b>　写 <b>' + fmtRate(io.write_bps) + '</b>'
+                : '繁忙 <b>-</b>') + '</span>';
+        head.addEventListener('click', function () {
+            card.classList.toggle('open');
+            if (card.classList.contains('open')) {
+                drawChartMax(chart, histIo[d.name] || [], '');
+            }
+        });
+        card.appendChild(head);
+
+        var detail = document.createElement('div');
+        detail.className = 'detail';
+
+        // 这块盘自己的读写曲线：只在展开时出现，常显太吵
+        // SVGElement 的 className 是只读的（SVGAnimatedString），必须走 setAttribute
+        var chart = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        chart.setAttribute('class', 'sys-chart');
+        chart.setAttribute('viewBox', '0 0 100 30');
+        chart.setAttribute('preserveAspectRatio', 'none');
+        var chartBox = document.createElement('div');
+        chartBox.className = 'disk-chart-box';
+        chartBox.appendChild(chart);
+        detail.appendChild(chartBox);
+
+        var kw = document.createElement('div');
+        kw.className = 'info-row';
+        kw.innerHTML = '<span class="info-label">IOPS</span><span class="info-value">' +
+            (io ? io.read_iops.toFixed(0) + ' 读 / ' + io.write_iops.toFixed(0) + ' 写' : '-') +
+            '</span>';
+        detail.appendChild(kw);
+
+        (d.partitions || []).forEach(function (p) {
+            var usage = p.total
+                ? fmtBytes(p.used) + ' / ' + fmtBytes(p.total) + '（' + p.percent + '%）'
+                : (p.mount ? '容量未知' : (p.fstype ? '未挂载' : '无文件系统'));
+            var bar = p.total
+                ? '<span class="dl-progress-bar"><span class="fill" style="display:block;height:100%;width:' +
+                  Math.min(100, p.percent) + '%;background:' + (p.percent >= 90 ? 'var(--danger)' : 'var(--primary)') +
+                  '"></span></span>'
+                : '';
+            var row = document.createElement('div');
+            row.className = 'disk-part';
+            row.innerHTML =
+                '<span class="pname">' + esc(p.name) + '</span>' +
+                '<span class="pmeta">' + esc((p.fstype || '—') + (p.mount ? ' → ' + p.mount : '') +
+                (p.readonly ? ' · 只读' : '')) + '</span>' + bar +
+                '<span class="puse">' + esc(usage) + '</span>';
+            detail.appendChild(row);
+        });
+        card.appendChild(detail);
+        box.appendChild(card);
+
+        // 曲线在元素进 DOM 之后再画：drawChartMax 是直接写 innerHTML
+        if (card.classList.contains('open')) {
+            drawChartMax(chart, histIo[d.name] || [], '');
+        }
+    });
 }
 
 function loadSystem() {
@@ -344,11 +482,14 @@ function loadSystem() {
         renderMemory(m.memory || {});
         renderTemps(m.temperatures || []);
         renderPower(m.power || {});
+        renderIo(m.io);
         renderServices(d.services);
         renderDisks(d.disks);
-    }).catch(function () {
-        document.getElementById('svcList').innerHTML = '<div class="srow"><span class="srow-path c-danger-strong">读取失败</span></div>';
-        document.getElementById('diskList').innerHTML = '<div class="srow"><span class="srow-path c-danger-strong">读取失败</span></div>';
+    }).catch(function (e) {
+        // 把真实原因显示出来：只写"读取失败"等于把问题藏起来，排查时只能靠猜
+        var why = (e && (e.message || e)) || '未知错误';
+        document.getElementById('svcList').innerHTML = '<div class="srow"><span class="srow-path c-danger-strong">读取失败: ' + esc(String(why)) + '</span></div>';
+        document.getElementById('diskList').innerHTML = '<div class="srow"><span class="srow-path c-danger-strong">读取失败: ' + esc(String(why)) + '</span></div>';
     });
 }
 
