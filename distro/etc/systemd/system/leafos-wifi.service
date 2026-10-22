@@ -1,0 +1,15 @@
+[Unit]
+Description=LeafOS WiFi connection (wpa_supplicant on wlan0)
+After=systemd-networkd.service
+Wants=systemd-networkd.service
+
+[Service]
+Type=simple
+RuntimeDirectory=wpa_supplicant
+ExecStartPre=-/usr/sbin/rfkill unblock all
+ExecStart=/bin/sh -c 'while [ ! -e /sys/class/net/wlan0 ]; do sleep 1; done; exec /usr/sbin/wpa_supplicant -c /etc/wpa_supplicant/wpa_supplicant-wlan0.conf -i wlan0'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

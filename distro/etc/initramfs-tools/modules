@@ -1,0 +1,11 @@
+ext4
+uas
+usb_storage
+sd_mod
+xhci_pci
+xhci_hcd
+usbcore
+usb_common
+scsi_mod
+usbhid
+hid

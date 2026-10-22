@@ -1,0 +1,13 @@
+[Unit]
+Description=LeafOS SSH server
+After=network.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p /run/sshd
+ExecStart=/usr/sbin/sshd -D -e
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

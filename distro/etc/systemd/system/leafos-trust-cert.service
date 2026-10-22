@@ -1,0 +1,11 @@
+[Unit]
+Description=Trust the local leaffs TLS certificate
+Before=leafos-kiosk.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/leafos-trust-cert.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
