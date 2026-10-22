@@ -12,6 +12,9 @@
 | `etc/systemd/network/` | `20-wired.network`、`30-wlan.network`（DHCP） |
 | `etc/systemd/system.conf.d/leafos.conf` | 全局停止超时 15s |
 | `etc/systemd/logind.conf.d/90-leafos-lid.conf` | 盒盖不挂起 —— 根在 USB 盘上，S3 会断电再重新枚举，恢复不及时就是根变只读 |
+| `etc/modules-load.d/leafos-zram.conf` | 开机加载 `zram` |
+| `etc/modules-load.d/leafos-netfilter.conf` | 开机加载 nf_tables 与 ip_tables 两套的常用模块（其余由内核 alias 自动装载） |
+| `etc/systemd/system/leafos-zram-swap.service` + `usr/local/bin/leafos-zram-swap.sh` | 在 zram 上开内存 1/4 的压缩交换区（zstd）。这台设备没有物理 swap，`zswap` 内建但这里不启用 —— 没有磁盘 swap 时它无事可做，两套叠起来只是双重压缩 |
 | `etc/systemd/system/leafos-units.list` | 该启用的单元清单（对账用） |
 | `etc/systemd/system/*.service.d/instant.conf` | `modprobe@configfs/drm/fuse/ksmbd` 改成同步装载 |
 | `etc/fstab` | 只有根分区；ESP 不常挂 |

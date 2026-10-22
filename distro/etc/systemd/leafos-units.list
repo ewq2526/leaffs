@@ -8,3 +8,4 @@ avahi-daemon.service               enabled
 systemd-networkd.service           enabled
 leafos-netdiag.service             disabled
 leafos-filemgr.service             disabled
+leafos-zram-swap.service          enabled
