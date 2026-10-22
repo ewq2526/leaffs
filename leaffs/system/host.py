@@ -199,12 +199,35 @@ def memory():
     total = info.get('MemTotal', 0)
     available = info.get('MemAvailable', 0)
     used = max(0, total - available)
-    swap_total = info.get('SwapTotal', 0)
-    swap_free = info.get('SwapFree', 0)
+
+    # 拆成若干块，加起来等于总量。只看一个"已用"看不出结构 —— 里面近三分之一是内核 slab。
+    #   进程 = AnonPages（私有匿名页）
+    #   共享 = Shmem（tmpfs：/tmp、/run、/dev/shm；它也计在 Cached 里，必须单独摘出来）
+    #   缓存 = Buffers + (Cached - Shmem) + SReclaimable（可回收，需要时会让出来）
+    #   内核 = SUnreclaim + KernelStack + PageTables + Percpu（不可回收）
+    #   其余 = 总量减掉以上与 MemFree，通常是驱动与保留页
+    def g(key):
+        return info.get(key, 0)
+
+    free = g('MemFree')
+    shmem = g('Shmem')
+    cache = g('Buffers') + max(0, g('Cached') - shmem) + g('SReclaimable')
+    anon = g('AnonPages')
+    kernel = g('SUnreclaim') + g('KernelStack') + g('PageTables') + g('Percpu')
+    other = max(0, total - free - cache - anon - kernel - shmem)
+    swap_total = g('SwapTotal')
+    swap_free = g('SwapFree')
     return {
         'total': total,
         'used': used,
+        'available': available,
         'percent': round(used * 100.0 / total) if total else 0,
+        'free': free,
+        'cache': cache,
+        'shmem': shmem,
+        'anon': anon,
+        'kernel': kernel,
+        'other': other,
         'swap_total': swap_total,
         'swap_used': max(0, swap_total - swap_free),
     }

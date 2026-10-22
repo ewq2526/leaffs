@@ -29,6 +29,9 @@
 .sys-head .big { font-size: 20px; font-weight: 600; color: var(--text); }
 .sys-head .unit { font-size: 11px; color: var(--text-light); }
 .sys-head .spacer { flex: 1; }
+
+.sys-stack { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--border); margin-top: 6px; }
+.sys-stack > i { display: block; height: 100%; }
 </style>
 </head>
 <body>
@@ -82,7 +85,9 @@
                     <span class="unit" id="memPct">-</span>
                 </div>
                 <svg class="sys-chart" id="memChart" viewBox="0 0 100 30" preserveAspectRatio="none"></svg>
-                <div class="info-row" style="margin-top:6px"><span class="info-label">Swap</span><span class="info-value" id="memSwap">-</span></div>
+                <div class="sys-stack" id="memStack"></div>
+                <div id="memBreak" style="margin-top:6px"></div>
+                <div class="info-row"><span class="info-label">Swap</span><span class="info-value" id="memSwap">-</span></div>
             </section>
 
             <section class="panel">
@@ -195,6 +200,35 @@ function renderMemory(m) {
     document.getElementById('memNow').textContent = fmtBytes(m.used);
     document.getElementById('memTotal').textContent = '/ ' + fmtBytes(m.total);
     document.getElementById('memPct').textContent = m.percent + '%';
+
+    // Split the total into processes / cache / kernel / free. A single "used" figure hides
+    // the structure: nearly a third of it is kernel slab. Numbers per part, bar for ratio.
+    var total = m.total || 1;
+    var parts = [
+        ['Processes', m.anon || 0, 'var(--primary)'],
+        ['Shared memory', m.shmem || 0, 'var(--success)'],
+        ['Cache', m.cache || 0, 'var(--warn)'],
+        ['Kernel', m.kernel || 0, 'var(--danger)'],
+        ['Other', m.other || 0, 'var(--text-light)'],
+        ['Free', m.free || 0, 'var(--border)']
+    ];
+    var stack = document.getElementById('memStack');
+    var brk = document.getElementById('memBreak');
+    stack.innerHTML = '';
+    brk.innerHTML = '';
+    parts.forEach(function (p) {
+        var seg = document.createElement('i');
+        seg.style.width = (p[1] / total * 100).toFixed(2) + '%';
+        seg.style.background = p[2];
+        seg.title = p[0] + ' ' + fmtBytes(p[1]);
+        stack.appendChild(seg);
+        var row = document.createElement('div');
+        row.className = 'info-row';
+        row.innerHTML = '<span class="info-label">' + p[0] + '</span><span class="info-value">' +
+                        fmtBytes(p[1]) + ' (' + (p[1] / total * 100).toFixed(0) + '%)</span>';
+        brk.appendChild(row);
+    });
+
     document.getElementById('memSwap').textContent = m.swap_total
         ? fmtBytes(m.swap_used) + ' / ' + fmtBytes(m.swap_total)
         : 'not configured';
