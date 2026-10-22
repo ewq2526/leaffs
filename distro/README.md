@@ -51,6 +51,20 @@
 
 **用 Debian 13 的签名内核 6.12.113**（`linux-image-6.12.113+deb13-amd64`）：签名链可用、硬件支持完整、升级跟着发行版走。
 
-模块树按需裁过：`/lib/modules/6.12.113+deb13-amd64` 从 47 个扩到 155 个（9.8 MB），只补实际要用的（ahci、i2c-hid-acpi、intel-lpss、pinctrl-jasperlake、i915、rtw88 链、ksmbd、loop、overlay、ntfs3/xfs/btrfs/f2fs/hfsplus/isofs/udf/squashfs/vfat）。`uas` 必须在 initramfs 里 —— 系统盘走 UAS，缺了根就挂不上。
+模块树按需维持：`/lib/modules/6.12.113+deb13-amd64` 现有 **850 个（33 MB）**。基础是这台机器实际用得上的那几个，另加了一批通用驱动 —— 换硬件或插外设时不用重编内核：
+
+- 存储与文件系统：ahci、nvme、uas、usb-storage、loop、overlay、ntfs3/xfs/btrfs/f2fs/hfsplus/isofs/udf/squashfs/vfat/exfat
+- 输入与平台：i2c-hid-acpi、hid-multitouch、intel-lpss、pinctrl-jasperlake
+- 显示：i915 + drm 全家
+- 内存压缩：`zram`（配 `leafos-zram-swap.service`）
+- 网络过滤：`nf_tables`、`nf_conntrack`、`nft_ct`、`nft_nat`、`ip_tables`、`iptable_filter`、`iptable_nat`、`ip6table_filter`、`x_tables`
+- 有线网卡：整套 `drivers/net/ethernet`（115 个，含 `r8169`、`e1000e`、`igb/igc`、`ixgbe`、`tg3`）与 `drivers/net/phy`
+- 无线网卡：整套 `drivers/net/wireless`（149 个，含 `iwlwifi`、`ath10k/ath11k`、`mt76`、`rtw88/rtw89`、`rtl8xxxu`、`brcmfmac`）
+- 蓝牙：`drivers/bluetooth` + `net/bluetooth`（含 `btusb`）
+- 其它外设总线：`drivers/net/{usb,can,wan,wwan}`
+
+无线与部分有线网卡还需要固件：`firmware-{iwlwifi,realtek,atheros,brcm80211,misc-nonfree}`，`/lib/firmware` 约 396 MB（`nvidia/` 那 64 MB 已删 —— 内核里没有 `nouveau`/`amdgpu`，那些固件没有代码会用）。
+
+**`uas` 必须进 initramfs** —— 系统盘走 UAS，缺了根就挂不上。initramfs 用 `MODULES=list`，清单在 `etc/initramfs-tools/modules`，实际打进去 19 个模块、12.5 MB。不要装 `plymouth`：它会把 20 MB 的 CJK 字体和整套 pango 拖进 initrd，体积直接翻倍。
 
 自编的 7.3 内核已停用：内核与模块从系统上移除，GRUB 菜单只剩 Debian 这一项。**原因是签名** —— 固件信任微软签名的 shim，再由 shim 验发行版签名的内核，自编内核拿不到这套密钥，要用它就得一直关着 Secure Boot。**配置、重建步骤与当年的能力清单归档在 `archive/kernel-7.3/`，不是删掉了。**
