@@ -127,6 +127,13 @@ _ADMIN_ONLY_GET = frozenset((
 # 判据放在分派层，与 _ADMIN_ONLY_GET 同一处，处理函数里不再重复判。
 _SUPER_ADMIN_ONLY_GET = frozenset((
     '/api/system',
+    '/api/wifi/status',
+    '/api/wifi/scan',
+))
+
+# 改无线等于改设备配置，只给超级管理员（管理员不应该动设备）
+_SUPER_ADMIN_ONLY_POST = frozenset((
+    '/api/wifi/connect',
 ))
 
 # ---------- 统一拒绝口径（2026-09-15，用户拍板）----------
@@ -1198,6 +1205,10 @@ class HTTPHandler(BaseHTTPRequestHandler):
         _wm.serve_file(self, fn, 'text/html; charset=utf-8', BASE_DIR, _ac.get_session, _ac.get_session_username)
 
     def _route_post(self, path):
+        # 改设备配置（无线）只给超级管理员，判在分派层，处理函数里不重复判
+        if path in _SUPER_ADMIN_ONLY_POST and not self._require_roles('super_admin'):
+            self.send_json({'error': 'Forbidden'}, 403)
+            return
         # A-01：管理类 POST 统一 admin/super_admin（注销/降权后即时 403，单一入口防漏网）
         if path in _ADMIN_ONLY_POST and not self._require_roles('admin', 'super_admin'):
             self.send_json({'error': 'Forbidden'}, 403)
@@ -1234,6 +1245,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             '/api/account/password': lambda: _ac_self.account_password(self),
             '/api/account/revoke-sessions': lambda: _ac_self.account_revoke_sessions(self),
             '/api/account/lang': lambda: _ac_self.account_set_lang(self),
+            '/api/wifi/connect': lambda: _sys_api.wifi_connect(self),
         }
         h = handlers.get(path)
         if h: h()
@@ -2085,6 +2097,14 @@ def _g_api_system(h, path, role):
     _sys_api.send_system(h, _sys_host.collect)
 
 
+def _g_api_wifi_status(h, path, role):
+    _sys_api.send_wifi_status(h)
+
+
+def _g_api_wifi_scan(h, path, role):
+    _sys_api.send_wifi_scan(h)
+
+
 def _g_browse_page(h, path, role):
     h._route_page(path, role)
 
@@ -2517,6 +2537,8 @@ GET_ROUTES = (
     (('=', '/api/auth/check'), _g_auth_check),
     (('=', '/api/account/me'), _g_account_me),
     (('=', '/api/system'), _g_api_system),
+    (('=', '/api/wifi/status'), _g_api_wifi_status),
+    (('=', '/api/wifi/scan'), _g_api_wifi_scan),
     (('=', '/api/auth/logout'), _g_auth_logout_405),
     (('=', '/api/files'), _g_files),
     (('=', '/api/raw'), _g_raw),

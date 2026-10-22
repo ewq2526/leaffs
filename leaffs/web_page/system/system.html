@@ -47,6 +47,10 @@
 .disk-part .pmeta { color: var(--text-light); flex: 1 1 auto; word-break: break-all; }
 .disk-part .puse { color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .disk-part .dl-progress-bar { width: 64px; flex: 0 0 64px; }
+.wifi-input { flex: 1 1 auto; min-width: 0; background: var(--bg); color: var(--text);
+                   border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
+                   font-size: 12px; font-family: var(--font); }
+.wifi-input:focus { outline: none; border-color: var(--primary); }
 .sys-stack { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--border); margin-top: 6px; }
 .sys-stack > i { display: block; height: 100%; }
 </style>
@@ -135,6 +139,17 @@
             <section class="panel">
                 <h3>磁盘</h3>
                 <div id="diskList"><div class="srow"><span class="srow-path">读取中…</span></div></div>
+            </section>
+
+            <section class="panel">
+                <h3>无线网络</h3>
+                <div class="info-row"><span class="info-label">当前</span><span class="info-value" id="wifiNow">-</span></div>
+                <div class="info-row"><span class="info-label">地址</span><span class="info-value" id="wifiIp">-</span></div>
+                <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+                    <button class="btn btn-sm" id="wifiScanBtn">扫描</button>
+                    <span class="srow-path" id="wifiHint" style="font-size:11px"></span>
+                </div>
+                <div id="wifiList" style="margin-top:8px"></div>
             </section>
 
             <section class="panel">
@@ -382,6 +397,105 @@ function renderIo(io) {
     });
 }
 
+// ---------- 无线网络 ----------
+// 状态每 5 秒刷一次，列表只在"扫描"时重建 —— 列表里可能有正在输入的密码框，
+// 跟着 1 秒的刷新重建会把输入清掉。
+var wifiNets = [];
+
+function wifiSecurityLabel(sec) {
+    return { open: '开放', wep: 'WEP', wpa: 'WPA', wpa2: 'WPA2', wpa3: 'WPA3' }[sec] || sec || '未知';
+}
+
+function loadWifiStatus() {
+    fetch('/api/wifi/status', { credentials: 'same-origin' }).then(function (r) {
+        if (!r.ok) throw new Error('bad');
+        return r.json();
+    }).then(function (s) {
+        var state = {
+            COMPLETED: '已连接', SCANNING: '扫描中', ASSOCIATING: '关联中', ASSOCIATED: '已关联',
+            AUTHENTICATING: '认证中', AUTHENTICATED: '已认证', DISCONNECTED: '未连接',
+            INACTIVE: '未连接', INTERFACE_DISABLED: '接口关闭'
+        }[s.state] || s.state || '-';
+        document.getElementById('wifiNow').textContent =
+            (s.ssid || '未连接') + ' · ' + state + (s.freq ? ' · ' + s.freq + ' MHz' : '');
+        document.getElementById('wifiIp').textContent = s.ip || '-';
+    }).catch(function () {
+        document.getElementById('wifiNow').textContent = '读取失败';
+        document.getElementById('wifiIp').textContent = '-';
+    });
+}
+
+function renderWifiList() {
+    var box = document.getElementById('wifiList');
+    box.innerHTML = '';
+    if (!wifiNets.length) {
+        box.innerHTML = '<div class="srow"><span class="srow-path">没有扫到网络</span></div>';
+        return;
+    }
+    wifiNets.forEach(function (n) {
+        var bars = n.signal >= -55 ? '▂▄▆█' : n.signal >= -70 ? '▂▄▆' : n.signal >= -80 ? '▂▄' : '▂';
+        var row = document.createElement('div');
+        row.className = 'srow';
+        row.style.cursor = 'pointer';
+        row.innerHTML = '<span class="srow-name">' + esc(n.ssid) + '</span>' +
+            '<span class="srow-path">' + esc(wifiSecurityLabel(n.security)) +
+            (n.saved ? ' · 已保存' : '') + '</span>' +
+            '<span class="srow-path" style="flex:0 0 auto">' + bars + ' ' + n.signal + ' dBm</span>';
+        row.addEventListener('click', function () { wifiForm(row, n); });
+        box.appendChild(row);
+    });
+}
+
+function wifiForm(row, net) {
+    if (row.querySelector('.wifi-form')) return;
+    var form = document.createElement('div');
+    form.className = 'wifi-form';
+    form.style.cssText = 'display:flex;gap:6px;margin:6px 0 2px;padding-left:20px;align-items:center';
+    var locked = net.security !== 'open';
+    form.innerHTML = (locked ? '<input class="wifi-input" type="password" placeholder="密码（8~63 位）">' : '') +
+        '<button class="btn btn-sm btn-primary">连接</button><button class="btn btn-sm">取消</button>';
+    var input = form.querySelector('input');
+    var btns = form.querySelectorAll('button');
+    btns[0].addEventListener('click', function () {
+        btns[0].disabled = true;
+        btns[0].textContent = '连接中…';
+        fetch('/api/wifi/connect', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ssid: net.ssid, psk: input ? input.value : '' })
+        }).then(function (r) {
+            return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+        }).then(function (res) {
+            if (res.ok) { toast('已连接到 ' + net.ssid, 'success'); form.remove(); }
+            else { toast(res.d.error || '连接失败', 'error'); }
+            loadWifiStatus();
+        }).catch(function () { toast('连接失败', 'error'); })
+        .then(function () { btns[0].disabled = false; btns[0].textContent = '连接'; });
+    });
+    btns[1].addEventListener('click', function () { form.remove(); row.style.cursor = 'pointer'; });
+    row.appendChild(form);
+    row.style.cursor = 'default';
+    if (input) input.focus();
+}
+
+function scanWifi() {
+    var hint = document.getElementById('wifiHint');
+    var btn = document.getElementById('wifiScanBtn');
+    btn.disabled = true;
+    hint.textContent = '扫描中…（约 4 秒，此时网络负载会短暂升高）';
+    fetch('/api/wifi/scan', { credentials: 'same-origin' }).then(function (r) {
+        if (!r.ok) throw new Error('bad');
+        return r.json();
+    }).then(function (d) {
+        wifiNets = d.networks || [];
+        renderWifiList();
+        hint.textContent = wifiNets.length ? ('找到 ' + wifiNets.length + ' 个网络') : '没有扫到网络';
+    }).catch(function () {
+        hint.textContent = '扫描失败';
+        toast('扫描失败', 'error');
+    }).then(function () { btn.disabled = false; });
+}
+
 function renderDisks(list) {
     var box = document.getElementById('diskList');
     var open = {};
@@ -493,8 +607,11 @@ function loadSystem() {
     });
 }
 
+document.getElementById('wifiScanBtn').addEventListener('click', scanWifi);
 loadSystem();
+loadWifiStatus();
 setInterval(function () { if (!document.hidden) loadSystem(); }, 1000);
+setInterval(function () { if (!document.hidden) loadWifiStatus(); }, 5000);
 </script>
 </body>
 </html>
