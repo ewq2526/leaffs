@@ -417,7 +417,60 @@ def _start_webview_window():
 
         installed = threading.Event()
 
+        def _apply_kiosk_zoom():
+            """kiosk 全屏时把整页缩放到 125%（`LEAFFS_ZOOM` 可覆盖）。
+
+            1920×1080 的面板因为 EDID 不给物理尺寸，X 退回 96 DPI，整页按 100% 渲染偏小；
+            同类屏幕在 Windows 上默认就是 125%。改 WebKit 的 zoom level 而不是字号：
+            字号只放大文字，间距与控件不跟着变，布局会挤在一起。
+
+            ⚠️ `window.gui` 不是窗口对象 —— pywebview 的 `Window._initialize` 里
+            `self.gui = gui`，那是**后端模块**本身。真正的 WebKitWebView 挂在
+            `platforms.gtk.BrowserView.instances[uid].webview`，而且只能在 GTK 主线程上操作，
+            所以经 `GLib.idle_add` 调度过去。窗口是在 `start()` 里才建出来的，这里轮询等。
+            """
+            try:
+                zoom = float(os.environ.get('LEAFFS_ZOOM', '1.25'))
+            except ValueError:
+                zoom = 1.25
+            if zoom <= 0:
+                return
+            try:
+                from gi.repository import GLib
+            except Exception:
+                GLib = None
+            try:
+                from webview.platforms import gtk as _gtk_backend
+            except Exception as e:
+                add_log(f'整页缩放无法加载 gtk 后端: {type(e).__name__}: {e}', 'warn')
+                return
+
+            def _set(view):
+                try:
+                    view.set_zoom_level(zoom)
+                    add_log(f'kiosk 整页缩放 {zoom}x', 'info')
+                except Exception as e:
+                    add_log(f'整页缩放设置失败: {type(e).__name__}: {e}', 'warn')
+                return False
+
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                view = None
+                for inst in getattr(_gtk_backend.BrowserView, 'instances', {}).values():
+                    v = getattr(inst, 'webview', None)
+                    if v is not None:
+                        view = v
+                        break
+                if view is not None:
+                    if GLib is not None:
+                        GLib.idle_add(lambda v=view: _set(v))
+                    else:
+                        _set(view)
+                    return
+                time.sleep(0.05)
+            add_log('整页缩放未设置：10 秒内没拿到 WebKit 视图（窗口仍可用）', 'warn')
         def _after_start():
+
             """等窗口和 WebView2 就绪，把三层守卫装上。
 
             ⚠️ 这里跑在 pywebview 起的**非 UI 线程**里（webview/__init__.py 里 func 是
@@ -431,6 +484,8 @@ def _start_webview_window():
             三层守卫是 WebView2 专属，gtk 后端没有这套接口 —— 非 Windows 上直接
             跳过，否则会白等满 20 秒超时才退出。
             """
+            if _kiosk:
+                _apply_kiosk_zoom()
             if not sys.platform.startswith('win'):
                 return
             win = webview.windows[0]
@@ -462,6 +517,10 @@ def _start_webview_window():
 
         # 非 kiosk：沿用私有模式（默认）。kiosk：关掉私有模式，cookie 与会话才留得住，
         # 重启 kiosk 不需要重新登录，页面脚本的存储访问也不会被禁。
+        # gtk 后端的 start() 在 _initialize 分支里会提前 return，内部那段 func 线程不会跑到；
+        # 缩放自己起一个线程，不依赖它。
+        if _kiosk:
+            threading.Thread(target=_apply_kiosk_zoom, daemon=True).start()
         webview.start(_after_start, private_mode=not _kiosk)
         return True
     except Exception as e:
