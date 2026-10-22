@@ -1214,6 +1214,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             '/api/share/publish': lambda: self.share_publish(),
             '/api/share/unpublish': lambda: self.share_unpublish(),
             '/api/share/mount': lambda: self.share_mount(),
+            '/api/share/pick-mount': lambda: self.share_pick_mount(),
             '/api/share/code': lambda: self.share_code_set(),
             '/api/share/reset': lambda: self.share_reset(),
             '/api/share/auth': lambda: self.share_auth(),
@@ -1403,6 +1404,44 @@ class HTTPHandler(BaseHTTPRequestHandler):
             self.send_json({'error': err or '映射失败'}, 400 if err else 500)
             return
         self.send_json({'success': True, 'path': vp, 'browse': '/browse/' + vp})
+
+    def share_pick_mount(self):
+        """POST /api/share/pick-mount {file: bool} —— 在服务端本机弹出系统选择框。
+
+        桌面窗口的 JS 桥在 Linux（WebKitGTK）上会被页面 CSP 挡掉：pywebview 的
+        桥方法用 new Function 动态生成，策略里没有 'unsafe-eval' 就抛 EvalError，
+        前端因此判定"这个环境没有系统选择框"。前端改调这个端点，由服务端在本机
+        弹框，CSP 不必放宽。
+
+        鉴权与 /api/share/mount 同级：只认本机一次性令牌建立的会话，远程管理员
+        同样拒绝 —— 这个能力属于"人坐在机器前"，不跟账号走。CSRF 由 do_POST
+        的统一同源校验兜住。
+        """
+        if not self._is_local_token_session():
+            self.send_json({'error': '本机路径只能在服务端本机选择'}, 403)
+            return
+        data = self._read_json() or {}
+        want_file = bool(data.get('file'))
+        try:
+            import webview
+            win = webview.windows[0] if getattr(webview, 'windows', None) else None
+        except Exception:
+            win = None
+        if win is None:
+            self.send_json({'error': '当前没有桌面窗口'}, 404)
+            return
+        try:
+            # GTK 后端把这次调用经 glib.idle_add 调度回 UI 线程并用信号量等结果，
+            # 从请求线程直接调是安全的
+            picked = win.create_file_dialog(
+                webview.OPEN_DIALOG if want_file else webview.FOLDER_DIALOG)
+        except Exception as e:
+            add_log(f'系统选择框失败: {type(e).__name__}: {e}', 'warn')
+            self.send_json({'error': '系统选择框打开失败'}, 500)
+            return
+        if isinstance(picked, (list, tuple)):
+            picked = picked[0] if picked else ''
+        self.send_json({'path': str(picked or '')})
 
     def share_list(self):
         """GET /api/share[?all=1] —— 我的映射（admin 带 all=1 看全量）"""

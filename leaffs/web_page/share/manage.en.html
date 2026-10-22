@@ -272,7 +272,21 @@ function pickMount(isFile) {
             '?u=' + encodeURIComponent(who);
         return;
     }
-    batchToast('No system dialog in this environment — type the path instead', 'error');
+    // Desktop window without the JS bridge (Linux page CSP blocks the new Function
+    // generated pywebview bridge): let the server open the native dialog on its own
+    // machine — only a local-token session is accepted
+    fetch('/api/share/pick-mount', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: !!isFile })
+    }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+    }).then(function (res) {
+        if (!res.ok) { batchToast('No system dialog in this environment — type the path instead', 'error'); return; }
+        if (res.d && res.d.path) usePick(res.d.path);
+    }).catch(function () {
+        batchToast('No system dialog in this environment — type the path instead', 'error');
+    });
 }
 
 function usePick(p) {

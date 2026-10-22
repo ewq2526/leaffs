@@ -269,7 +269,20 @@ function pickMount(isFile) {
             '?u=' + encodeURIComponent(who);
         return;
     }
-    batchToast('这个环境没有系统选择框，请手动填路径', 'error');
+    // 桌面窗口但 JS 桥不可用（Linux 的页面 CSP 挡掉了 pywebview 由 new Function
+    // 生成的桥）：改由服务端在本机弹系统选择框，只认本机令牌会话
+    fetch('/api/share/pick-mount', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file: !!isFile })
+    }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+    }).then(function (res) {
+        if (!res.ok) { batchToast('这个环境没有系统选择框，请手动填路径', 'error'); return; }
+        if (res.d && res.d.path) usePick(res.d.path);
+    }).catch(function () {
+        batchToast('这个环境没有系统选择框，请手动填路径', 'error');
+    });
 }
 
 function usePick(p) {
