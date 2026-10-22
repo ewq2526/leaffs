@@ -403,8 +403,16 @@ def _start_webview_window():
         webview.settings['OPEN_EXTERNAL_LINKS_IN_BROWSER'] = False
         webview.settings['ALLOW_DOWNLOADS'] = False
         webview.settings['IGNORE_SSL_ERRORS'] = True
+        # kiosk 形态由启动方决定（systemd 服务里设 LEAFFS_KIOSK=1）：整屏无边框。
+        # 注意 resizable 必须保持 True —— pywebview 对不可缩放的窗口会用 set_size_request
+        # 把窗口钉死在创建尺寸，全屏后内容区还是 1200x800。
+        _kiosk = os.environ.get('LEAFFS_KIOSK') == '1'
         webview.create_window('LeafFS 文件传输', _local_url(),
-                              width=1200, height=800, resizable=True,
+                              width=1200, height=800,
+                              resizable=True,
+                              fullscreen=_kiosk, frameless=_kiosk,
+                              # 与页面深色底一致：首帧绘制前不闪白
+                              background_color='#101014',
                               js_api=_LocalBridge())
 
         installed = threading.Event()
@@ -452,7 +460,9 @@ def _start_webview_window():
                 # 装配不上就是安全缺口，必须看得见，不静默
                 add_log('内嵌窗口守卫未装配：CoreWebView2 初始化回调没到', 'warn')
 
-        webview.start(_after_start)
+        # 非 kiosk：沿用私有模式（默认）。kiosk：关掉私有模式，cookie 与会话才留得住，
+        # 重启 kiosk 不需要重新登录，页面脚本的存储访问也不会被禁。
+        webview.start(_after_start, private_mode=not _kiosk)
         return True
     except Exception as e:
         print(f'  窗口启动失败 ({e})，使用浏览器打开')
