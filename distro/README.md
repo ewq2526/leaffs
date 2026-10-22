@@ -19,7 +19,8 @@
 | `etc/ksmbd/ksmbd.conf` | SMB 共享定义（`public` 免密、`users` 需账号） |
 | `etc/initramfs-tools/` | Debian 内核的 initramfs 模块清单（`uas` 必须在内，这块盘走 UAS） |
 | `etc/modprobe.d/intel-microcode-blacklist.conf` | 微码不随内核加载 |
-| `usr/local/bin/` | kiosk 会话脚本、证书同步、网络诊断、最终自检 |
+| `usr/local/bin/` | kiosk 会话脚本、证书同步、网络诊断、最终自检、插盘自动挂载 |
+| `etc/udev/rules.d/90-leafos-automount.rules` | 分区出现即挂到 `/media/<卷标>`，拔盘由 systemd 自动卸载 |
 
 ## 不含的东西（有意）
 
