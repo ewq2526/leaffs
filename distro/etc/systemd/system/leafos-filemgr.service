@@ -1,0 +1,19 @@
+[Unit]
+Description=LeafOS file management service
+After=network.target local-fs.target
+
+[Service]
+Type=simple
+User=leaf
+Group=leaf
+ExecStart=/usr/bin/python3 /opt/leafos/filemgr/main.py
+Restart=always
+RestartSec=2
+StateDirectory=leafos
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/files
+
+[Install]
+WantedBy=multi-user.target

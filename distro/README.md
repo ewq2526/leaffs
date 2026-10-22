@@ -11,6 +11,9 @@
 | `etc/systemd/system/` | `leafos-kiosk`、`leafos-ssh`、`leafos-wifi`、`leafos-trust-cert` 及 drop-in |
 | `etc/systemd/network/` | `20-wired.network`、`30-wlan.network`（DHCP） |
 | `etc/systemd/system.conf.d/leafos.conf` | 全局停止超时 15s |
+| `etc/systemd/system/leafos-units.list` | 该启用的单元清单（对账用） |
+| `etc/systemd/system/*.service.d/instant.conf` | `modprobe@configfs/drm/fuse/ksmbd` 改成同步装载 |
+| `etc/fstab` | 只有根分区；ESP 不常挂 |
 | `etc/X11/xorg.conf.d/40-touchpad.conf` | clickpad 打开轻触与拖动 |
 | `etc/sysctl.d/50-leafos-quiet.conf` | 降低内核打印噪音 |
 | `etc/ksmbd/ksmbd.conf` | SMB 共享定义（`public` 免密、`users` 需账号） |

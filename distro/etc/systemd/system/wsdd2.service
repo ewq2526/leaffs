@@ -1,0 +1,17 @@
+[Unit]
+Description=WSD/LLMNR discovery for LeafOS (ksmbd based)
+After=network-online.target ksmbd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/wsdd2 -N LEAFOS -H LeafOS
+Restart=on-failure
+RestartSec=3
+DynamicUser=yes
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+PrivateTmp=yes
+PrivateDevices=yes
+
+[Install]
+WantedBy=multi-user.target

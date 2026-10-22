@@ -1,0 +1,10 @@
+# 单元                             期望状态
+leafos-ssh.service                 enabled
+leafos-wifi.service                enabled
+leaffs.service                     enabled
+ksmbd.service                      enabled
+wsdd2.service                      enabled
+avahi-daemon.service               enabled
+systemd-networkd.service           enabled
+leafos-netdiag.service             disabled
+leafos-filemgr.service             disabled
