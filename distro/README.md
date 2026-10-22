@@ -24,6 +24,17 @@
 | `etc/udev/rules.d/90-leafos-automount.rules` | 分区出现即挂到 `/media/<卷标>`，拔盘由 systemd 自动卸载 |
 | `etc/fonts/local.conf` | 打开 RGB 次像素渲染、中文优先 Noto Sans CJK SC（依赖系统装 `fonts-noto-cjk`）|
 
+## 依赖的系统包
+
+镜像里额外装了这几个包，不是 Debian 基础系统自带：
+
+| 包 | 用途 | 备注 |
+|---|---|---|
+| `fonts-noto-cjk` | 界面正文与中文字形 | SIL OFL 1.1，分发须随附许可证（见 `for-distribution/licenses/`）|
+| `ffmpeg` | 视频缩略图与时长（带 `ffprobe`） | GPL-2.0-or-later，构建启用 `--enable-gpl`，同样要随附许可证 |
+
+`leafos-kiosk` 启动日志会各打一行 `ffmpeg: 已安装 / 未安装`、`aria2c: 已安装 / 未安装`，缺了直接看那里。
+
 ## 不含的东西（有意）
 
 - `etc/ksmbd/ksmbdpwd.db`、`ksmbd.subauth`：账号口令库

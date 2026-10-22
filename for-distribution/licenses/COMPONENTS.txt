@@ -25,6 +25,7 @@ GeckoView            146.x             MPL-2.0                 (Android APK runt
 Android Gradle Plugin 9.3.0           Apache-2.0              (Android build only)             https://developer.android.com/build
 Gradle               9.5.0             Apache-2.0              (Android build only)             https://gradle.org/
 Kotlin               (via AGP 9)       Apache-2.0              (Android build only)             https://kotlinlang.org/
+FFmpeg (Debian)      7.1.5             GPL-2.0-or-later        (system package: /usr/bin/ffmpeg, ffprobe)  https://ffmpeg.org/
 Noto Sans CJK        20240730          SIL OFL 1.1             (system font: NotoSansCJK-Regular.ttc)  https://github.com/notofonts/noto-cjk
 
 Redistribution notes / 再分发注意

@@ -19,12 +19,14 @@
 | ffmpeg（`leaffs/ffmpeg.exe`） | 生成视频/图片缩略图 | **GPL-3.0**（该构建启用了 `--enable-gpl --enable-version3` 并链接 libx264/libx265 等 GPL 组件，**不是** LGPL；实测其 `-version` 输出可证） | ffmpeg.org ／ 构建来源 gyan.dev |
 | pythonnet 3.1.0 / pywebview 6.2.1 | 本机桌面窗口（可选）：代码在启动桌面窗的入口处动态 `import webview`，其底层依赖 pythonnet | MIT / BSD-3-Clause | 各自官方仓库 |
 | pywebview 的运行时依赖：clr-loader / proxy_tools / bottle / typing_extensions | 随 pywebview 一并安装（桌面窗口用到时才装载） | MIT / MIT / MIT / PSF | 各自官方仓库 |
+| FFmpeg（系统包，Debian 13，/usr/bin/ffmpeg + /usr/bin/ffprobe，7.1.5） | 视频缩略图与时长 | **GPL-2.0-or-later**（该构建启用 --enable-gpl） | ffmpeg.org |
 | Noto Sans CJK（系统字体，`/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc`，Debian 包 fonts-noto-cjk 20240730） | 界面正文与中文字形 | **SIL Open Font License 1.1**（允许随产品分发与嵌入；不得单独售卖字体，修改版不得沿用原字体名） | github.com/notofonts/noto-cjk |
 | 安卓版 APK 内的组件：Chaquopy / GeckoView / androidx / Kotlin / kotlinx.coroutines / Google Play services / Python 运行时及其依赖 | **随安卓安装包分发**（APK 内包含 Chaquopy 的 Python 运行时与 GeckoView） | 各组件各自许可，**已逐项列明版本与原文** | 见 `android/THIRD_PARTY_NOTICES.md` |
 
 ## 本项目目前的义务与做法
 
 - **许可原文**：各组件许可证原文、版本与官方源码地址清单已随本文件提供在 `licenses/` 目录（含 COMPONENTS.txt），分发时请连同该目录一并提供。
+- **系统 FFmpeg**：LeafOS 镜像内装的是 Debian 仓库的 ffmpeg 7.1.5（GPL-2.0-or-later，构建启用 --enable-gpl），用于视频缩略图与时长；许可原文 licenses/LICENSE.ffmpeg-debian-GPL-2.0.txt。它与 Windows 分发包里那个 Gyan GPL-3.0 构建是两回事，分发哪个就附哪份。
 - **系统字体**：LeafOS 镜像内含 Noto Sans CJK（SIL OFL 1.1）。分发镜像时须随附 `licenses/LICENSE.noto-sans-cjk-OFL-1.1.txt`；字体原样使用未修改，因此可以沿用原名字。若日后替换或改制字体（子集化、改名重绘等），修改版必须改名，不能再叫 Noto。
 - **安卓版另有一份**：APK 内包含的组件（Chaquopy、GeckoView、androidx、Kotlin、kotlinx.coroutines、Google Play services、Python 运行时及其依赖）与本文件的清单**几乎不重叠**，已单独列明在 `android/THIRD_PARTY_NOTICES.md`，许可原文在 `android/licenses/`；分发 APK 时给那一份，分发桌面产物时给这一份。
 - **源码形态分发**：上述第三方文件以原版形式随源码目录携带；不再单独制作/分发独立打包产物。
