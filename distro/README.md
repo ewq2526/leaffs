@@ -11,6 +11,7 @@
 | `etc/systemd/system/` | `leafos-kiosk`、`leafos-ssh`、`leafos-wifi`、`leafos-trust-cert` 及 drop-in |
 | `etc/systemd/network/` | `20-wired.network`、`30-wlan.network`（DHCP） |
 | `etc/systemd/system.conf.d/leafos.conf` | 全局停止超时 15s |
+| `etc/systemd/logind.conf.d/90-leafos-lid.conf` | 盒盖不挂起 —— 根在 USB 盘上，S3 会断电再重新枚举，恢复不及时就是根变只读 |
 | `etc/systemd/system/leafos-units.list` | 该启用的单元清单（对账用） |
 | `etc/systemd/system/*.service.d/instant.conf` | `modprobe@configfs/drm/fuse/ksmbd` 改成同步装载 |
 | `etc/fstab` | 只有根分区；ESP 不常挂 |
