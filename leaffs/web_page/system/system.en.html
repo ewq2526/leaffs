@@ -231,14 +231,35 @@ function renderPower(p) {
     panel.style.display = '';
     document.getElementById('batNow').textContent = b.capacity;
     setBar(document.getElementById('batBar'), b.capacity);
-    var st = { Charging: 'Charging', Discharging: 'Discharging', Full: 'Full', 'Not charging': 'Not charging' }[b.status] || b.status || '-';
+    // Direction comes from the AC adapter, not from BAT0's status: this machine's EC keeps
+    // reporting Charging after the cable is pulled, and Not charging while full and plugged,
+    // so trusting status alone reports charge/discharge backwards.
+    var known = (p.ac_online === true || p.ac_online === false);
+    var st;
+    if (known) {
+        if (!p.ac_online) {
+            st = 'Discharging';
+        } else if (b.capacity >= 100 || b.status === 'Full') {
+            st = 'Full';
+        } else if (b.status === 'Charging') {
+            st = 'Charging';
+        } else {
+            st = 'Plugged in, not charging';
+        }
+    } else {
+        st = { Charging: 'Charging', Discharging: 'Discharging', Full: 'Full', 'Not charging': 'Not charging' }[b.status] || b.status || '-';
+    }
     document.getElementById('batStatus').textContent = st;
-    document.getElementById('batAc').textContent = p.ac_online === null ? '-' : (p.ac_online ? 'connected' : 'disconnected');
+    document.getElementById('batAc').textContent = known ? (p.ac_online ? 'connected' : 'disconnected') : '-';
+
     var eta = '-';
-    if (b.power_now && b.energy_now && b.status === 'Discharging') {
-        eta = fmtUptime(Math.round(b.energy_now / b.power_now * 3600)) + ' remaining';
-    } else if (b.status === 'Charging' && b.capacity >= 100) {
+    var watts = b.power_now ? (b.power_now / 1e6) : 0;
+    if (known && !p.ac_online && watts > 0 && b.energy_now) {
+        eta = fmtUptime(Math.round(b.energy_now / b.power_now * 3600)) + ' remaining (' + watts.toFixed(1) + ' W)';
+    } else if (known && p.ac_online && b.capacity >= 100) {
         eta = 'full';
+    } else if (watts > 0) {
+        eta = watts.toFixed(1) + ' W';
     }
     document.getElementById('batEta').textContent = eta;
 }

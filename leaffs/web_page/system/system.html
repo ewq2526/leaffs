@@ -231,14 +231,35 @@ function renderPower(p) {
     panel.style.display = '';
     document.getElementById('batNow').textContent = b.capacity;
     setBar(document.getElementById('batBar'), b.capacity);
-    var st = { Charging: '充电中', Discharging: '放电中', Full: '已充满', 'Not charging': '未充电' }[b.status] || b.status || '-';
+
+    // 方向以"适配器是否接通"为准，不信 BAT0 的 status：这台机器的 EC 拔掉电源后仍报
+    // Charging、充满插着时又报 Not charging，只看 status 会把充放电说反。
+    var known = (p.ac_online === true || p.ac_online === false);
+    var st;
+    if (known) {
+        if (!p.ac_online) {
+            st = '放电中';
+        } else if (b.capacity >= 100 || b.status === 'Full') {
+            st = '已充满';
+        } else if (b.status === 'Charging') {
+            st = '充电中';
+        } else {
+            st = '已接通，未充电';
+        }
+    } else {
+        st = { Charging: '充电中', Discharging: '放电中', Full: '已充满', 'Not charging': '未充电' }[b.status] || b.status || '-';
+    }
     document.getElementById('batStatus').textContent = st;
-    document.getElementById('batAc').textContent = p.ac_online === null ? '-' : (p.ac_online ? '已接通' : '未接通');
+    document.getElementById('batAc').textContent = known ? (p.ac_online ? '已接通' : '未接通') : '-';
+
     var eta = '-';
-    if (b.power_now && b.energy_now && b.status === 'Discharging') {
-        eta = fmtUptime(Math.round(b.energy_now / b.power_now * 3600)) + ' 后耗尽';
-    } else if (b.status === 'Charging' && b.capacity >= 100) {
+    var watts = b.power_now ? (b.power_now / 1e6) : 0;
+    if (known && !p.ac_online && watts > 0 && b.energy_now) {
+        eta = fmtUptime(Math.round(b.energy_now / b.power_now * 3600)) + ' 后耗尽（' + watts.toFixed(1) + ' W）';
+    } else if (known && p.ac_online && b.capacity >= 100) {
         eta = '已满';
+    } else if (watts > 0) {
+        eta = watts.toFixed(1) + ' W';
     }
     document.getElementById('batEta').textContent = eta;
 }
