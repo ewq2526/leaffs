@@ -130,9 +130,9 @@
 
 <script src="/static/app.js"></script>
 <script>
-// 页面自己保存最近两分钟的采样（每 2 秒一个点，共 60 点）：曲线只画趋势，
+// 页面自己保存最近两分钟的采样（每秒一个点，共 120 点）：曲线只画趋势，
 // 不把历史放到服务端 —— 服务端一旦存历史，重启就丢，页面还要处理缺口。
-var HISTORY = 60;
+var HISTORY = 120;
 var hist = { cpu: [], mem: [], temp: [] };
 
 function fmtBytes(n) {
@@ -354,7 +354,7 @@ function loadSystem() {
 }
 
 loadSystem();
-setInterval(function () { if (!document.hidden) loadSystem(); }, 2000);
+setInterval(function () { if (!document.hidden) loadSystem(); }, 1000);
 </script>
 </body>
 </html>

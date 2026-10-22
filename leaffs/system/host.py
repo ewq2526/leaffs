@@ -120,6 +120,21 @@ def _service_state(name):
 
 
 def services():
+    """七个单元一次问完。
+
+    `systemctl is-active` 接受多个单元、按同样顺序每行一个状态，所以一次子进程就够；
+    逐个问是七个进程，实测单次 collect 的 58 ms 里 43 ms 都花在建进程上。
+    """
+    exe = shutil.which('systemctl') or '/usr/bin/systemctl'
+    try:
+        r = subprocess.run([exe, 'is-active', *SERVICES], capture_output=True,
+                           text=True, timeout=5)
+        states = (r.stdout or '').split()
+        if len(states) == len(SERVICES):
+            return [{'name': n, 'state': s} for n, s in zip(SERVICES, states)]
+    except (OSError, subprocess.SubprocessError):
+        pass
+    # 输出对不上（某个单元名被改过等）才退回逐个问，结果宁可慢也不能给半张表
     return [{'name': n, 'state': _service_state(n)} for n in SERVICES]
 
 
