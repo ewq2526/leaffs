@@ -7,4 +7,4 @@
 *.conf  text eol=lf
 *.network text eol=lf
 *.rules text eol=lf
-distro/** text eol=lf
+etc/** text eol=lf`nusr/** text eol=lf`nboot/** text eol=lf

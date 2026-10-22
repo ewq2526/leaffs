@@ -5,7 +5,7 @@ Author: ewq2526.
 This document is for **people taking over or extending the LeafFS code base**: it explains what each
 layer does, why the key mechanisms are designed the way they are, and where to touch things when you
 change them. For usage and deployment see `../README.md`, for version history see `../CHANGELOG.md`, and for
-Android build details see `../android/README.md`.
+This branch ships the desktop form only; the Android build and its container are not in the repository.
 
 > Convention: this document describes the behaviour of the **current code**. Wherever a design reason
 > cannot be read off the code, it is written down in the corresponding section — most of those reasons
@@ -1364,7 +1364,6 @@ invisible in the code itself.
 | **This file** | **People taking over the code** | Architecture, mechanisms, why it is designed this way |
 | `../for-distribution/DISTRIBUTION_README.md` | End users | Distribution build usage notes |
 | `../for-distribution/THIRD_PARTY_NOTICES.md` | Compliance | Third-party components and licences |
-| `../android/README.md` | People building the Android package | Android structure and build |
 
 > Layout convention: documents aimed at users and developers stay in the **repository root**
 > (hosting platforms look for the root `README`); everything that must be **handed out with a

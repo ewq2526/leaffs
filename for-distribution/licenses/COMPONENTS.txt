@@ -28,6 +28,9 @@ Kotlin               (via AGP 9)       Apache-2.0              (Android build on
 FFmpeg (Debian)      7.1.5             GPL-2.0-or-later        (system package: /usr/bin/ffmpeg, ffprobe)  https://ffmpeg.org/
 Noto Sans CJK        20240730          SIL OFL 1.1             (system font: NotoSansCJK-Regular.ttc)  https://github.com/notofonts/noto-cjk
 
+Linux kernel (Debian)  6.12.113-1       GPL-2.0                (system package: linux-image-6.12.113+deb13-amd64; text: LICENSE.linux-kernel-debian.txt)  https://kernel.org/
+linux-firmware (firmware-iwlwifi, -realtek, -atheros, -brcm80211, -misc-nonfree)  20250410-2  per-vendor binary terms, no source  (system packages: /lib/firmware; text: LICENSE.linux-firmware.txt)  https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
+Debian base system   trixie            per package (GPL/LGPL/MIT/BSD/...)  (system packages: /usr/share/doc/<pkg>/copyright)  https://www.debian.org/
 Redistribution notes / 再分发注意
 1. All components are used unmodified. / 上述组件均原样使用、未修改。
 2. aria2 and FFmpeg are distributed as standalone executables invoked as processes. When you
@@ -51,3 +54,11 @@ Redistribution notes / 再分发注意
    / Noto Sans CJK 使用 SIL Open Font License 1.1：允许随产品分发与嵌入。再分发系统镜像时须随附
      LICENSE.noto-sans-cjk-OFL-1.1.txt，不得单独售卖该字体，修改后的版本不得继续使用原名（须改名）。
      本项目原样使用、未做修改。
+6. The image ships the Debian base system, the Debian-signed kernel and several firmware packages.
+   Every Debian package carries its own licence text at /usr/share/doc/<package>/copyright, so those
+   notices travel inside the image. If you repackage the image and strip /usr/share/doc, restore
+   those files or ship them alongside. The firmware packages are redistributable as binaries
+   (no source available); each package's copyright lists the per-vendor terms.
+   / 镜像内含 Debian 基础系统、Debian 签名内核与若干固件包。每个 Debian 包自带
+     /usr/share/doc/<包名>/copyright，这些声明随镜像一起分发；若重新打包时剥掉了 /usr/share/doc，
+     须把它们补回或另行随附。固件包以二进制形式再分发（无对应源码），每家厂商的条款见包内 copyright。
