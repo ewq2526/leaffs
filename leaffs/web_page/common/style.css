@@ -118,7 +118,7 @@
   *::before,
   *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-  html { height: 100%; }
+  html { height: 100%; background-color: var(--bg); }
 
   body {
     font-family: var(--font);
@@ -197,13 +197,8 @@
 
   ::selection { background: var(--ring); color: #fff; }
 
-  /* 页面入场：整体一拍，不做逐元素错落（列表可能是几百项） */
-  .app { animation: pageIn 0.5s var(--ease) both; }
+  /* 入场动画已移除：WebKit 先画最终帧再从 opacity:0 起播，切页时会看到"渲染完了又闪一下"。 */
 
-  @keyframes pageIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
 
   @media (prefers-reduced-motion: reduce) {
     *,

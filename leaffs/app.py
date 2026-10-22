@@ -451,6 +451,16 @@ def _start_webview_window():
                     add_log(f'kiosk 整页缩放 {zoom}x', 'info')
                 except Exception as e:
                     add_log(f'整页缩放设置失败: {type(e).__name__}: {e}', 'warn')
+                # 换页时 WebKit 会先把视图铺成默认白色，等新文档首帧才上页面底色 ——
+                # 那就是切页闪一下的来源。把视图底色设成页面底色即可，与页面里的
+                # html/body 背景一致（#101014）。
+                try:
+                    from gi.repository import Gdk
+                    rgba = Gdk.RGBA()
+                    if rgba.parse('#101014'):
+                        view.set_background_color(rgba)
+                except Exception as e:
+                    add_log(f'视图底色设置失败: {type(e).__name__}: {e}', 'warn')
                 return False
 
             deadline = time.time() + 10
