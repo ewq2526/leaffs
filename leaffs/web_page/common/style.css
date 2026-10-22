@@ -393,6 +393,8 @@
   }
   .tabs a:hover { background: var(--hover-bg); color: var(--text); text-decoration: none; }
   .tabs a.active { background: var(--primary); color: var(--btn-fg, #fff); font-weight: 700; box-shadow: 0 8px 22px -12px var(--btn-glow); }
+  /* 「系统」是设备面板，不属于左侧那组页面：弹性左外边距把它顶到导航最右，与左边留白 */
+  .tabs a[href="/system"] { margin-left: auto; }
   
   @media (min-width: 768px) {
     .tabs { padding: 6px; margin-bottom: 14px; }

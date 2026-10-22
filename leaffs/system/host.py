@@ -1,0 +1,283 @@
+"""本机状态采集：只读 /proc、/sys 与 systemctl，不写任何东西。
+
+这个模块只回答问题"这台机器现在是什么样"，不做决策。权限、会话、是否允许操作
+都不在这里 —— 那是 handler 的事。
+"""
+
+import os
+import shutil
+import subprocess
+import threading
+import time
+
+# 这台机器上真正会跑的服务。用固定清单而不是通配，避免把 systemd 的临时单元
+# 也算进来：页面上要的是"这台机器承诺跑的东西有没有活着"。
+SERVICES = (
+    'leafos-kiosk',
+    'leafos-ssh',
+    'leafos-wifi',
+    'leafos-trust-cert',
+    'ksmbd',
+    'wsdd2',
+    'avahi-daemon',
+)
+
+# 伪文件系统不进磁盘列表
+_SKIP_FSTYPES = {
+    'proc', 'sysfs', 'devtmpfs', 'devpts', 'tmpfs', 'cgroup', 'cgroup2',
+    'overlay', 'squashfs', 'ramfs', 'debugfs', 'tracefs', 'securityfs',
+    'pstore', 'bpf', 'autofs', 'mqueue', 'hugetlbfs', 'fusectl', 'configfs',
+    'efivarfs', 'nsfs', 'rpc_pipefs',
+}
+
+
+def _read(path, default=''):
+    try:
+        with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def _unquote(s):
+    """fstab / mounts 里的空格与八进制转义"""
+    out = []
+    i = 0
+    while i < len(s):
+        if s[i] == '\\' and i + 3 < len(s) and s[i + 1:i + 2].isdigit():
+            try:
+                out.append(chr(int(s[i + 1:i + 4], 8)))
+                i += 4
+                continue
+            except ValueError:
+                pass
+        out.append(s[i])
+        i += 1
+    return ''.join(out)
+
+
+def _read_mounts():
+    mounts = []
+    for line in _read('/proc/mounts').splitlines():
+        parts = line.split()
+        if len(parts) < 4:
+            continue
+        dev, mnt, fstype, opts = parts[0], _unquote(parts[1]), parts[2], parts[3]
+        if fstype in _SKIP_FSTYPES:
+            continue
+        if not dev.startswith('/dev/'):
+            continue
+        mounts.append({'device': dev, 'mount': mnt, 'fstype': fstype, 'options': opts})
+    return mounts
+
+
+def _usage(path):
+    try:
+        st = os.statvfs(path)
+    except OSError:
+        return None
+    total = st.f_blocks * st.f_frsize
+    free = st.f_bavail * st.f_frsize
+    used = total - st.f_bfree * st.f_frsize
+    percent = round(used * 100.0 / total) if total else 0
+    return {'total': total, 'used': used, 'free': free, 'percent': percent}
+
+
+def disks():
+    """已挂载的块设备 + /media 下可挂载的目录。
+
+    /media 下的东西由 udev 规则挂载，属于"插上就出现在系统里"那一层；
+    两者合成一份列表，界面上不用区分来源。
+    """
+    out = []
+    for m in _read_mounts():
+        u = _usage(m['mount']) or {}
+        out.append({
+            'device': m['device'],
+            'mount': m['mount'],
+            'fstype': m['fstype'],
+            'readonly': 'ro' in m['options'].split(','),
+            'removable': m['mount'].startswith('/media/'),
+            'total': u.get('total', 0),
+            'used': u.get('used', 0),
+            'free': u.get('free', 0),
+            'percent': u.get('percent', 0),
+        })
+    out.sort(key=lambda d: (not d['removable'], d['mount']))
+    return out
+
+
+def _service_state(name):
+    """systemctl 一次只问一个单元：批量时某个单元不存在会拖垮整条命令。"""
+    exe = shutil.which('systemctl') or '/usr/bin/systemctl'
+    try:
+        r = subprocess.run([exe, 'is-active', name], capture_output=True,
+                           text=True, timeout=3)
+        state = (r.stdout or '').strip() or 'unknown'
+    except (OSError, subprocess.SubprocessError):
+        state = 'unknown'
+    return state
+
+
+def services():
+    return [{'name': n, 'state': _service_state(n)} for n in SERVICES]
+
+
+def summary():
+    up = _read('/proc/uptime', '0').split()
+    try:
+        uptime = int(float(up[0]))
+    except (IndexError, ValueError):
+        uptime = 0
+    load = _read('/proc/loadavg', '').split()
+    return {
+        'hostname': _read('/proc/sys/kernel/hostname'),
+        'kernel': os.uname().release,
+        'arch': os.uname().machine,
+        'cpu_count': os.cpu_count() or 0,
+        'uptime': uptime,
+        'boot_at': int(time.time()) - uptime,
+        'load1': load[0] if load else '',
+        'load5': load[1] if len(load) > 1 else '',
+        'load15': load[2] if len(load) > 2 else '',
+        'now': int(time.time()),
+    }
+
+
+# ---------- 利用率：/proc/stat 只有累计值，百分比必须两次采样相减 ----------
+
+_cpu_lock = threading.Lock()
+_last_cpu = {}
+
+
+def _cpu_rows():
+    """读 /proc/stat 的 cpu / cpuN 行，返回 [(名字, 空闲累计, 总累计)]"""
+    rows = []
+    for line in _read('/proc/stat').splitlines():
+        if not line.startswith('cpu'):
+            break
+        parts = line.split()
+        try:
+            vals = [int(x) for x in parts[1:]]
+        except ValueError:
+            continue
+        if len(vals) < 4:
+            continue
+        idle = vals[3] + (vals[4] if len(vals) > 4 else 0)   # idle + iowait
+        rows.append((parts[0], idle, sum(vals)))
+    return rows
+
+
+def cpu():
+    """总占用与每核占用（0~100）。第一次调用没有基线，返回 0。"""
+    result = {'total': 0.0, 'cores': []}
+    with _cpu_lock:
+        for name, idle, total in _cpu_rows():
+            prev = _last_cpu.get(name)
+            pct = 0.0
+            if prev and total > prev[1]:
+                d_total = total - prev[1]
+                d_idle = idle - prev[0]
+                pct = 100.0 * (d_total - d_idle) / d_total
+                pct = max(0.0, min(100.0, pct))
+            _last_cpu[name] = (idle, total)
+            if name == 'cpu':
+                result['total'] = round(pct, 1)
+            else:
+                result['cores'].append(round(pct, 1))
+    return result
+
+
+def memory():
+    info = {}
+    for line in _read('/proc/meminfo').splitlines():
+        key, _, rest = line.partition(':')
+        try:
+            info[key] = int(rest.split()[0]) * 1024
+        except (IndexError, ValueError):
+            continue
+    total = info.get('MemTotal', 0)
+    available = info.get('MemAvailable', 0)
+    used = max(0, total - available)
+    swap_total = info.get('SwapTotal', 0)
+    swap_free = info.get('SwapFree', 0)
+    return {
+        'total': total,
+        'used': used,
+        'percent': round(used * 100.0 / total) if total else 0,
+        'swap_total': swap_total,
+        'swap_used': max(0, swap_total - swap_free),
+    }
+
+
+def temperatures():
+    """温度：thermal_zone + hwmon。值为 0 的节点丢弃 —— acpitz 在不少机器上恒为 0，
+    那不是"0 度"，是没读数。"""
+    out = []
+    seen = set()
+    base = '/sys/class/thermal'
+    try:
+        zones = sorted(n for n in os.listdir(base) if n.startswith('thermal_zone'))
+    except OSError:
+        zones = []
+    for z in zones:
+        raw = _read(os.path.join(base, z, 'temp'))
+        label = _read(os.path.join(base, z, 'type')) or z
+        try:
+            celsius = int(raw) / 1000.0
+        except ValueError:
+            continue
+        if celsius <= 0:
+            continue
+        key = (label, round(celsius, 1))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({'label': label, 'celsius': round(celsius, 1)})
+    return out
+
+
+def power():
+    """电池与适配器。没有电池的台式机返回 present=False，页面自行隐藏。"""
+    base = '/sys/class/power_supply'
+    try:
+        names = sorted(os.listdir(base))
+    except OSError:
+        return {'battery': {'present': False}, 'ac_online': None}
+    battery = {'present': False}
+    ac_online = None
+    for name in names:
+        d = os.path.join(base, name)
+        cap = _read(os.path.join(d, 'capacity'))
+        if name.startswith('BAT') and cap.isdigit() and not battery['present']:
+            def _num(field):
+                v = _read(os.path.join(d, field))
+                return int(v) if v.lstrip('-').isdigit() else None
+            battery = {
+                'present': True,
+                'name': name,
+                'capacity': int(cap),
+                'status': _read(os.path.join(d, 'status')),
+                'energy_now': _num('energy_now'),
+                'energy_full': _num('energy_full'),
+                'power_now': _num('power_now'),
+            }
+        elif name.startswith(('AC', 'ADP')):
+            online = _read(os.path.join(d, 'online'))
+            if online.isdigit():
+                ac_online = online == '1'
+    return {'battery': battery, 'ac_online': ac_online}
+
+
+def collect():
+    return {
+        'summary': summary(),
+        'metrics': {
+            'cpu': cpu(),
+            'memory': memory(),
+            'temperatures': temperatures(),
+            'power': power(),
+        },
+        'disks': disks(),
+        'services': services(),
+    }

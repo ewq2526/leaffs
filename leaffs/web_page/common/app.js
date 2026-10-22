@@ -375,3 +375,17 @@ function buildModal(titleText, widthPx, onClose) {
     overlay.onclick = function (e) { if (e.target === overlay) destroy(); };
     return { overlay: overlay, body: body, destroy: destroy };
 }
+
+// 系统页是设备面板，只有 super_admin（本机令牌会话）能看。服务端同样判权限
+// （/system 与 /api/system 都要求 super_admin），这里只负责不把入口露出来。
+(function () {
+    var link = document.querySelector('.tabs a[href="/system"]');
+    if (!link) return;                       // nav-admin-gate
+    fetch('/api/account/me', { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+            var role = d && d.role;
+            if (role !== 'super_admin') link.style.display = 'none';
+        })
+        .catch(function () { link.style.display = 'none'; });
+})();

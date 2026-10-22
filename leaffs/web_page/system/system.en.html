@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>System</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png?v=3">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/favicon.png?v=3">
+<link rel="apple-touch-icon" href="/static/favicon.png?v=3">
+<link rel="stylesheet" href="/static/style.css">
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
+<style>
+/* 系统页专用的几个小件：曲线、核格。只在本页生效，不往 style.css 里塞一次性样式。 */
+.sys-chart { width: 100%; height: 34px; display: block; }
+.sys-chart path.line { fill: none; stroke: var(--primary); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.sys-chart path.area { fill: var(--primary); opacity: 0.14; stroke: none; }
+.sys-chart path.line.warn { stroke: var(--warn); }
+.sys-chart path.area.warn { fill: var(--warn); }
+.sys-chart path.line.danger { stroke: var(--danger); }
+.sys-chart path.area.danger { fill: var(--danger); }
+.sys-cores { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 6px; }
+.sys-core { font-size: 10.5px; color: var(--text-light); }
+.sys-core .val { float: right; }
+.sys-bar { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 3px; }
+.sys-bar > i { display: block; height: 100%; background: var(--primary); border-radius: 3px; transition: width 0.4s var(--ease); }
+.sys-bar > i.warn { background: var(--warn); }
+.sys-bar > i.danger { background: var(--danger); }
+.sys-head { display: flex; align-items: baseline; gap: 8px; }
+.sys-head .big { font-size: 20px; font-weight: 600; color: var(--text); }
+.sys-head .unit { font-size: 11px; color: var(--text-light); }
+.sys-head .spacer { flex: 1; }
+</style>
+</head>
+<body>
+<div class="app">
+    <header class="top">
+        <span class="top-logo"><img src="/static/logo.png" alt=""></span>
+        <div class="top-main">
+            <h1 class="top-title">System</h1>
+        </div>
+        <div class="top-side"><!--THEME_TOGGLE--></div>
+    </header>
+
+    <nav class="tabs">
+        <a href="/browse/">Browse</a>
+        <a href="/gallery">Gallery</a>
+        <a href="/url-download" id="navDownloader">Downloader</a>
+        <a href="/share">Share</a>
+        <a href="/admin" id="navAdmin">Admin</a>
+        <a href="/me">Account</a>
+        <a href="/system" class="active">System</a>
+    </nav>
+
+    <div class="acc-grid">
+        <div class="acc-col">
+            <section class="panel">
+                <h3>This machine</h3>
+                <div class="info-row"><span class="info-label">Hostname</span><span class="info-value" id="rowHost">-</span></div>
+                <div class="info-row"><span class="info-label">Kernel</span><span class="info-value" id="rowKernel">-</span></div>
+                <div class="info-row"><span class="info-label">Arch / CPU</span><span class="info-value" id="rowArch">-</span></div>
+                <div class="info-row"><span class="info-label">Uptime</span><span class="info-value" id="rowUptime">-</span></div>
+                <div class="info-row"><span class="info-label">Booted at</span><span class="info-value" id="rowBoot">-</span></div>
+                <div class="info-row"><span class="info-label">Load (1 / 5 / 15 min)</span><span class="info-value" id="rowLoad">-</span></div>
+            </section>
+
+            <section class="panel">
+                <h3>CPU</h3>
+                <div class="sys-head">
+                    <span class="big" id="cpuNow">-</span><span class="unit">%</span>
+                    <span class="spacer"></span>
+                    <span class="unit" id="cpuPeak">Peak -</span>
+                </div>
+                <svg class="sys-chart" id="cpuChart" viewBox="0 0 100 30" preserveAspectRatio="none"></svg>
+                <div class="sys-cores" id="cpuCores" style="margin-top:8px"></div>
+            </section>
+
+            <section class="panel">
+                <h3>Memory</h3>
+                <div class="sys-head">
+                    <span class="big" id="memNow">-</span><span class="unit" id="memTotal">/ -</span>
+                    <span class="spacer"></span>
+                    <span class="unit" id="memPct">-</span>
+                </div>
+                <svg class="sys-chart" id="memChart" viewBox="0 0 100 30" preserveAspectRatio="none"></svg>
+                <div class="info-row" style="margin-top:6px"><span class="info-label">Swap</span><span class="info-value" id="memSwap">-</span></div>
+            </section>
+
+            <section class="panel">
+                <h3>Temperature</h3>
+                <div class="sys-head">
+                    <span class="big" id="tempNow">-</span><span class="unit">°C</span>
+                    <span class="spacer"></span>
+                    <span class="unit" id="tempPeak">Peak -</span>
+                </div>
+                <svg class="sys-chart" id="tempChart" viewBox="0 0 100 30" preserveAspectRatio="none"></svg>
+                <div id="tempList" style="margin-top:6px"></div>
+            </section>
+
+            <section class="panel">
+                <h3>Battery</h3>
+                <div class="sys-head">
+                    <span class="big" id="batNow">-</span><span class="unit">%</span>
+                    <span class="spacer"></span>
+                    <span class="unit" id="batStatus">-</span>
+                </div>
+                <div class="sys-bar" style="height:8px"><i id="batBar" style="width:0"></i></div>
+                <div class="info-row" style="margin-top:8px"><span class="info-label">Power</span><span class="info-value" id="batAc">-</span></div>
+                <div class="info-row"><span class="info-label">Time left</span><span class="info-value" id="batEta">-</span></div>
+            </section>
+        </div>
+
+        <div class="acc-col">
+            <section class="panel">
+                <h3>Disks</h3>
+                <div id="diskList"><div class="srow"><span class="srow-path">Loading…</span></div></div>
+            </section>
+
+            <section class="panel">
+                <h3>Services</h3>
+                <div id="svcList"><div class="srow"><span class="srow-path">Loading…</span></div></div>
+            </section>
+        </div>
+    </div>
+</div>
+
+<script src="/static/app.js"></script>
+<script>
+// 页面自己保存最近两分钟的采样（每 2 秒一个点，共 60 点）：曲线只画趋势，
+// 不把历史放到服务端 —— 服务端一旦存历史，重启就丢，页面还要处理缺口。
+var HISTORY = 60;
+var hist = { cpu: [], mem: [], temp: [] };
+
+function fmtBytes(n) {
+    if (!n) return '0';
+    var u = ['B', 'KB', 'MB', 'GB', 'TB'], i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return (n >= 100 ? n.toFixed(0) : n.toFixed(1)) + ' ' + u[i];
+}
+function fmtUptime(s) {
+    var d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+    if (d) return d + 'd ' + h + 'h';
+    if (h) return h + 'h ' + m + 'm';
+    return m + 'm';
+}
+function fmtTime(ts) {
+    var d = new Date(ts * 1000), p = function (x) { return (x < 10 ? '0' : '') + x; };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+function level(v, warn, danger) { return v >= danger ? 'danger' : (v >= warn ? 'warn' : ''); }
+
+// 折线：0~100 固定量程，避免曲线在低负载时把噪声放大成"满格"
+function drawChart(el, data, cls) {
+    var w = 100, h = 30, n = HISTORY;
+    if (!data.length) { el.innerHTML = ''; return; }
+    var step = w / (n - 1);
+    var pts = [];
+    for (var i = 0; i < data.length; i++) {
+        var x = i * step;
+        var y = h - Math.max(0, Math.min(100, data[i])) / 100 * h;
+        pts.push(x.toFixed(2) + ' ' + y.toFixed(2));
+    }
+    if (pts.length === 1) pts.push(pts[0]);
+    var line = 'M' + pts.join(' L');
+    var area = line + ' L' + ((data.length - 1) * step).toFixed(2) + ' ' + h + ' L0 ' + h + ' Z';
+    el.innerHTML = '<path class="area ' + cls + '" d="' + area + '"></path>' +
+                   '<path class="line ' + cls + '" d="' + line + '"></path>';
+}
+
+function setBar(el, pct) {
+    el.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    el.className = level(pct, 75, 90);
+}
+
+function renderCpu(cpu) {
+    var total = cpu.total || 0;
+    document.getElementById('cpuNow').textContent = total.toFixed(1);
+    hist.cpu.push(total);
+    if (hist.cpu.length > HISTORY) hist.cpu.shift();
+    var peak = Math.max.apply(null, hist.cpu);
+    document.getElementById('cpuPeak').textContent = 'Peak ' + peak.toFixed(0) + '%';
+    drawChart(document.getElementById('cpuChart'), hist.cpu, level(total, 75, 90));
+
+    var box = document.getElementById('cpuCores');
+    box.innerHTML = '';
+    (cpu.cores || []).forEach(function (v, i) {
+        var d = document.createElement('div');
+        d.className = 'sys-core';
+        d.innerHTML = 'CPU' + i + '<span class="val">' + v.toFixed(0) + '%</span>' +
+                      '<div class="sys-bar"><i class="' + level(v, 75, 90) + '" style="width:' + v + '%"></i></div>';
+        box.appendChild(d);
+    });
+}
+
+function renderMemory(m) {
+    document.getElementById('memNow').textContent = fmtBytes(m.used);
+    document.getElementById('memTotal').textContent = '/ ' + fmtBytes(m.total);
+    document.getElementById('memPct').textContent = m.percent + '%';
+    document.getElementById('memSwap').textContent = m.swap_total
+        ? fmtBytes(m.swap_used) + ' / ' + fmtBytes(m.swap_total)
+        : 'not configured';
+    hist.mem.push(m.percent || 0);
+    if (hist.mem.length > HISTORY) hist.mem.shift();
+    drawChart(document.getElementById('memChart'), hist.mem, level(m.percent, 80, 92));
+}
+
+function renderTemps(list) {
+    var box = document.getElementById('tempList');
+    box.innerHTML = '';
+    var max = 0;
+    (list || []).forEach(function (t) {
+        max = Math.max(max, t.celsius);
+        var row = document.createElement('div');
+        row.className = 'info-row';
+        row.innerHTML = '<span class="info-label">' + esc(t.label) + '</span><span class="info-value">' +
+                        t.celsius.toFixed(1) + ' °C</span>';
+        box.appendChild(row);
+    });
+    document.getElementById('tempNow').textContent = max ? max.toFixed(1) : '-';
+    hist.temp.push(max ? Math.min(100, max) : 0);      // 0~100 映射到 0~100°C，够用
+    if (hist.temp.length > HISTORY) hist.temp.shift();
+    drawChart(document.getElementById('tempChart'), hist.temp, level(max, 75, 90));
+    var peak = Math.max.apply(null, hist.temp);
+    document.getElementById('tempPeak').textContent = peak ? 'Peak ' + peak.toFixed(0) + '°C' : 'Peak -';
+    if (!list || !list.length) box.innerHTML = '<div class="info-row"><span class="info-label">No readable temperature sensor</span><span class="info-value">-</span></div>';
+}
+
+function renderPower(p) {
+    var b = (p && p.battery) || {};
+    var panel = document.getElementById('batNow').closest('section');
+    if (!b.present) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
+    document.getElementById('batNow').textContent = b.capacity;
+    setBar(document.getElementById('batBar'), b.capacity);
+    var st = { Charging: 'Charging', Discharging: 'Discharging', Full: 'Full', 'Not charging': 'Not charging' }[b.status] || b.status || '-';
+    document.getElementById('batStatus').textContent = st;
+    document.getElementById('batAc').textContent = p.ac_online === null ? '-' : (p.ac_online ? 'connected' : 'disconnected');
+    var eta = '-';
+    if (b.power_now && b.energy_now && b.status === 'Discharging') {
+        eta = fmtUptime(Math.round(b.energy_now / b.power_now * 3600)) + ' remaining';
+    } else if (b.status === 'Charging' && b.capacity >= 100) {
+        eta = 'full';
+    }
+    document.getElementById('batEta').textContent = eta;
+}
+
+var SVC_CLASS = { active: 'tag tag-local', failed: 'tag tag-gone', inactive: 'tag', activating: 'tag tag-coded' };
+function renderServices(list) {
+    var box = document.getElementById('svcList');
+    box.innerHTML = '';
+    (list || []).forEach(function (s) {
+        var row = document.createElement('div');
+        row.className = 'srow';
+        row.innerHTML = '<span class="srow-name">' + esc(s.name) + '</span>' +
+                        '<span class="' + (SVC_CLASS[s.state] || 'tag tag-coded') + '">' + esc(s.state) + '</span>';
+        box.appendChild(row);
+    });
+    if (!list || !list.length) box.innerHTML = '<div class="srow"><span class="srow-path">No services to show</span></div>';
+}
+
+function renderDisks(list) {
+    var box = document.getElementById('diskList');
+    box.innerHTML = '';
+    (list || []).forEach(function (d) {
+        var row = document.createElement('div');
+        row.className = 'srow';
+        var txt = d.total
+            ? fmtBytes(d.used) + ' / ' + fmtBytes(d.total) + '（' + d.percent + '%）'
+            : 'size unavailable';
+        row.innerHTML = '<span class="srow-name">' + esc(d.mount) + '</span>' +
+                        '<span class="srow-path">' + esc(d.device + ' · ' + d.fstype + (d.readonly ? ' · read-only' : '')) + '</span>' +
+                        '<span class="srow-path" style="flex:0 0 auto">' + esc(txt) + '</span>';
+        box.appendChild(row);
+    });
+    if (!list || !list.length) box.innerHTML = '<div class="srow"><span class="srow-path">No mounted disks</span></div>';
+}
+
+function loadSystem() {
+    fetch('/api/system', { credentials: 'same-origin' }).then(function (r) {
+        if (!r.ok) throw new Error('bad');
+        return r.json();
+    }).then(function (d) {
+        var s = d.summary || {}, m = d.metrics || {};
+        document.getElementById('rowHost').textContent = s.hostname || '-';
+        document.getElementById('rowKernel').textContent = s.kernel || '-';
+        document.getElementById('rowArch').textContent = (s.arch || '-') + ' / ' + (s.cpu_count || 0) + ' cores';
+        document.getElementById('rowUptime').textContent = s.uptime ? fmtUptime(s.uptime) : '-';
+        document.getElementById('rowBoot').textContent = s.boot_at ? fmtTime(s.boot_at) : '-';
+        document.getElementById('rowLoad').textContent = [s.load1, s.load5, s.load15].filter(Boolean).join(' / ') || '-';
+        renderCpu(m.cpu || {});
+        renderMemory(m.memory || {});
+        renderTemps(m.temperatures || []);
+        renderPower(m.power || {});
+        renderServices(d.services);
+        renderDisks(d.disks);
+    }).catch(function () {
+        document.getElementById('svcList').innerHTML = '<div class="srow"><span class="srow-path c-danger-strong">Read failed</span></div>';
+        document.getElementById('diskList').innerHTML = '<div class="srow"><span class="srow-path c-danger-strong">Read failed</span></div>';
+    });
+}
+
+loadSystem();
+setInterval(function () { if (!document.hidden) loadSystem(); }, 2000);
+</script>
+</body>
+</html>

@@ -30,6 +30,8 @@ import leaffs.server.push as _push
 import leaffs.server.tls as _tls
 import leaffs.share.mappings as _mapping
 import leaffs.share.access as _sacc
+import leaffs.system.api as _sys_api
+import leaffs.system.host as _sys_host
 from leaffs.paths import BASE_DIR
 import leaffs.utils.core as _ut
 import leaffs.utils.log as _ut_log
@@ -118,6 +120,13 @@ _ADMIN_ONLY_POST = frozenset((
 _ADMIN_ONLY_GET = frozenset((
     '/api/users', '/api/users/archive', '/api/config', '/api/config/advanced', '/api/config/deep',
     '/api/logs', '/api/connections',
+))
+
+# ---------- 设备面板：只给 super_admin ----------
+# 系统页读的是这台机器本身（内核、磁盘、服务），普通 admin 管账号与分享，不碰设备配置。
+# 判据放在分派层，与 _ADMIN_ONLY_GET 同一处，处理函数里不再重复判。
+_SUPER_ADMIN_ONLY_GET = frozenset((
+    '/api/system',
 ))
 
 # ---------- 统一拒绝口径（2026-09-15，用户拍板）----------
@@ -1144,6 +1153,10 @@ class HTTPHandler(BaseHTTPRequestHandler):
         if path in _ADMIN_ONLY_GET and not self._require_roles('admin', 'super_admin'):
             self.send_json({'error': 'Forbidden'}, 403)
             return
+        # 设备面板只给 super_admin（与上面同一道分派层判据，处理函数里不重复判）
+        if path in _SUPER_ADMIN_ONLY_GET and not self._require_roles('super_admin'):
+            self.send_json({'error': 'Forbidden'}, 403)
+            return
         # 声明式路由表 GET_ROUTES（见文件底部）：有序逐项匹配，命中即交给对应处理器
         for _spec, _fn in GET_ROUTES:
             if _match_route(_spec, path):
@@ -2050,6 +2063,28 @@ def _g_me(h, path, role):
                    BASE_DIR, _ac.get_session, _ac.get_session_username)
 
 
+def _g_system(h, path, role):
+    """系统页：本机概况、磁盘、服务。
+
+    只给 super_admin —— 它是这台机器自己的面板，不是远程管理页。super_admin 是
+    账号属性而不是"本机会话"的同义词：该账号设过口令后远程登录同样是 super_admin，
+    所以远程配置可用。普通 admin 管账号与分享，不碰设备配置。
+    """
+    if not role:
+        h.redirect('/login')
+        return
+    if not h._require_roles('super_admin'):
+        h.send_error(403)
+        return
+    _wm.serve_file(h, os.path.join('web_page', 'system', 'system.html'), 'text/html; charset=utf-8',
+                   BASE_DIR, _ac.get_session, _ac.get_session_username)
+
+
+def _g_api_system(h, path, role):
+    # 权限由分派层的 _SUPER_ADMIN_ONLY_GET 统一判，这里只负责输出
+    _sys_api.send_system(h, _sys_host.collect)
+
+
 def _g_browse_page(h, path, role):
     h._route_page(path, role)
 
@@ -2471,6 +2506,7 @@ GET_ROUTES = (
     (('=', '/admin/users'), _g_admin_users),
     (('in', ('/admin/advanced', '/admin/deep', '/log')), _g_admin_pages),
     (('=', '/me'), _g_me),
+    (('=', '/system'), _g_system),
     (('=', '/share'), _g_share_page),
     (('prefix', '/p/'), _g_p_share),
     (('or', (('=', '/'), ('prefix', '/browse/'), ('=', '/gallery'))), _g_browse_page),
@@ -2480,6 +2516,7 @@ GET_ROUTES = (
     (('=', '/api/admin/auto-login'), _g_api_auto_login),
     (('=', '/api/auth/check'), _g_auth_check),
     (('=', '/api/account/me'), _g_account_me),
+    (('=', '/api/system'), _g_api_system),
     (('=', '/api/auth/logout'), _g_auth_logout_405),
     (('=', '/api/files'), _g_files),
     (('=', '/api/raw'), _g_raw),
