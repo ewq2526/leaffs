@@ -9,3 +9,4 @@ systemd-networkd.service           enabled
 camphor-netdiag.service            disabled
 camphor-filemgr.service            disabled
 camphor-zram-swap.service          enabled
+camphor-lowmem-notice.service       enabled

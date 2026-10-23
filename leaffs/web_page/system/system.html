@@ -189,19 +189,21 @@ function level(v, warn, danger) { return v >= danger ? 'danger' : (v >= warn ? '
 
 // 折线：0~100 固定量程，避免曲线在低负载时把噪声放大成"满格"
 function drawChart(el, data, cls) {
-    var w = 100, h = 30, n = HISTORY;
+    var w = 100, h = 30, pad = 3, n = HISTORY;
     if (!data.length) { el.innerHTML = ''; return; }
     var step = w / (n - 1);
     var pts = [];
     for (var i = 0; i < data.length; i++) {
         var x = i * step;
-        var y = h - Math.max(0, Math.min(100, data[i])) / 100 * h;
+        var v = Math.max(0, Math.min(100, data[i])) / 100;
+        var y = (h - pad) - v * (h - 2 * pad);
         pts.push(x.toFixed(2) + ' ' + y.toFixed(2));
     }
     if (pts.length === 1) pts.push(pts[0]);
     var line = 'M' + pts.join(' L');
-    var area = line + ' L' + ((data.length - 1) * step).toFixed(2) + ' ' + h + ' L0 ' + h + ' Z';
-    '<path class="area ' + cls + '" d="' + area + '"></path>' +
+    var area = line + ' L' + ((data.length - 1) * step).toFixed(2) + ' ' + (h - pad) + ' L0 ' + (h - pad) + ' Z';
+    el.innerHTML = '<line class="grid" x1="0" y1="' + (h - pad) + '" x2="' + w + '" y2="' + (h - pad) + '"></line>' +
+                   '<path class="area ' + cls + '" d="' + area + '"></path>' +
                    '<path class="line ' + cls + '" d="' + line + '"></path>';
 }
 
@@ -325,7 +327,7 @@ function renderPower(p) {
     document.getElementById('batNow').textContent = b.capacity;
     setBar(document.getElementById('batBar'), b.capacity);
 
-    // 方向以"适配器是否接通"为准，不信 BAT0 的 status：这台机器的 EC 拔掉电源后仍报
+    // 方向以"适配器是否接通"为准，不信 BAT0 的 status：部分机器的 EC 拔掉电源后仍报
     // Charging、充满插着时又报 Not charging，只看 status 会把充放电说反。
     var known = (p.ac_online === true || p.ac_online === false);
     var st;
