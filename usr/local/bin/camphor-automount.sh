@@ -26,7 +26,7 @@ typearg=""; first=noatime
 case "$fst" in
   # ntfs3 连只读都拒绝"脏卷"（Windows 没干净关机、或开着快速启动），加 force；
   # 只读挂载时 force 不会写卷，也不用退回用户态的 ntfs-3g（FUSE 吞吐差一个量级）。
-  ntfs|ntfs3) typearg="-t ntfs3"; first=ro,noatime ;;
+  ntfs|ntfs3) typearg="-t ntfs3"; first=ro,noatime,force ;;
   exfat) typearg="-t exfat" ;;
 esac
 case "$act" in
