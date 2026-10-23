@@ -327,7 +327,7 @@ function renderPower(p) {
     document.getElementById('batNow').textContent = b.capacity;
     setBar(document.getElementById('batBar'), b.capacity);
 
-    // 方向以"适配器是否接通"为准，不信 BAT0 的 status：部分机器的 EC 拔掉电源后仍报
+    // 方向以"适配器是否接通"为准，不信 BAT0 的 status：这台机器的 EC 拔掉电源后仍报
     // Charging、充满插着时又报 Not charging，只看 status 会把充放电说反。
     var known = (p.ac_online === true || p.ac_online === false);
     var st;
