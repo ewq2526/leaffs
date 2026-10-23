@@ -7,4 +7,9 @@
 *.conf  text eol=lf
 *.network text eol=lf
 *.rules text eol=lf
-etc/** text eol=lf`nusr/** text eol=lf`nboot/** text eol=lf
+*.py    text eol=lf
+*.cnf   text eol=lf
+*.ini   text eol=lf
+etc/** text eol=lf
+usr/** text eol=lf
+boot/** text eol=lf
