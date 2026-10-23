@@ -1,11 +1,11 @@
 [Unit]
-Description=WSD/LLMNR discovery for LeafOS (ksmbd based)
+Description=WSD/LLMNR discovery for Camphor (ksmbd based)
 After=network-online.target ksmbd.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/sbin/wsdd2 -N LEAFOS -H LeafOS
+ExecStart=/usr/sbin/wsdd2 -N CAMPHOR -H Camphor
 Restart=on-failure
 RestartSec=3
 DynamicUser=yes

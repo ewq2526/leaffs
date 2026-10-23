@@ -1,5 +1,5 @@
 [Unit]
-Description=LeafOS WiFi connection (wpa_supplicant on wlan0)
+Description=Camphor WiFi connection (wpa_supplicant on wlan0)
 After=systemd-networkd.service
 Wants=systemd-networkd.service
 

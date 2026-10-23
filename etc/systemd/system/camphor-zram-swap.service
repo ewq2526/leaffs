@@ -6,7 +6,7 @@ Before=swap.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/local/bin/leafos-zram-swap.sh
+ExecStart=/usr/local/bin/camphor-zram-swap.sh
 
 [Install]
 WantedBy=swap.target

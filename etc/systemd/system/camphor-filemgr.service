@@ -1,15 +1,15 @@
 [Unit]
-Description=LeafOS file management service
+Description=Camphor file management service
 After=network.target local-fs.target
 
 [Service]
 Type=simple
 User=leaf
 Group=leaf
-ExecStart=/usr/bin/python3 /opt/leafos/filemgr/main.py
+ExecStart=/usr/bin/python3 /opt/camphor/filemgr/main.py
 Restart=always
 RestartSec=2
-StateDirectory=leafos
+StateDirectory=camphor
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only

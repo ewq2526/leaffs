@@ -7,7 +7,7 @@
     add_network / set_network / remove_network / select_network / save_config   写
 
 `save_config` 负责持久化 —— 配置文件里本来就有 `update_config=1`，所以不用碰文件也不用管转义。
-这台机器没有 NetworkManager，`leafos-wifi` 单元用固定配置文件拉起 wpa_supplicant，
+这台机器没有 NetworkManager，`camphor-wifi` 单元用固定配置文件拉起 wpa_supplicant，
 控制套接字在 `/run/wpa_supplicant/`，只有 root 能连（服务本身以 root 运行）。
 """
 

@@ -3,7 +3,7 @@
 # 证书路径从服务自己的配置里读，不写死文件名——每套系统自己生成的证书都适用。
 set -u
 CFG=/srv/leaffs/config/server_config.json
-DST=/usr/local/share/ca-certificates/leafos-local.crt
+DST=/usr/local/share/ca-certificates/camphor-local.crt
 
 if [ -f "$CFG" ]; then
     cert=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("tls_cert") or "")' "$CFG" 2>/dev/null || true)

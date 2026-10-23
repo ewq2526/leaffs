@@ -1,10 +1,10 @@
 [Unit]
 Description=Trust the local leaffs TLS certificate
-Before=leafos-kiosk.service
+Before=camphor-kiosk.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/leafos-trust-cert.sh
+ExecStart=/usr/local/bin/camphor-trust-cert.sh
 RemainAfterExit=yes
 
 [Install]

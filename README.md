@@ -1,4 +1,4 @@
-# LeafOS
+# Camphor
 
 一个精简的 Linux 系统。内核与用户态取自 Debian 13，裁到只留跑一个全屏文件服务所需的部分；自带 `leaffs`（文件浏览、共享、下载、设备面板），也对外提供 Web、SMB、SSH。
 
@@ -10,7 +10,7 @@
 2. 仓库里的 `etc/`、`usr/`、`boot/` 按同样路径拷到根与 ESP（`boot/grub.cfg` → `EFI/BOOT/grub.cfg`）。
 3. 装 `fonts-noto-cjk`、`ffmpeg`、`firmware-{iwlwifi,realtek,atheros,brcm80211,misc-nonfree}`。
 4. 内核模块按需补（存储、输入、i915、rtw88、zram、netfilter 等）；系统盘走 USB 时，`uas` 必须进 initramfs。
-5. 启用 `etc/systemd/system/leafos-units.list` 里列的单元。
+5. 启用 `etc/systemd/system/camphor-units.list` 里列的单元。
 
 ## 使用
 

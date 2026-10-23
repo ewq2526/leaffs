@@ -14,10 +14,10 @@ import time
 # 这台机器上真正会跑的服务。用固定清单而不是通配，避免把 systemd 的临时单元
 # 也算进来：页面上要的是"这台机器承诺跑的东西有没有活着"。
 SERVICES = (
-    'leafos-kiosk',
-    'leafos-ssh',
-    'leafos-wifi',
-    'leafos-trust-cert',
+    'camphor-kiosk',
+    'camphor-ssh',
+    'camphor-wifi',
+    'camphor-trust-cert',
     'ksmbd',
     'wsdd2',
     'avahi-daemon',

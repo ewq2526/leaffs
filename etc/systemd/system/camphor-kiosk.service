@@ -1,5 +1,5 @@
 [Unit]
-Description=LeafOS kiosk (leaffs desktop form: window + services in one process)
+Description=Camphor kiosk (leaffs desktop form: window + services in one process)
 After=network.target
 Conflicts=getty@tty1.service
 
@@ -13,7 +13,7 @@ WorkingDirectory=/opt/leaffs
 Environment=LEAFFS_KIOSK=1
 Environment=LEAFFS_PROJECT_ROOT=/srv/leaffs
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/xinit /usr/local/bin/leafos-kiosk-session.sh -- :0 -nolisten tcp vt1
+ExecStart=/usr/bin/xinit /usr/local/bin/camphor-kiosk-session.sh -- :0 -nolisten tcp vt1
 Restart=always
 RestartSec=3
 
