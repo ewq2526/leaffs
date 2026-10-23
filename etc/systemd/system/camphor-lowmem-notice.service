@@ -1,0 +1,10 @@
+[Unit]
+Description=Camphor 开机内存检查（不够就在屏幕上说明界面为何没起来）
+After=multi-user.target
+# 界面被 ConditionMemory 跳过时屏幕上什么都没有，这条负责把原因写出来
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/camphor-lowmem-notice.sh
+
+[Install]
+WantedBy=multi-user.target
