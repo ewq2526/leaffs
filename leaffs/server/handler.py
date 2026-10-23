@@ -641,6 +641,21 @@ class HTTPHandler(BaseHTTPRequestHandler):
         if _strip_host_port(self.headers.get('Host', '')) not in _LOCAL_HOST_NAMES:
             return False  # 防 rebinding/转发携带令牌重放
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        # 登录后落到哪：默认 /browse；允许带 next= 指定（kiosk 用它直接打开系统页）。
+        # 只接受站内绝对路径：必须以 / 开头且不能是 //（协议相对地址会被当成外站）。
+        dest = (q.get('next', [''])[0] or '').strip()
+        if not (dest.startswith('/') and not dest.startswith('//')):
+            dest = '/browse/'
+        # 已经有 super_admin 会话就不要再开一个：窗口每次启动都会带着令牌来，
+        # 每次都新建会话的话，账号的"登录设备"列表会一天多出一条，全都指向本机。
+        # 这里直接放行并保留令牌（不消耗），供下次真正需要时再用。
+        has_role, _sid = _ac.get_session(self.headers.get('Cookie', ''), ip)
+        if has_role == 'super_admin':
+            self.send_response(302)
+            self.send_header('Location', dest)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return True
         tok = q.get('leaf', [''])[0]
         if not _lt.try_consume(tok):
             return False
@@ -651,7 +666,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
         sid = _ac.create_session(su, 'super_admin', client_ip=ip, local_token=True)
         add_log(f'本机一次性令牌登录成功（super_admin: {su}）', 'ok')
         self.send_response(302)
-        self.send_header('Location', '/browse/')
+        self.send_header('Location', dest)
         c = f'{_ac.AUTH_COOKIE}={sid}; Path=/; Max-Age={_ac.SESSION_EXPIRY_DAYS * 86400}; HttpOnly; SameSite=Lax'
         if self._is_secure(): c += '; Secure'
         self.send_header('Set-Cookie', c)
@@ -2023,7 +2038,13 @@ def _match_route(spec, path):
 
 def _g_login(h, path, role):
     if role:
-        h.redirect('/browse/')
+        # 已登录还来看登录页：按 next= 送走（kiosk 靠它开机落在系统页），
+        # 没带就照旧去浏览页。只接受站内绝对路径。
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(h.path).query)
+        dest = (q.get('next', [''])[0] or '').strip()
+        if not (dest.startswith('/') and not dest.startswith('//')):
+            dest = '/browse/'
+        h.redirect(dest)
         return
     # D4：本机访问不再无条件自动登录；带有效一次性令牌（?leaf=）才建会话
     if h._local_token_login():

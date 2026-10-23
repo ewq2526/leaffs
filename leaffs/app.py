@@ -384,6 +384,10 @@ def _start_webview_window():
         _ltok = _lt.get_current() or _lt.read_file()
         if _ltok:
             url += '?leaf=' + _ltok
+        # kiosk 是设备面板形态：开机直接落在「系统」页，而不是文件浏览页。
+        # 登录后跳哪由服务端的 next= 参数决定（只接受站内路径）。
+        if os.environ.get('LEAFFS_KIOSK') == '1':
+            url += ('&' if _ltok else '?') + 'next=%2Fsystem'
         return url
     if not sys.platform.startswith('win'):
         ver = _webkit_gtk_version()
@@ -428,7 +432,7 @@ def _start_webview_window():
         def _apply_kiosk_zoom():
             """kiosk 全屏时把整页缩放到 125%（`LEAFFS_ZOOM` 可覆盖）。
 
-            1920×1080 的面板因为 EDID 不给物理尺寸，X 退回 96 DPI，整页按 100% 渲染偏小；
+            高 DPI 面板常因 EDID 不给物理尺寸被 X 当成 96 DPI，整页按 100% 渲染偏小；
             同类屏幕在 Windows 上默认就是 125%。改 WebKit 的 zoom level 而不是字号：
             字号只放大文字，间距与控件不跟着变，布局会挤在一起。
 
@@ -539,7 +543,14 @@ def _start_webview_window():
         # 缩放自己起一个线程，不依赖它。
         if _kiosk:
             threading.Thread(target=_apply_kiosk_zoom, daemon=True).start()
-        webview.start(_after_start, private_mode=not _kiosk)
+        # 会话 Cookie 要落盘：kiosk 每次开机都会重新拉起窗口，若 Cookie 不持久，
+        # 每次都会用一次性令牌新建一个会话，账号的"登录设备"列表就会一天多一条。
+        _store = os.path.join(PROJECT_DIR, '.cache', 'webview')
+        try:
+            os.makedirs(_store, exist_ok=True)
+        except OSError:
+            pass
+        webview.start(_after_start, private_mode=not _kiosk, storage_path=_store)
         return True
     except Exception as e:
         print(f'  窗口启动失败 ({e})，使用浏览器打开')
