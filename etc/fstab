@@ -1,5 +1,2 @@
-# 按卷标找根，不写 UUID/PARTUUID —— 同一份镜像写到哪块盘、哪个分区都能起来，
-# 换机器不用改这个文件。安装时把根分区命名成 camphor 即可（e2label /dev/sdX / camphor）。
-#
 # <file system> <mount point> <type> <options> <dump> <pass>
-LABEL=camphor / ext4 defaults,noatime,errors=remount-ro 0 1
+UUID=17bdfc92-aa78-445a-8a21-dea3651f30ab / ext4 defaults,noatime,errors=remount-ro 0 1
