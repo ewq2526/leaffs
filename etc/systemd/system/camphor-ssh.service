@@ -1,5 +1,5 @@
 [Unit]
-Description=LeafOS SSH server
+Description=Camphor SSH server
 After=network.target
 
 [Service]

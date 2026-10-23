@@ -1,0 +1,10 @@
+[Unit]
+Description=Camphor network diagnostics on console
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/camphor-netdiag.sh
+
+[Install]
+WantedBy=multi-user.target

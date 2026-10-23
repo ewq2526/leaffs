@@ -1,5 +1,5 @@
 #!/bin/sh
-# LeafOS kiosk 会话：扫描输出，按显示器原生模式铺满，然后以桌面形态运行 leaffs
+# Camphor kiosk 会话：扫描输出，按显示器原生模式铺满，然后以桌面形态运行 leaffs
 # （窗口与服务同一进程，不涉及应用源码）
 
 set -u

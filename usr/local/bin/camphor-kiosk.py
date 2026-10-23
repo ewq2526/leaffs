@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""LeafOS kiosk：全屏 GTK + WebKitGTK 窗口，显示本机 leaffs 界面。
+"""Camphor kiosk：全屏 GTK + WebKitGTK 窗口，显示本机 leaffs 界面。
 
 这个窗口就是系统的操作界面，没有退出键。维护入口是 Ctrl+Alt+F2 切到 tty2。
 页面 JS 出错时把信息发到 404 路径，落在 leaffs 日志里，便于定位。

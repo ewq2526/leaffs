@@ -28,8 +28,8 @@
 ## 本项目目前的义务与做法
 
 - **许可原文**：各组件许可证原文、版本与官方源码地址清单已随本文件提供在 `licenses/` 目录（含 COMPONENTS.txt），分发时请连同该目录一并提供。
-- **系统 FFmpeg**：LeafOS 镜像内装的是 Debian 仓库的 ffmpeg 7.1.5（GPL-2.0-or-later，构建启用 --enable-gpl），用于视频缩略图与时长；许可原文 licenses/LICENSE.ffmpeg-debian-GPL-2.0.txt。它与 Windows 分发包里那个 Gyan GPL-3.0 构建是两回事，分发哪个就附哪份。
-- **系统字体**：LeafOS 镜像内含 Noto Sans CJK（SIL OFL 1.1）。分发镜像时须随附 `licenses/LICENSE.noto-sans-cjk-OFL-1.1.txt`；字体原样使用未修改，因此可以沿用原名字。若日后替换或改制字体（子集化、改名重绘等），修改版必须改名，不能再叫 Noto。
+- **系统 FFmpeg**：Camphor 镜像内装的是 Debian 仓库的 ffmpeg 7.1.5（GPL-2.0-or-later，构建启用 --enable-gpl），用于视频缩略图与时长；许可原文 licenses/LICENSE.ffmpeg-debian-GPL-2.0.txt。它与 Windows 分发包里那个 Gyan GPL-3.0 构建是两回事，分发哪个就附哪份。
+- **系统字体**：Camphor 镜像内含 Noto Sans CJK（SIL OFL 1.1）。分发镜像时须随附 `licenses/LICENSE.noto-sans-cjk-OFL-1.1.txt`；字体原样使用未修改，因此可以沿用原名字。若日后替换或改制字体（子集化、改名重绘等），修改版必须改名，不能再叫 Noto。
 - **源码形态分发**：上述第三方文件以原版形式随源码目录携带；不再单独制作/分发独立打包产物。
 - **关于 pythonnet / pywebview**：本项目代码有引用（桌面窗口入口动态导入，未静态链接），并存在于本机运行环境（site-packages）中。**是否随分发物提供它们，取决于发布内容**——若源码包/产物中带上了这些库或其安装文件，就一并附上其许可文本与版权声明；若分发物不含它们（仅含本项目自身文件，库由使用方自行安装），则本项无再分发义务。
 - **若日后发布含上述组件的可执行产物**：随产物放入各组件许可证原文与版权声明（建议 `licenses/` 目录），并注明组件版本与官方源码地址；其中 aria2c、ffmpeg、openssl 需在发布说明中给出官方源码获取地址。

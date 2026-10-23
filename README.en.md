@@ -1,4 +1,4 @@
-# LeafOS (English)
+# Camphor (English)
 
 > English version. AI-translated from the Chinese original.
 
@@ -12,7 +12,7 @@ It runs on any machine that can boot an x86_64 kernel, mount a disk and drive a 
 2. Copy `etc/`, `usr/` and `boot/` from this repository to the same paths on root and the ESP (`boot/grub.cfg` → `EFI/BOOT/grub.cfg`).
 3. Install `fonts-noto-cjk`, `ffmpeg`, `firmware-{iwlwifi,realtek,atheros,brcm80211,misc-nonfree}`.
 4. Add the kernel modules you need (storage, input, i915, rtw88, zram, netfilter, …); if the system disk is USB, `uas` must be in the initramfs.
-5. Enable the units listed in `etc/systemd/system/leafos-units.list`.
+5. Enable the units listed in `etc/systemd/system/camphor-units.list`.
 
 ## Use
 
