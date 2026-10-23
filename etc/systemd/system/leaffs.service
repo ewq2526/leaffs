@@ -1,14 +1,17 @@
 [Unit]
-Description=LeafFS web file manager
+Description=Camphor 文件服务（只跑服务，不开窗口；窗口由 camphor-kiosk 拉起）
 After=network.target
 
 [Service]
 Type=simple
-User=leaf
-Group=leaf
+# 与 kiosk 同一个用户：/srv/leaffs/config 下的账号库、会话表、令牌都是 root 写的，
+# 换成别的用户就写不动
+User=root
+Group=root
 WorkingDirectory=/opt/leaffs
 Environment=LEAFFS_PROJECT_ROOT=/srv/leaffs
 Environment=PYTHONUNBUFFERED=1
+Environment=LEAFFS_NO_WEBVIEW=1
 ExecStart=/opt/leaffs/venv/bin/python -m leaffs
 Restart=always
 RestartSec=3
