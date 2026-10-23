@@ -42,6 +42,7 @@ Afterwards:
 1. If `git apply` is clean, run the tests: `python -m pytest`
 2. Replace the `cb1aacb` baseline above with whatever `origin/main` points at
 3. If `requirements.txt` moved, rebuild `/opt/leaffs/venv` and reinstall the dependencies
+4. Changelogs are kept in two places: replace `docs/CHANGELOG-leaffs.md` and `.en.md` wholesale with upstream's (`git show origin/main:CHANGELOG.md`), and pull the application-related entries from it into the "Unreleased" section of the root `CHANGELOG.md`. The root file is the system's own log; it is not in the patch path and must not follow upstream automatically.
 
 Two things not to do:
 

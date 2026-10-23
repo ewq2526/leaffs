@@ -42,6 +42,7 @@ git diff cb1aacb origin/main -- leaffs requirements.txt | git apply -3
 1. `git apply` 无冲突就跑测试：`python -m pytest`
 2. 把本文件里的基准 `cb1aacb` 换成 `origin/main` 当时的新提交
 3. `requirements.txt` 跟着变过的话，重建 `/opt/leaffs/venv` 并重装依赖
+4. 更新日志分两份：上游那份整份覆盖到 `docs/CHANGELOG-leaffs.md` 与 `.en.md`（`git show origin/main:CHANGELOG.md`），其中与应用有关的新条目摘进根目录 `CHANGELOG.md` 的「未发布」。根目录那份是系统自己的日志，不在自动打补丁的路径里，也不该跟着上游自动变。
 
 两条不要做的事：
 
