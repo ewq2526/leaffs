@@ -432,7 +432,7 @@ def _start_webview_window():
         def _apply_kiosk_zoom():
             """kiosk 全屏时把整页缩放到 125%（`LEAFFS_ZOOM` 可覆盖）。
 
-            1920×1080 的面板因为 EDID 不给物理尺寸，X 退回 96 DPI，整页按 100% 渲染偏小；
+            高 DPI 面板常因 EDID 不给物理尺寸被 X 当成 96 DPI，整页按 100% 渲染偏小；
             同类屏幕在 Windows 上默认就是 125%。改 WebKit 的 zoom level 而不是字号：
             字号只放大文字，间距与控件不跟着变，布局会挤在一起。
 
