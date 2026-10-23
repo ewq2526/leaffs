@@ -63,6 +63,14 @@ def get_dl_manager(): return _dl_manager
 
 
 def start_server():
+    # 只开窗口、不起服务：服务器已由 leaffs.service 提前拉起（LEAFFS_NO_WEBVIEW=1），
+    # kiosk 起来时它已经在监听。这样应用初始化与 X 启动可以重叠，不用等它。
+    # 令牌从服务进程写下的文件里读（见 _local_url）。
+    if os.environ.get('LEAFFS_ATTACH') == '1':
+        setup_logging()
+        _cfg.load_config()
+        _start_webview_window()
+        return
     # 临时诊断：设置环境变量 LEAFFS_FAULTDUMP=1 后，卡死时按 Ctrl+Break 会把所有
     # 线程的调用栈写入项目目录 faulthandler_dump.txt（排查随机卡死用，默认关闭）
     if os.environ.get('LEAFFS_FAULTDUMP') == '1':
@@ -373,7 +381,7 @@ def _start_webview_window():
     def _local_url():
         scheme = 'https' if _cfg.get_tls_enabled() else 'http'
         url = f'{scheme}://localhost:{_cfg.PORT}/login'
-        _ltok = _lt.get_current()
+        _ltok = _lt.get_current() or _lt.read_file()
         if _ltok:
             url += '?leaf=' + _ltok
         return url

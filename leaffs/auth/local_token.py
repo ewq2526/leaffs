@@ -25,6 +25,19 @@ def get_current():
         return _token
 
 
+def read_file():
+    """读服务进程写下的令牌文件。
+
+    窗口进程与服务进程分开跑时（服务由 leaffs.service 提前拉起、窗口由 kiosk 拉起），
+    窗口进程自己没有令牌，只能从服务进程留下的这份文件里取。读不到返回 None。
+    """
+    try:
+        with open(LOCAL_TOKEN_FILE, encoding='utf-8') as f:
+            return f.read().strip() or None
+    except OSError:
+        return None
+
+
 def reset_and_write():
     """生成新一次性令牌并落盘（服务启动时调用）；返回令牌"""
     global _token
