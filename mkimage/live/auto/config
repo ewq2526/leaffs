@@ -10,6 +10,10 @@ MIRROR=${CAMPHOR_MIRROR:-http://deb.debian.org/debian/}
 # 安全更新在镜像站上是另一个路径（debian-security），要一起换掉，
 # 否则构建会卡在 security.debian.org 上
 MIRROR_SECURITY=${CAMPHOR_MIRROR_SECURITY:-http://security.debian.org/}
+# 写进目标系统 sources.list 的源。构建也会用它跑 chroot_archives 的清理，
+# 所以它同样决定构建速度；默认保持上游。
+MIRROR_BINARY=${CAMPHOR_MIRROR_BINARY:-http://deb.debian.org/debian/}
+MIRROR_BINARY_SECURITY=${CAMPHOR_MIRROR_BINARY_SECURITY:-http://security.debian.org/}
 
 # noauto 阻止 lb config 再次读取本文件而递归
 lb config noauto \
@@ -21,6 +25,8 @@ lb config noauto \
 	--mirror-chroot "$MIRROR" \
 	--mirror-chroot-security "$MIRROR_SECURITY" \
 	--mirror-debian-installer "$MIRROR" \
+	--mirror-binary "$MIRROR_BINARY" \
+	--mirror-binary-security "$MIRROR_BINARY_SECURITY" \
 	--binary-image iso-hybrid \
 	--debian-installer live \
 	--bootloaders grub-efi \
