@@ -23,24 +23,17 @@ fi
 ln -sf "vmlinuz-$kv" vmlinuz
 ln -sf "initrd.img-$kv" initrd.img
 
-# 菜单按卷标找根。留一份在 /usr/share/camphor 下：安装时 grub-installer
-# 会把 /boot/grub/grub.cfg 重写成按 UUID 找根的版本，preseed 的
-# late_command 再从这份拷回去
-install -Dm644 /boot/grub.cfg /usr/share/camphor/grub.cfg
-rm -f /boot/grub.cfg
+# 菜单不进根文件系统。安装时 grub-installer 会重写 /boot/grub/grub.cfg，
+# 按卷标找根的版本放在 ISO 的 camphor/grub.cfg 里，由 preseed 的
+# late_command 从安装介质拷进目标系统
+# 账号不由镜像预置：这是安装镜像，用户由 debian-installer 按 preseed 建
+# （passwd/username、user-uid、user-default-groups 都在 includes.installer/preseed.cfg）。
+# 镜像里预先放一个账号，等于把一份已知口令随介质发出去。
 
-# leaf：固定 1000，与 /opt/leaffs、/srv/leaffs 的属主一致
-if ! id leaf >/dev/null 2>&1; then
-	useradd -m -u 1000 -s /bin/bash leaf
-fi
-usermod -aG sudo,tty,video,render,netdev,plugdev leaf 2>/dev/null || true
-echo 'leaf:leaf' | chpasswd
-
-# 运行数据目录。服务的 LEAFFS_PROJECT_ROOT 指向这里，
-# 不能是 /opt/leaffs —— 那本是程序目录
-install -d -o root -g root -m 755 /srv/leaffs
 
 # 仓库里的单元按清单启用
+# （Debian 自带的 ssh.service 保留在 22 口，camphor-ssh 走 2222，
+#   两个都留：哪怕我们自己那套起不来，也还有一条进得去的路）
 while read -r unit state; do
 	case "$unit" in ''|'#'*) continue ;; esac
 	if [ "$state" = enabled ]; then
@@ -64,4 +57,3 @@ PIP_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"
 # 由 camphor-ssh 的 ExecStartPre 生成主机密钥
 : > /etc/machine-id
 rm -f /etc/ssh/ssh_host_*
-rm -rf /opt/leaffs/config /opt/leaffs/shared_files /opt/leaffs/.cache

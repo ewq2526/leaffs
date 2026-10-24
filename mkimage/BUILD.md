@@ -67,7 +67,12 @@ rm -rf "$BUILD/config/includes.chroot"
 mkdir -p "$BUILD/config/includes.chroot/opt/leaffs"
 rsync -a "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
 rsync -a "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
-rsync -a "$REPO/boot/" "$BUILD/config/includes.chroot/boot/"
+
+# 2c 菜单不进根文件系统，只放进 ISO：安装时 grub-installer 会重写
+#    /boot/grub/grub.cfg，按卷标找根的这份由 preseed 的 late_command
+#    从安装介质拷进目标系统
+mkdir -p "$BUILD/config/includes.binary/camphor"
+cp "$REPO/boot/grub.cfg" "$BUILD/config/includes.binary/camphor/grub.cfg"
 rsync -a "$REPO/leaffs/" "$BUILD/config/includes.chroot/opt/leaffs/leaffs/"
 cp "$REPO/requirements.txt" "$BUILD/config/includes.chroot/opt/leaffs/requirements.txt"
 
