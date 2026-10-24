@@ -1,4 +1,6 @@
 ext4
+ahci
+libahci
 uas
 usb_storage
 sd_mod

@@ -5,6 +5,8 @@ After=network.target
 [Service]
 Type=simple
 ExecStartPre=/bin/mkdir -p /run/sshd
+# 镜像里不带主机密钥（那是机器身份），首次启动时现生成
+ExecStartPre=/usr/sbin/ssh-keygen -A
 ExecStart=/usr/sbin/sshd -D -e
 Restart=always
 RestartSec=5
