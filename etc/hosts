@@ -1,0 +1,11 @@
+# 镜像里的 /etc/hosts。
+#
+# 只放与机器无关的部分：装好的系统叫什么名字是安装者定的，d-i 负责把
+# 127.0.1.1 那一行写进目标系统。不带构建环境的任何痕迹 —— live-build 的
+# chroot_hacks 会删掉镜像里的这份文件，由构建流程按仓库内容铺回来。
+127.0.0.1	localhost
+::1		localhost ip6-localhost ip6-loopback
+fe00::0		ip6-localnet
+ff00::0		ip6-mcastprefix
+ff02::1		ip6-allnodes
+ff02::2		ip6-allrouters

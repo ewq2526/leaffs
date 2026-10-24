@@ -74,11 +74,14 @@ mkdir -p "$BUILD/config/includes.chroot/opt/leaffs"
 rsync -a "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
 rsync -a "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
 
-# 2c the menu does not go into the root filesystem, only onto the ISO:
-#    grub-installer rewrites /boot/grub/grub.cfg during install, so the
-#    label-based one is copied into the target by the preseed late_command
+# 2c the apt sources do not go into the root filesystem, only onto the ISO:
+#    with no network and no mirror, apt-setup writes nothing but a cdrom source,
+#    and that disc is gone after the install; the preseed late_command copies
+#    the mirror version back from the medium. The boot menu is no longer shipped
+#    on the ISO — grub-installer generates a UUID-based one itself, and the
+#    kernel command line comes from etc/default/grub.
 mkdir -p "$BUILD/config/includes.binary/camphor"
-cp "$REPO/boot/grub.cfg" "$BUILD/config/includes.binary/camphor/grub.cfg"
+cp "$REPO/mkimage/live/sources.list" "$BUILD/config/includes.binary/camphor/sources.list"
 rsync -a "$REPO/leaffs/" "$BUILD/config/includes.chroot/opt/leaffs/leaffs/"
 cp "$REPO/requirements.txt" "$BUILD/config/includes.chroot/opt/leaffs/requirements.txt"
 
@@ -112,13 +115,82 @@ force a full re-download.
 After changing options in `auto/config`, run `lb clean --config` before `lb config`; otherwise
 the old values are kept. `lb_config(1)` warns about this in its DESCRIPTION.
 
+## 3.5 Rebuilding the ISO without re-running the chroot stage
+
+Changing `etc/`, `usr/` or `preseed.cfg` does not require a full build. The order is fixed,
+and the pitfalls are listed next to the steps that hit them:
+
+```sh
+B=<build directory> ; REPO=<repository>
+C=$B/chroot ; LIVE=$C/chroot
+
+# 1 layer the repository content in two places: includes.chroot only affects the
+#   NEXT chroot stage, while the outer chroot is what lb binary_chroot copies
+rsync -a --chown=root:root --chmod=D755,F644 --exclude=/fstab "$REPO/etc/" "$C/etc/"
+rsync -a --chown=root:root --chmod=D755,F755 "$REPO/usr/" "$C/usr/"
+
+# 2 if the preseed changed, repack both d-i initrds (see section 5)
+
+# 3 recopy the live root, then fix the copy (build-time apt and human traces
+#   must not reach the image); remove local dpkg diversions, see 3.3
+
+# 4 build
+rm -f .build/binary_includes .build/binary_hooks .build/binary_rootfs \
+      .build/binary_checksums .build/binary_iso .lock
+lb binary
+```
+
+### 3.1 `includes.chroot` is not what `lb binary` uses
+
+`lb binary_chroot` copies the outer `chroot/`. `config/includes.chroot` is only applied
+during the **chroot stage**. Running `lb binary` alone after editing the repository leaves
+the old files in the image — and it exits 0 with a fresh ISO timestamp, so it looks fine.
+
+### 3.2 With `cache/bootstrap` present, `binary_chroot` replaces the outer chroot
+
+```
+/usr/lib/live/build/binary_chroot
+    rm -rf chroot/chroot
+    if [ -d cache/bootstrap ]; then
+            mv chroot chroot.tmp
+            cp -a cache/bootstrap chroot     # outer chroot becomes a bare bootstrap
+    else
+            cp -a chroot chroot.tmp
+    fi
+    mv chroot.tmp chroot/chroot
+```
+
+The real build environment ends up in `chroot/chroot`, and `binary_rootfs` finishes with
+`rm -rf chroot/chroot` — after such a run the build directory no longer has a usable
+environment and only a minimal debootstrap is left. Either `rm -rf cache/bootstrap` first
+(copy instead of move), or accept that the environment has to be restored from backup.
+
+The same applies to binary hooks: they cannot rely on the outer `chroot/boot` having a
+kernel. `0100-live-kernel.binary` takes it from `binary/live/filesystem.squashfs`.
+
+### 3.3 Build-time dpkg diversions need the stand-in removed first
+
+live-build diverts `/usr/sbin/start-stop-daemon` to a symbolic link to `/bin/true`.
+Removing the diversion directly is refused:
+
+```
+dpkg-divert: error: rename involves overwriting '/usr/sbin/start-stop-daemon'
+with different file '/usr/sbin/start-stop-daemon.distrib', not allowed
+```
+
+Delete the stand-in first, then remove the diversion. The consequence of leaving it is not
+a missing package: on real hardware it fails as `dpkg-divert ... clashes` followed by
+`in-target is already running`. Two checks decide whether the image is fit to ship:
+`start-stop-daemon` is an ELF, and `dpkg-divert --list | grep -c '^local diversion'` is 0.
+
 ## 4. Configuration tree
 
 ```
 mkimage/live/
 ├─ auto/config                          —— every lb config option, with its reason
 └─ config/
-   ├─ hooks/live/0100-camphor.chroot    —— creates leaf, enables units, venv, factory cleanup
+   ├─ hooks/live/0100-camphor.chroot    —— rebuilds initramfs, enables units, venv, factory cleanup
+   ├─ hooks/live/0100-live-kernel.binary —— puts the kernel and initrd into binary/live
    └─ includes.installer/preseed.cfg    —— debian-installer answers
 ```
 
@@ -147,19 +219,24 @@ exercised too.
 
 ## 6. Not yet verified
 
-`preseed.cfg` was written from appendix B of the installer manual, but the install has never
-been run end to end. These are the parts most likely to be wrong; check them first:
+`preseed.cfg` answers only machine-independent questions: no network, no tasksel, no root
+password, no firmware prompt. Partitioning, account, hostname, timezone, language, keyboard
+and boot loader location are all chosen by whoever installs. These are the parts to watch
+on the first real run:
 
-1. **Root filesystem label.** The recipe says `label{ camphor }`. Section B.4.8 only states
-   that the recipe format can set filesystem labels; it gives no example. Run `e2label` after
-   the install to see whether it took; if not, add a line to `late_command`.
-2. **`late_command` replacing the menu.** d-i rewrites `/boot/grub/grub.cfg` with
-   `grub-mkconfig`, producing a UUID-based menu. The chroot hook leaves the real menu at
-   `/usr/share/camphor/grub.cfg` and `late_command` copies it back. What needs checking is
-   whether the machine still boots afterwards — `grub-installer` also writes a pointer file
-   into the ESP, and that one still carries a UUID it generated itself.
-3. **`--uefi-secure-boot enable`.** It installs signed shim and grub per the documentation, but
-   whether it passes under the OVMF Secure Boot variables can only be seen by booting once.
-4. **Whether to also produce a tarball.** `-b tar` is a legal live-build output type and yields
+1. **Whether the installed system boots.** `late_command` rewrites the root line of
+   `/etc/fstab` from `LABEL=camphor` to the partition's UUID. That line was run on its own
+   against a real ext4 filesystem (the UUID it wrote matched `blkid`), but never inside d-i.
+   Check `/etc/fstab` after the install.
+2. **A disk that already has partitions.** Test with existing partitions plus free space
+   (GPT and MBR): a root must be creatable and the existing partitions must stay untouched.
+   Erasing a whole disk is not an option.
+3. **Whether the account is picked up.** The usernames in the two ksmbd shares and in
+   `camphor-filemgr` are replaced by `late_command` with the account the installer created.
+   Check `ksmbd.conf` for that name after the install, and connect to a share from another
+   machine.
+4. **No interactive screen may stall.** Walk through language, keyboard, hostname, timezone,
+   user, partitioning and boot loader location once.
+5. **Whether to also produce a tarball.** `-b tar` is a legal live-build output type and yields
    a bare root filesystem. The squashfs inside the ISO already covers "lay it onto the disk",
    so whether a tar form is still wanted is open until the ISO works.

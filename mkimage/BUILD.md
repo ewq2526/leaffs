@@ -74,11 +74,11 @@ mkdir -p "$BUILD/config/includes.chroot/opt/leaffs"
 rsync -a "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
 rsync -a "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
 
-# 2c 菜单与软件源不进根文件系统，只放进 ISO：安装时 grub-installer 会重写
-#    /boot/grub/grub.cfg，apt-setup 会重写 /etc/apt/sources.list，
-#    这两份按仓库内容由 preseed 的 late_command 从安装介质拷回目标系统
+# 2c 软件源不进根文件系统，只放进 ISO：apt-setup 在不联网、不选镜像时只写
+#    cdrom 源，装完那张盘就不在了，由 preseed 的 late_command 从安装介质
+#    拷回镜像站版本。引导菜单不再随 ISO 提供 —— grub-installer 自己生成
+#    按 UUID 找根的版本，内核命令行参数来自 etc/default/grub。
 mkdir -p "$BUILD/config/includes.binary/camphor"
-cp "$REPO/boot/grub.cfg" "$BUILD/config/includes.binary/camphor/grub.cfg"
 cp "$REPO/mkimage/live/sources.list" "$BUILD/config/includes.binary/camphor/sources.list"
 rsync -a "$REPO/leaffs/" "$BUILD/config/includes.chroot/opt/leaffs/leaffs/"
 cp "$REPO/requirements.txt" "$BUILD/config/includes.chroot/opt/leaffs/requirements.txt"
@@ -113,13 +113,86 @@ sync
 改了 `auto/config` 里的选项之后要先 `lb clean --config` 再 `lb config`，
 否则旧值会被保留，`lb_config(1)` 在 DESCRIPTION 里专门警告过这一点。
 
+## 三点五、只改镜像内容时怎么重出 ISO
+
+改了 `etc/`、`usr/`、`preseed.cfg`，不重跑 chroot 阶段也能出 ISO。顺序固定，
+每一步都在下面这些坑旁边：
+
+```sh
+B=<构建目录> ; REPO=<仓库>
+C=$B/chroot ; LIVE=$C/chroot
+
+# 1 仓库内容要铺两处：includes.chroot 影响「下一次 chroot 阶段」，
+#   外层 chroot 才是这一轮 lb binary_chroot 会复制的源。只铺前者等于没改。
+rsync -a --chown=root:root --chmod=D755,F644 --exclude=/fstab "$REPO/etc/" "$C/etc/"
+rsync -a --chown=root:root --chmod=D755,F755 "$REPO/usr/" "$C/usr/"
+
+# 2 预置答案改了要重打两个 d-i initrd（见第五节）
+repack install/initrd.gz ; repack install/gtk/initrd.gz
+
+# 3 重拷 live 母本，然后修副本（构建期的 apt 与人机痕迹不能进镜像）
+rm -f .build/binary_chroot ; lb binary_chroot
+#   软件源写成 mkimage/live/sources.list 的内容
+#   删 etc/apt/apt.conf.d/00secure 00recommends、usr/sbin/policy-rc.d、etc/debian_chroot
+#   撤掉本地 dpkg 转移（见 3.3）
+
+# 4 压片
+rm -f .build/binary_includes .build/binary_hooks .build/binary_rootfs \
+      .build/binary_checksums .build/binary_iso .lock
+lb binary
+```
+
+### 3.1 `includes.chroot` 不是给 `lb binary` 用的
+
+`lb binary_chroot` 复制的是外壳 `chroot/`。`config/includes.chroot` 只在
+**chroot 阶段**铺进去。只改仓库就跑 `lb binary`，镜像里仍是旧文件 ——
+而且 `lb binary` 退出码是 0、ISO 时间戳是新的，看着完全正常。
+
+### 3.2 `cache/bootstrap` 存在时，`binary_chroot` 会换掉外层 chroot
+
+```
+/usr/lib/live/build/binary_chroot
+    rm -rf chroot/chroot
+    if [ -d cache/bootstrap ]; then
+            mv chroot chroot.tmp
+            cp -a cache/bootstrap chroot     # 外层 chroot 变成干净 bootstrap
+    else
+            cp -a chroot chroot.tmp
+    fi
+    mv chroot.tmp chroot/chroot
+```
+
+真正的构建环境被搬到 `chroot/chroot`，而 `binary_rootfs` 收尾会
+`rm -rf chroot/chroot` —— **跑完这一轮，构建目录里就没有可用的环境了**，
+再跑只能得到一份最小 debootstrap。要么先 `rm -rf cache/bootstrap`（只复制，
+不搬），要么认下这一轮之后必须从环境备份还原。
+
+同理，binary 钩子不能指望外层 `chroot/boot` 有内核；`0100-live-kernel.binary`
+是从 `binary/live/filesystem.squashfs` 里取的。
+
+### 3.3 构建期的 dpkg 转移要连替身一起删
+
+live-build 把 `/usr/sbin/start-stop-daemon` 转移成 `/bin/true` 的符号链接。
+撤的时候直接 `dpkg-divert --rename --remove` 会被拒：
+
+```
+dpkg-divert: error: rename involves overwriting '/usr/sbin/start-stop-daemon'
+with different file '/usr/sbin/start-stop-daemon.distrib', not allowed
+```
+
+要先删掉那个替身再撤。撤不掉的后果不是"少一个包"，是装到真机上以后
+`dpkg-divert ... clashes` 和 `in-target is already running` 连锁失败。
+判断标准只有一条：`start-stop-daemon` 是 ELF，`dpkg-divert --list | grep -c
+'^local diversion'` 是 0。不满足就别压片。
+
 ## 四、配置目录
 
 ```
 mkimage/live/
 ├─ auto/config                          —— 全部 lb config 选项与理由
 └─ config/
-   ├─ hooks/live/0100-camphor.chroot    —— 建 leaf、启用单元、venv、出厂清理
+   ├─ hooks/live/0100-camphor.chroot    —— 重建 initramfs、启用单元、venv、出厂清理
+   ├─ hooks/live/0100-live-kernel.binary —— 把内核与 initrd 放进 binary/live
    └─ includes.installer/preseed.cfg    —— d-i 的预置答案
 ```
 
@@ -146,17 +219,19 @@ QEMU 有 virtio/bochs 显示，`/dev/dri/card0` 会出现，所以 kiosk 那套�
 
 ## 六、还没验的几处
 
-`preseed.cfg` 是按安装手册附录 B 写出来的，但整条安装流程一次也没跑过。
-下面几处是它最可能出错的地方，实跑时先看这几项：
+`preseed.cfg` 只写与机器无关的答案：不联网、不跑 tasksel、不留 root 口令、
+安装器缺固件时不问。分区、账号、主机名、时区、语言、键盘、引导位置都由安装者当场选。
+下面几处是实跑时先要看的：
 
-1. **根分区卷标。** 配方里写的是 `label{ camphor }`，手册 B.4.8 只说明"配方格式支持
-   指定文件系统卷标"，没给例子。装完先 `e2label` 看它到底有没有落上；没落上就在
-   `late_command` 里补一条。
-2. **`late_command` 换菜单。** d-i 用 `grub-mkconfig` 重写 `/boot/grub/grub.cfg`，
-   写出来按 UUID 找根。菜单原件由 chroot 钩子留在 `/usr/share/camphor/grub.cfg`，
-   `late_command` 拷回去。要验的是拷回去之后还能不能起——`grub-installer` 也往 ESP
-   写了指路文件，那里面仍是它自己生成的 UUID。
-3. **`--uefi-secure-boot enable`。** 按文档会装签名 shim 与 grub，但在 OVMF 的
-   Secure Boot 变量下能否真的过，只能启动一次看。
-4. **要不要再出一份 tar。** `-b tar` 是 live-build 的合法产物类型，能给出裸根文件系统。
+1. **装完能不能起。** `late_command` 把 `/etc/fstab` 的根从 `LABEL=camphor`
+   改成分区的 UUID —— 这行脚本单独在真 ext4 上跑通过（改出来的 UUID 与
+   `blkid` 一致），但还没在 d-i 里跑过整轮。装完先 `cat /etc/fstab` 核对。
+2. **分区由人做之后的盘。** 要验「已有分区 + 空闲区」的盘（GPT、MBR 各一次）：
+   能建出根、已有分区一个不动。整盘擦除不在方案里。
+3. **账号认不认得上。** ksmbd 的两个共享与 `camphor-filemgr` 的用户名由
+   `late_command` 换成安装者建的账号；验法是装完看 `ksmbd.conf` 里是不是那个名字，
+   再从另一台机器连一次共享。
+4. **交互屏不能停住。** 语言、键盘、主机名、时区、用户、分区、引导位置 ——
+   每一屏都要走一遍，看有没有哪一问把安装卡住。
+5. **要不要再出一份 tar。** `-b tar` 是 live-build 的合法产物类型，能给出裸根文件系统。
    ISO 里的 squashfs 已经承担了"装到盘上"这件事，是否还需要 tar 形态，等 ISO 通了再定。

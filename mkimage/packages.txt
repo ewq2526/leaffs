@@ -61,6 +61,12 @@ rfkill
 nftables                   # modules-load.d/camphor-netfilter.conf
 systemd-timesyncd
 
+# ── 引导 ───────────────────────────────────────────────────
+# os-prober：装好的系统里 update-grub 要靠它把同盘上的其它系统（例如 Windows）
+# 找出来写进菜单。安装器那条路也一样，收尾时会重跑一次 update-grub。
+# 配合 /etc/default/grub 里的 GRUB_DISABLE_OS_PROBER=false —— 新版 grub 默认关闭它。
+os-prober
+
 # ── 存储 ───────────────────────────────────────────────────
 e2fsprogs
 dosfstools                 # ESP 与 U 盘

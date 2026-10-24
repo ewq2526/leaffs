@@ -18,3 +18,11 @@ boot/** text eol=lf
 # sed/apt 读，检出成 CRLF 会变成 "bad interpreter" 和包名带 \r
 mkimage/** text eol=lf
 *.txt   text eol=lf
+
+# 图片是二进制，必须放在上面几条 text 规则之后：后写的规则覆盖先写的，
+# 否则 mkimage/** text 会把引导界面底图当文本做换行转换，检出即损坏
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.ttf   binary
+*.pf2   binary

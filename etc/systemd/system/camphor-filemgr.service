@@ -4,8 +4,10 @@ After=network.target local-fs.target
 
 [Service]
 Type=simple
-User=leaf
-Group=leaf
+# 占位：装好的系统里由 d-i 改成安装者创建的账号及其主组
+# （mkimage/live/config/includes.installer/preseed.cfg 的 late_command）
+User=nobody
+Group=nogroup
 ExecStart=/usr/bin/python3 /opt/camphor/filemgr/main.py
 Restart=always
 RestartSec=2

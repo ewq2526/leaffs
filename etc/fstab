@@ -1,5 +1,10 @@
-# 按卷标找根，不写 UUID/PARTUUID —— 同一份镜像写到哪块盘、哪个分区都能起来，
-# 换机器不用改这个文件。安装时把根分区命名成 camphor 即可（e2label /dev/sdX / camphor）。
+# 手工部署（把仓库的 etc/ 直接铺到根分区）时用下面这一行：把 `LABEL=camphor`
+# 换成根分区的实际 UUID，或给根分区打上 camphor 卷标。
+#   blkid -s UUID -o value <根分区>
+#
+# 走安装器那条路不用它：live-build 在 --debian-installer live 时会把镜像里的
+# /etc/fstab 清空（chroot_hacks：rm -f 后 touch），装出来的系统由 preseed 的
+# late_command 按安装结果写一行 UUID=…。
 #
 # <file system> <mount point> <type> <options> <dump> <pass>
 LABEL=camphor / ext4 defaults,noatime,errors=remount-ro 0 1
