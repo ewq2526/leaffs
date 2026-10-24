@@ -7,6 +7,10 @@ set -e
 # 仓库里检出时可能丢了执行位，脚本直接起不来
 chmod +x /usr/local/bin/camphor-*.sh
 
+# initramfs 按仓库的 /etc/initramfs-tools 重建：内核包是构建时先装的，
+# 它的 postinst 生成 initrd 时仓库这份配置还没铺进来，所以这里重做一次
+update-initramfs -u -k all
+
 # 菜单只认 /boot/vmlinuz 与 /boot/initrd.img，不写具体版本号，
 # 换内核时只改这两个链接
 cd /boot

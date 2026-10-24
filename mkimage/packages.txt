@@ -11,7 +11,10 @@
 # 不列入：编译器、qemu、git、桌面环境、语音合成与无障碍组件。
 
 # ── 内核与固件 ──────────────────────────────────────────────
-linux-image-amd64          # Debian 签发，Secure Boot 下才起得来
+# 内核不在这份清单里：它由 config/packages.chroot/ 里放的那个 linux-image
+# 安装包装上，装法与其余包一样走 dpkg，不从运行中的系统拷文件。
+# 该 deb 的版本要与镜像其余部分一致。
+initramfs-tools            # 生成 initrd，配置用仓库的 /etc/initramfs-tools
 firmware-realtek           # Realtek 无线网卡
 firmware-iwlwifi
 firmware-atheros

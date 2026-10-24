@@ -20,7 +20,7 @@
 
 所以"内盒装系统"这一步不用自己写脚本，选对选项即可。
 
-## 二、构建机
+## 二、构建环境
 
 Debian 13 amd64，root，能连 `deb.debian.org`：
 
@@ -32,20 +32,32 @@ apt install live-build xorriso squashfs-tools mtools dosfstools zstd
 外挂盘上，仓库那份保持干净，出问题整个删掉重来：
 
 ```sh
-cp -a for-distribution/live /media/<挂载点>/build-camphor
+cp -a mkimage/live /media/<挂载点>/build-camphor
 cd /media/<挂载点>/build-camphor
 ```
 
+取包用哪个镜像由环境变量给，默认是上游。安全更新在镜像站上是另一个路径，
+两个都要换，否则构建会卡在 `security.debian.org` 上：
+
+```sh
+CAMPHOR_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian/ \
+CAMPHOR_MIRROR_SECURITY=https://mirrors.tuna.tsinghua.edu.cn/debian-security/ \
+lb config
+```
+
+直连 `deb.debian.org` 通常只有几十 KB/s，换成本地镜像能差一个数量级。
+装进目标系统的 `sources.list` 仍指上游，不受这两个变量影响。
+
 ## 三、步骤
 
-构建目录已经在移动硬盘上（第二节），仓库另有它处。下面用两个变量区分：
+构建目录放在外挂盘上（第二节），仓库另有它处。下面用两个变量区分：
 
 ```sh
 REPO=/path/to/camphor          # 仓库的工作副本
 BUILD=/media/<挂载点>/build-camphor
 
 # 1 包清单由 packages.txt 生成，不手工维护第二份
-sed 's/#.*//' "$REPO/for-distribution/packages.txt" \
+sed 's/#.*//' "$REPO/mkimage/packages.txt" \
   | sed 's/[[:space:]]*$//' | grep -v '^$' \
   > "$BUILD/config/package-lists/camphor.list.chroot"
 
@@ -57,6 +69,13 @@ rsync -a "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
 rsync -a "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
 rsync -a "$REPO/leaffs/" "$BUILD/config/includes.chroot/opt/leaffs/leaffs/"
 cp "$REPO/requirements.txt" "$BUILD/config/includes.chroot/opt/leaffs/requirements.txt"
+
+# 2b 内核用现成的 linux-image deb，放进 packages.chroot：live-build 直接
+#    用 dpkg 装它，不去下载。auto/config 里的 --linux-packages none 关掉了
+#    live-build 自己装卸内核包那一步
+mkdir -p "$BUILD/config/packages.chroot"
+cp /path/to/linux-image-<版本>_amd64.deb "$BUILD/config/packages.chroot/"
+rsync -a "/lib/modules/$KV" "$BUILD/config/includes.chroot/lib/modules/"
 
 # 3 生成配置并构建
 cd "$BUILD"
@@ -79,7 +98,7 @@ sync
 ## 四、配置目录
 
 ```
-for-distribution/live/
+mkimage/live/
 ├─ auto/config                          —— 全部 lb config 选项与理由
 └─ config/
    ├─ hooks/live/0100-camphor.chroot    —— 建 leaf、启用单元、venv、出厂清理
