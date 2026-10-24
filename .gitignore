@@ -31,6 +31,14 @@ leaffs.log
 *.img
 *.tar.gz
 
+# 发布镜像的构建产物，以及构建时铺进 chroot 的那份副本
+/for-distribution/live/binary
+/for-distribution/live/cache
+/for-distribution/live/chroot
+/for-distribution/live/config/includes.chroot
+*.iso
+*.squashfs
+
 # 安全启动密钥
 *.key
 *.pem

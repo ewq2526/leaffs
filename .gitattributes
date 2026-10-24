@@ -13,3 +13,8 @@
 etc/** text eol=lf
 usr/** text eol=lf
 boot/** text eol=lf
+
+# 镜像构建：auto/config 与 *.chroot 钩子在 Linux 上直接执行，包清单要被
+# sed/apt 读，检出成 CRLF 会变成 "bad interpreter" 和包名带 \r
+for-distribution/live/** text eol=lf
+*.txt   text eol=lf
