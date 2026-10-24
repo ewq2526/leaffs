@@ -1,0 +1,31 @@
+#!/bin/sh
+# 菜单条目的措辞：默认那套是 "Live system (amd64)"、"Start installer"，
+# 与镜像的品牌和用法都不搭。条目文本由 live-build 生成，这里在生成之后改名。
+#
+# 跑在 binary_includes 之后、binary_checksums 之前，cwd 是 binary/。
+set -e
+
+sed -i \
+	-e 's/^menuentry "Live system (amd64)" --hotkey=l {/menuentry "试用 Camphor（Live，不安装）" --hotkey=l {/' \
+	-e 's/^menuentry "Live system (amd64 fail-safe mode)" {/menuentry "试用 Camphor（安全显卡模式）" {/' \
+	-e "s/^menuentry 'Start installer' --hotkey=i {/menuentry '安装 Camphor' --hotkey=i {/" \
+	-e "s/^menuentry 'Start installer with speech synthesis' --hotkey=s {/menuentry '安装 Camphor（语音引导）' --hotkey=s {/" \
+	-e 's/^submenu .Advanced install options \.\.\.. --hotkey=a {/submenu "更多安装选项 ..." --hotkey=a {/' \
+	-e 's/^submenu .Utilities\.\.\.. --hotkey=u {/submenu "工具 ..." --hotkey=u {/' \
+	boot/grub/grub.cfg
+
+sed -i \
+	-e 's/^submenu .Graphical installer \.\.\.. --hotkey=g {/submenu "图形安装器 ..." --hotkey=g {/' \
+	-e 's/^submenu .Text installer \.\.\.. --hotkey=t {/submenu "文本安装器 ..." --hotkey=t {/' \
+	-e 's/^submenu .Graphical installer with dark theme \.\.\.. --hotkey=d {/submenu "图形安装器（深色）..." --hotkey=d {/' \
+	-e 's/^submenu .Text installer with dark theme \.\.\.. --hotkey=k {/submenu "文本安装器（深色）..." --hotkey=k {/' \
+	-e 's/^submenu .Installer with speech synthesis \.\.\.. --hotkey=s {/submenu "语音引导安装器 ..." --hotkey=s {/' \
+	boot/grub/install.cfg
+
+sed -i \
+	-e "s/^menuentry 'Start installer' --hotkey=i {/menuentry '安装 Camphor' --hotkey=i {/" \
+	-e "s/^menuentry 'Start installer with speech synthesis' --hotkey=s {/menuentry '安装 Camphor（语音引导）' --hotkey=s {/" \
+	boot/grub/install_start.cfg
+
+echo "camphor: 引导菜单条目已改名"
+grep -hE '^(menuentry|submenu)' boot/grub/grub.cfg boot/grub/install_start.cfg

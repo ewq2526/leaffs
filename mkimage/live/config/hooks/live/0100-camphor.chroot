@@ -23,11 +23,10 @@ fi
 ln -sf "vmlinuz-$kv" vmlinuz
 ln -sf "initrd.img-$kv" initrd.img
 
-# 菜单不进根文件系统。安装时 grub-installer 会重写 /boot/grub/grub.cfg，
-# 按卷标找根的版本放在 ISO 的 camphor/grub.cfg 里，由 preseed 的
-# late_command 从安装介质拷进目标系统
-# 账号不由镜像预置：这是安装镜像，用户由 debian-installer 按 preseed 建
-# （passwd/username、user-uid、user-default-groups 都在 includes.installer/preseed.cfg）。
+# 引导菜单不进根文件系统：装好的系统由 grub-installer 调 grub-mkconfig 生成，
+# 按 UUID 找根；内核命令行参数由 etc/default/grub 提供，不在这里写死。
+# 账号不由镜像预置：账号与口令由 debian-installer 问安装者，装完由 preseed 的
+# late_command 把 ksmbd 与 camphor-filemgr 里按名字认人的两处改成那个账号。
 # 镜像里预先放一个账号，等于把一份已知口令随介质发出去。
 
 

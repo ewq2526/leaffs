@@ -47,8 +47,11 @@ attr=$(grep -c '^mkimage/\*\* text eol=lf' "$REPO/.gitattributes" 2>/dev/null)
 echo "== 构建目录：$BUILD"
 
 # 4 镜像源：约定用清华，出现上游就说明有配置没被覆盖（lb config 不覆盖旧值）
+#   config/includes.binary 是随 ISO 发出去的载荷，其中 sources.list 指上游是
+#   故意的（装好的系统用官方源），不算"构建配置里留着上游"。
 if [ -d "$BUILD/config" ]; then
-	up=$(grep -rl 'deb\.debian\.org\|security\.debian\.org' "$BUILD/config" 2>/dev/null)
+	up=$(grep -rl 'deb\.debian\.org\|security\.debian\.org' "$BUILD/config" \
+		--exclude-dir=includes.binary 2>/dev/null)
 	if [ -n "$up" ]; then
 		bad "配置里仍有上游源（删掉 config/{binary,bootstrap,chroot,common,source} 再 lb config）"
 		echo "$up" | sed 's/^/         /'

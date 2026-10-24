@@ -1,0 +1,26 @@
+#!/bin/sh
+# 把 Live 运行环境用的内核与 initrd 放进 binary/live。
+#
+# auto/config 用 --linux-packages none 关掉了 live-build 装卸内核那一步：
+# binary_linux_image 读到 none 直接 exit 0，binary/live 里只剩
+# filesystem.squashfs，而生成的菜单写的是 /live/vmlinuz-<版本>，
+# Live 项启动时报 file not found。
+#
+# 这个钩子在 binary_includes 之后、binary_checksums 之前跑，cwd 是 binary/。
+# 取件位置是 squashfs 自己的 /boot，不用外层 chroot 的：binary_rootfs 在
+# 钩子之前已经删掉 chroot/chroot，而外层 chroot 的 /boot 有没有内核取决于
+# cache/bootstrap 在不在 —— 在的时候 binary_chroot 会用 bootstrap 顶掉它。
+# 从 squashfs 取，拿到的是 Live 系统里那一份内核与 initrd，两者必然配套。
+set -e
+
+sq=live/filesystem.squashfs
+[ -f "$sq" ] || { echo "camphor: 没有 $sq" >&2 ; exit 1 ; }
+
+kv=$(unsquashfs -l "$sq" 2>/dev/null | sed -n 's|^squashfs-root/boot/vmlinuz-\([^/]*\)$|\1|p' | head -1)
+[ -n "$kv" ] || { echo "camphor: $sq 里没有 boot/vmlinuz-*" >&2 ; exit 1 ; }
+
+rm -f live/vmlinuz-* live/initrd.img-*
+unsquashfs -no-progress -cat "$sq" "boot/vmlinuz-$kv" > "live/vmlinuz-$kv"
+unsquashfs -no-progress -cat "$sq" "boot/initrd.img-$kv" > "live/initrd.img-$kv"
+
+echo "camphor: binary/live 内核 $kv"
