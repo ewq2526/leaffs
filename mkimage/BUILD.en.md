@@ -7,6 +7,9 @@ Nothing here is home-made: Debian's `live-build` already produces "bootloader + 
 environment + system body" as its standard output. Every setting below traces back to
 `live-manual`, `lb_config(1)` or `live-boot(7)`.
 
+Mistakes made along the way are not recorded here — see `PITFALLS.md`, one row per pitfall,
+each marked with whether a script can catch it.
+
 ## 1. The three layers in live-build terms
 
 | Layer | Where it comes from | Note |
@@ -22,6 +25,13 @@ environment + system body" as its standard output. Every setting below traces ba
 
 So the "inner box installs the system" step needs no script of ours — the right option does it.
 
+**Defaults that are switched off must be written down too**, or the next rebuild on another
+machine turns them back on:
+
+| Option | Why it is off |
+|---|---|
+| `--loadlin false` | `loadlin` was the DOS-era Linux loader; Debian 13 has no such package, and leaving it on stops the build at `binary_loadlin` with `Unable to locate package loadlin` |
+
 ## 2. Build host
 
 Debian 13 amd64, root, reachable `deb.debian.org`:
@@ -36,12 +46,10 @@ clean — if anything goes wrong, delete the whole thing and start over:
 
 ```sh
 cp -a mkimage/live /media/<mountpoint>/build-camphor
-cd /media/<mountpoint>/build-camphor
 ```
 
-Which mirror the build fetches from is set by environment variables, defaulting to upstream.
-Security updates live under a separate path on mirrors, and both have to be switched,
-otherwise the build stalls on `security.debian.org`:
+The mirror is chosen with environment variables; the default is upstream. Security updates live
+under a different path on a mirror, so both have to be set:
 
 ```sh
 CAMPHOR_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian/ \
@@ -49,40 +57,46 @@ CAMPHOR_MIRROR_SECURITY=https://mirrors.tuna.tsinghua.edu.cn/debian-security/ \
 lb config
 ```
 
-A direct connection to `deb.debian.org` often runs at tens of KB/s; a local mirror can be an
-order of magnitude faster. The `sources.list` installed into the target system still points
-upstream and is not affected by these variables.
+A direct connection to upstream often runs at a few tens of KB/s; a local mirror is an order of
+magnitude faster. The `sources.list` installed into the target system still points upstream and
+is not affected by these two variables.
 
-## 3. The standard flow
+**Before starting a build, check the three places where packages can be reused** — an off-repo
+deb backup directory, `config/packages.chroot/`, `cache/`. If a backup covers what the build
+needs it must be wired in first; "run it once and see" is not allowed. A backup that is not
+wired in is not a backup.
 
-There is one entry point; do not type the steps by hand:
+## 3. Standard flow
+
+There is one entry point. Do not type the steps by hand:
 
 ```sh
-sh mkimage/build.sh <repository> <build directory> [image|iso]
+sh mkimage/build.sh <repo> <builddir> [image|iso]
 
-# example, with a local package repository the script mounts into the chroot for installs
-CAMPHOR_LOCAL_REPO=/home/leaf/localrepo \
-  sh mkimage/build.sh /mnt/e/os /home/leaf/restore/build-camphor image
+# with a local package repository the script bind-mounts it into the chroot to install,
+# and unmounts it before copying the chroot
+CAMPHOR_LOCAL_REPO=/path/to/localrepo \
+  sh mkimage/build.sh <repo> <builddir> image
 ```
 
-| Mode | When | What it does |
+| Mode | When to use | What it does |
 |---|---|---|
-| `image` (default) | `etc/`, `usr/`, hooks, preseed or boot artwork changed | lay content in → repack both initrds → copy the live root → fix it (hostname, apt sources, dpkg diversions, factory cleanup) → build → check |
-| `iso` | only the preseed or the ISO payload (`/camphor/*`) changed | repack initrds → build → check |
+| `image` (default) | `etc/`, `usr/`, hooks, preseed or the boot artwork changed | copy content in → repack both initrds → copy the live source tree → fix the copy (hostname, apt sources, dpkg diversions, factory cleanup) → squash → check the image |
+| `iso` | only preseed or payload on the ISO (`/camphor/*`) changed | repack initrds → squash → check the image |
 
-What the script checks itself (it exits non-zero; do not work around it):
+Checks the script runs itself (it exits on failure; do not bypass them):
 
-1. `mkimage/preflight.sh` before doing anything
-2. `mkimage/postbuild-check.sh` after the ISO is produced
-3. removes build-time dpkg diversions and verifies `start-stop-daemon` is a real ELF
-4. unmounts the local repository before copying the chroot
-5. prints the ISO path and sha256
+1. `mkimage/preflight.sh` at the start
+2. `mkimage/postbuild-check.sh` at the end
+3. undo the build-time dpkg diversions and verify `start-stop-daemon` is a real ELF and that no
+   local diversions remain
+4. unmount the local repository before the chroot is copied
+5. print the ISO path and sha256
 
-What it does not do: `lb config`, the first bootstrap from scratch, installing the system
-packages. Those are described below and in `mkimage/live/auto/config`; once configured, day
-to day is just this script.
+What it does not do: `lb config`, the first bootstrap from scratch, and installing the system
+packages. Those are section 4.
 
-### 3.1 The detailed steps (what the script runs)
+### 3.1 What each step inside the script is
 
 ```sh
 # 1 the package list is generated from packages.txt; there is no second copy to maintain
@@ -90,174 +104,81 @@ sed 's/#.*//' "$REPO/mkimage/packages.txt" \
   | sed 's/[[:space:]]*$//' | grep -v '^$' \
   > "$BUILD/config/package-lists/camphor.list.chroot"
 
-# 2 lay the repository's etc/ and usr/ into the chroot root. Redone on every build;
-#   config/includes.chroot/ is a product, not a source
-rm -rf "$BUILD/config/includes.chroot"
-mkdir -p "$BUILD/config/includes.chroot/opt/leaffs"
-rsync -a "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
-rsync -a "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
+# 2 the repository's etc/ and usr/ go to two places: the outer chroot (copied this round)
+#   and includes.chroot (used by the next chroot stage)
+rsync -a --chown=root:root --chmod=D755,F644 --exclude=/fstab "$REPO/etc/" "$BUILD/chroot/etc/"
+rsync -a --chown=root:root --chmod=D755,F755 "$REPO/usr/" "$BUILD/chroot/usr/"
+rsync -a --chown=root:root --chmod=D755,F644 --exclude=/fstab "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
+rsync -a --chown=root:root --chmod=D755,F755 "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
 
-# 2c the apt sources and the post-install script do not go into the root
-#    filesystem, only onto the ISO: with no network and no mirror, apt-setup
-#    writes nothing but a cdrom source, and that disc is gone after the install.
-#    The finish-up work (sources, grub settings, usernames) is done by the
-#    preseed late_command calling /cdrom/camphor/postinstall.sh. The boot menu is
-#    no longer shipped on the ISO — grub-installer generates a UUID-based one.
+# 3 apt sources and the finishing script go onto the ISO only (apt-setup no longer
+#   sees the medium afterwards; finishing is done by late_command calling
+#   /cdrom/camphor/postinstall.sh)
 mkdir -p "$BUILD/config/includes.binary/camphor"
-cp "$REPO/mkimage/live/sources.list" "$BUILD/config/includes.binary/camphor/sources.list"
-cp "$REPO/mkimage/live/postinstall.sh" "$BUILD/config/includes.binary/camphor/postinstall.sh"
-rsync -a "$REPO/leaffs/" "$BUILD/config/includes.chroot/opt/leaffs/leaffs/"
-cp "$REPO/requirements.txt" "$BUILD/config/includes.chroot/opt/leaffs/requirements.txt"
+cp "$REPO/mkimage/live/sources.list"   "$BUILD/config/includes.binary/camphor/"
+cp "$REPO/mkimage/live/postinstall.sh" "$BUILD/config/includes.binary/camphor/"
 
-# 2b the kernel comes from a ready-made linux-image deb in packages.chroot,
-#    which live-build installs with dpkg instead of downloading.
-#    --linux-packages none in auto/config turns off live-build's own kernel step
-mkdir -p "$BUILD/config/packages.chroot"
-cp /path/to/linux-image-<version>_amd64.deb "$BUILD/config/packages.chroot/"
+# 4 repack both d-i initrds (only needed when preseed answers changed; the script does it)
+#   install/initrd.gz and install/gtk/initrd.gz
 
-# 3 generate the configuration and build
-cd "$BUILD"
-lb config
-lb build
-```
+# 5 copy the live source tree, then fix the copy: hostname, apt sources,
+#   undo dpkg diversions, factory cleanup
+rm -f "$BUILD/.build/binary_chroot"
+lb binary_chroot
 
-The output is `camphor-amd64.hybrid.iso`.
-
-Writing it to a stick follows `live-manual` 4.4.2 — `cp` is enough, `dd` is not required:
-
-```sh
-cp camphor-amd64.hybrid.iso ${USBSTICK}   # the whole device, not a partition
-sync
-```
-
-To clean up, use `lb clean` (or `--chroot --binary`), **never `lb clean --all`**:
-`--all` deletes `cache/` as well, and the next build has to download everything again.
-Also keep a copy of the downloaded debs outside the build directory (for example
-`<build disk>/deb-cache/`) and sync it during the build, so an interrupted build does not
-force a full re-download.
-
-After changing options in `auto/config`, run `lb clean --config` before `lb config`; otherwise
-the old values are kept. `lb_config(1)` warns about this in its DESCRIPTION.
-
-## 3.5 Rebuilding the ISO without re-running the chroot stage
-
-Changing `etc/`, `usr/` or `preseed.cfg` does not require a full build. The order is fixed,
-and the pitfalls are listed next to the steps that hit them:
-
-```sh
-B=<build directory> ; REPO=<repository>
-C=$B/chroot ; LIVE=$C/chroot
-
-# 1 layer the repository content in two places: includes.chroot only affects the
-#   NEXT chroot stage, while the outer chroot is what lb binary_chroot copies
-rsync -a --chown=root:root --chmod=D755,F644 --exclude=/fstab "$REPO/etc/" "$C/etc/"
-rsync -a --chown=root:root --chmod=D755,F755 "$REPO/usr/" "$C/usr/"
-
-# 2 if the preseed changed, repack both d-i initrds (see section 5)
-
-# 3 recopy the live root, then fix the copy (build-time apt and human traces
-#   must not reach the image); remove local dpkg diversions, see 3.3
-
-# 4 build
-rm -f .build/binary_includes .build/binary_hooks .build/binary_rootfs \
-      .build/binary_checksums .build/binary_iso .lock
+# 6 squash
+rm -f "$BUILD"/.build/binary_{includes,hooks,rootfs,checksums,iso} "$BUILD/.lock"
 lb binary
 ```
 
-### 3.1 `includes.chroot` is not what `lb binary` uses
+## 4. From scratch
 
-`lb binary_chroot` copies the outer `chroot/`. `config/includes.chroot` is only applied
-during the **chroot stage**. Running `lb binary` alone after editing the repository leaves
-the old files in the image — and it exits 0 with a fresh ISO timestamp, so it looks fine.
+Once configured, day-to-day work is just `build.sh`. Three things are needed from scratch:
 
-### 3.2 With `cache/bootstrap` present, `binary_chroot` replaces the outer chroot
+```sh
+cd "$BUILD"
 
-```
-/usr/lib/live/build/binary_chroot
-    rm -rf chroot/chroot
-    if [ -d cache/bootstrap ]; then
-            mv chroot chroot.tmp
-            cp -a cache/bootstrap chroot     # outer chroot becomes a bare bootstrap
-    else
-            cp -a chroot chroot.tmp
-    fi
-    mv chroot.tmp chroot/chroot
-```
+# 1 configure with the mirrors (after changing sources, run lb clean --config first,
+#   otherwise old values are kept; lb_config(1) warns about this in DESCRIPTION)
+lb config
 
-The real build environment ends up in `chroot/chroot`, and `binary_rootfs` finishes with
-`rm -rf chroot/chroot` — after such a run the build directory no longer has a usable
-environment and only a minimal debootstrap is left. Either `rm -rf cache/bootstrap` first
-(copy instead of move), or accept that the environment has to be restored from backup.
+# 2 the kernel comes from a ready-made linux-image deb dropped into packages.chroot:
+#   live-build installs it with dpkg instead of downloading.
+#   --linux-packages none turns off its own kernel step
+mkdir -p config/packages.chroot
+cp /path/to/linux-image-<version>_amd64.deb config/packages.chroot/
 
-The same applies to binary hooks: they cannot rely on the outer `chroot/boot` having a
-kernel. `0100-live-kernel.binary` takes it from `binary/live/filesystem.squashfs`.
-
-### 3.3 Build-time dpkg diversions need the stand-in removed first
-
-live-build diverts `/usr/sbin/start-stop-daemon` to a symbolic link to `/bin/true`.
-Removing the diversion directly is refused:
-
-```
-dpkg-divert: error: rename involves overwriting '/usr/sbin/start-stop-daemon'
-with different file '/usr/sbin/start-stop-daemon.distrib', not allowed
+# 3 the whole build
+lb build
 ```
 
-Delete the stand-in first, then remove the diversion. The consequence of leaving it is not
-a missing package: on real hardware it fails as `dpkg-divert ... clashes` followed by
-`in-target is already running`. Two checks decide whether the image is fit to ship:
-`start-stop-daemon` is an ELF, and `dpkg-divert --list | grep -c '^local diversion'` is 0.
+Clean with `lb clean` (or `--chroot --binary`), **never `lb clean --all`**: `--all` also removes
+`cache/`, so every package has to be downloaded again next time. Keep a second copy of the
+downloaded debs outside the build directory so an interrupted build does not start over.
 
-## 4. Configuration tree
+## 5. Configuration tree
 
 ```
 mkimage/live/
-├─ auto/config                          —— every lb config option, with its reason
-├─ sources.list                         —— apt sources for the installed system, shipped on the ISO
-├─ postinstall.sh                       —— finish-up at install time (sources, grub settings, account)
+├─ auto/config                          — every lb config option, with its reason
+├─ sources.list                         — apt sources for the installed system, shipped on the ISO
+├─ postinstall.sh                       — finishing work at the end of the install (apt sources, grub, account)
 └─ config/
-   ├─ bootloaders/grub-pc/              —— boot menu artwork and theme
-   ├─ hooks/live/0100-camphor.chroot    —— rebuilds initramfs, enables units, venv, factory cleanup
-   ├─ hooks/live/0100-live-kernel.binary —— puts the kernel and initrd into binary/live
-   ├─ hooks/live/0200-grub-menu.binary  —— renames the menu entries
-   └─ includes.installer/               —— debian-installer answers (three files, see 3.6)
+   ├─ bootloaders/grub-pc/              — boot menu artwork and theme
+   ├─ hooks/live/0100-camphor.chroot    — rebuild initramfs, enable units, venv, factory cleanup
+   ├─ hooks/live/0100-live-kernel.binary — put the kernel and initrd into binary/live
+   ├─ hooks/live/0200-grub-menu.binary  — rename menu entries
+   └─ includes.installer/               — d-i preseed answers (three files; flow in PITFALLS.md)
 ```
 
-One more path is produced by step 2 rather than committed:
+One more directory is generated at build time and not in the repository:
 
-- `config/includes.chroot/` —— `etc/`, `usr/`, `/opt/leaffs`, plus the generated
+- `config/includes.chroot/` — holds `etc/`, `usr/`, `/opt/leaffs`, plus the generated
   `config/package-lists/camphor.list.chroot`.
 
-## 3.6 The pitfalls are checks now
+## 6. Verification
 
-Two scripts. Before building, run the first; after the ISO is produced, run the second:
-
-```sh
-sh mkimage/preflight.sh      <repository> <build directory>   # do not build if it fails
-sh mkimage/postbuild-check.sh <ISO>                           # do not ship if it fails
-```
-
-| Pitfall | Symptom | Caught by |
-|---|---|---|
-| `--bootappend-live` without `boot=live` | live entry drops into busybox, garbled screen | preflight |
-| `--linux-packages none` and no kernel copied | `/live` has no kernel, "file not found" | preflight + postbuild |
-| `etc/default/grub` in the repository | conffile prompt while installing grub | preflight |
-| `late_command` written as one long command | truncated by preseed continuation, finish-up never runs | preflight + postbuild |
-| `os-prober` missing from the package list | no other OS entries in the menu | preflight + postbuild |
-| `.gitattributes` without the png binary rule | boot artwork corrupted on checkout | preflight |
-| Hook without the executable bit | `lb config` silently ignores the whole configuration | preflight |
-| `cache/bootstrap` present | `binary_chroot` replaces the outer chroot; environment gone after the run | preflight (warning) |
-| Package repository mounted inside the outer chroot | the whole repo is copied into the image (ISO grows by 900 MB) | preflight |
-| `binary_rootfs` stamp removed without recopying the chroot | 4 KB empty squashfs, exit code still 0 | postbuild (size floor) |
-| Build-time dpkg diversions not removed | `dpkg-divert ... clashes` on real hardware | preflight + build-time self-check |
-| `/etc/hostname` from the build machine | live and installed system show the builder's name | postbuild |
-| `/etc/machine-id` non-empty, SSH host keys present | the image ships an identity | postbuild |
-| `/root/.cache`, stale bytecode, install logs | the image keeps the build process | postbuild |
-| `/home/leaf`, `localrepo` indexes | build paths inside the image | postbuild |
-| `start-stop-daemon` replaced by `/bin/true` | no service starts on real hardware | postbuild |
-
-## 5. Verification
-
-Do not try this on real hardware. Boot QEMU with the Secure Boot OVMF variables:
+Do not try this on real hardware. Boot QEMU with the Secure Boot variable files:
 
 ```
 qemu-system-x86_64 -m 4096 -machine q35,smm=on \
@@ -267,32 +188,42 @@ qemu-system-x86_64 -m 4096 -machine q35,smm=on \
   -drive id=d0,file=disk.img,format=raw,if=none -device virtio-blk-pci,drive=d0
 ```
 
-What has to hold: the ISO boots → the install entry lays the system onto `disk.img` → the
-machine boots from `disk.img` → the desktop comes up.
+Verify three separate things, each with its own criterion:
 
-QEMU provides virtio/bochs display, so `/dev/dri/card0` appears and the kiosk memory gate gets
-exercised too.
+| What | Criterion |
+|---|---|
+| the ISO boots | the menu appears; under Secure Boot the `shim → signed grub` chain is accepted |
+| the install works | every interactive screen asks and none stalls; the installed disk has the right fstab, account, apt sources and menu |
+| the installed system boots | kernel → initramfs → root mounted → kiosk appears |
 
-## 6. Not yet verified
+QEMU has a virtio/bochs display, so `/dev/dri/card0` shows up and the kiosk memory threshold can
+be verified as well.
 
-`preseed.cfg` answers only machine-independent questions: no network, no tasksel, no root
-password, no firmware prompt. Partitioning, account, hostname, timezone, language, keyboard
-and boot loader location are all chosen by whoever installs. These are the parts to watch
-on the first real run:
+Do not verify Live by reading screenshots: bypass the menu and boot with
+`-kernel` / `-initrd` / `-append "boot=live … console=ttyS0"`; the serial port gives the whole
+kernel, systemd and X log in one go.
 
-1. **Whether the installed system boots.** `late_command` rewrites the root line of
-   `/etc/fstab` from `LABEL=camphor` to the partition's UUID. That line was run on its own
-   against a real ext4 filesystem (the UUID it wrote matched `blkid`), but never inside d-i.
-   Check `/etc/fstab` after the install.
-2. **A disk that already has partitions.** Test with existing partitions plus free space
-   (GPT and MBR): a root must be creatable and the existing partitions must stay untouched.
-   Erasing a whole disk is not an option.
-3. **Whether the account is picked up.** The usernames in the two ksmbd shares and in
-   `camphor-filemgr` are replaced by `late_command` with the account the installer created.
-   Check `ksmbd.conf` for that name after the install, and connect to a share from another
-   machine.
-4. **No interactive screen may stall.** Walk through language, keyboard, hostname, timezone,
-   user, partitioning and boot loader location once.
-5. **Whether to also produce a tarball.** `-b tar` is a legal live-build output type and yields
-   a bare root filesystem. The squashfs inside the ISO already covers "lay it onto the disk",
-   so whether a tar form is still wanted is open until the ISO works.
+## 7. Release
+
+Writing the stick follows `live-manual` 4.4.2 — `cp` is enough, `dd` is not needed:
+
+```sh
+cp camphor-amd64.hybrid.iso ${USBSTICK}   # whole disk, not a partition
+sync
+```
+
+Release artefacts go into `for-distribution/`, which holds only what ships with the product:
+licence texts, third-party notices, usage instructions. Record the path and sha256 that
+`build.sh` prints at the end.
+
+## 8. Not yet verified
+
+1. **Other operating systems (Windows) appearing in the menu, end to end.** The mechanism is in
+   place (`os-prober` + `GRUB_DISABLE_OS_PROBER=false` + `update-grub` at the end of the install),
+   but no disk with Windows was available.
+2. **Whether a tar image is also wanted.** `-b tar` is a valid live-build output and gives a bare
+   root filesystem; decide when there is a use for it.
+3. **The root cause of the installer firmware prompt.** It is currently bypassed with
+   `hw-detect/load_firmware false`; `/firmware/*.deb` inside the image are symlinks while the
+   official firmware-carrying image ships real files, and why the symlinks are not taken has not
+   been investigated.
