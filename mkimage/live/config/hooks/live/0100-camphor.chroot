@@ -56,3 +56,15 @@ PIP_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"
 # 由 camphor-ssh 的 ExecStartPre 生成主机密钥
 : > /etc/machine-id
 rm -f /etc/ssh/ssh_host_*
+
+# 出厂状态里也不该有「构建过程」：pip 的 HTTP 缓存、安装日志、
+# 旧解释器留下的字节码。它们不指向哪台机器，但能把构建做过什么说得很清楚，
+# 而用户系统里这些东西没有任何用处。
+rm -rf /root/.cache
+find /var/log -maxdepth 1 -type f ! -name README -delete
+rm -f /var/log/apt/* /var/log/apt/*.xz
+rm -rf /var/log/journal/* /var/log/runit/*
+: > /var/log/lastlog
+: > /var/log/wtmp
+: > /var/log/btmp
+find /opt/leaffs -name __pycache__ -type d -prune -exec rm -rf {} +
