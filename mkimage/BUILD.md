@@ -2,8 +2,10 @@
 
 产物是一个 `.iso`。用户把它写到 U 盘，从 U 盘启动，装到一块盘上，重启就是一台 Camphor。
 
-这套东西不自造：Debian 的 `live-build` 已经把"引导 + 精简运行环境 + 系统本体"做成了标准产物，
+这套东西不自造：Debian 的 `live-build` 已经把「引导 + 精简运行环境 + 系统本体」做成了标准产物，
 下面每一处配置都能在 `live-manual`、`lb_config(1)`、`live-boot(7)` 里找到出处。
+
+出过的错不写在这份里 —— 见 `PITFALLS.md`，一行一个坑，标明能不能被脚本拦住。
 
 ## 一、三层在 live-build 里对应什么
 
@@ -18,7 +20,7 @@
 > instead of installing the debian system from packages from the medium or the network,
 > it installs the live system to the disk.
 
-所以"内盒装系统"这一步不用自己写脚本，选对选项即可。
+所以「内盒装系统」这一步不用自己写脚本，选对选项即可。
 
 **关掉的默认项也要写下来**，否则换一台机器重建时又会打开：
 
@@ -26,7 +28,7 @@
 |---|---|
 | `--loadlin false` | `loadlin` 是 DOS 下引导 Linux 的老工具，Debian 13 已无此包；开着构建会停在 `binary_loadlin` 报 `Unable to locate package loadlin` |
 
-## 二、构建环境
+## 二、构建机
 
 Debian 13 amd64，root，能连 `deb.debian.org`：
 
@@ -39,11 +41,9 @@ apt install live-build xorriso squashfs-tools mtools dosfstools zstd
 
 ```sh
 cp -a mkimage/live /media/<挂载点>/build-camphor
-cd /media/<挂载点>/build-camphor
 ```
 
-取包用哪个镜像由环境变量给，默认是上游。安全更新在镜像站上是另一个路径，
-两个都要换，否则构建会卡在 `security.debian.org` 上：
+镜像源由环境变量给，默认是上游。安全更新在镜像站上是另一个路径，两个都要换：
 
 ```sh
 CAMPHOR_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian/ \
@@ -51,8 +51,11 @@ CAMPHOR_MIRROR_SECURITY=https://mirrors.tuna.tsinghua.edu.cn/debian-security/ \
 lb config
 ```
 
-直连 `deb.debian.org` 通常只有几十 KB/s，换成本地镜像能差一个数量级。
+直连上游通常只有几十 KB/s，换成本地镜像能差一个数量级。
 装进目标系统的 `sources.list` 仍指上游，不受这两个变量影响。
+
+**起构建前先查三处有没有能复用的包**，有就必须先接进构建，不许「先跑一遍看看行不行」：
+仓库外的 deb 备份目录、`config/packages.chroot/`、`cache/`。备份不接进去等于没备份。
 
 ## 三、标准流程
 
@@ -61,9 +64,9 @@ lb config
 ```sh
 sh mkimage/build.sh <仓库> <构建目录> [image|iso]
 
-# 例（本地包仓库也给了，脚本会临时挂进 chroot 装包）
-CAMPHOR_LOCAL_REPO=/home/leaf/localrepo \
-  sh mkimage/build.sh /mnt/e/os /home/leaf/restore/build-camphor image
+# 本地包仓库也给了时，脚本会临时挂进 chroot 装包，复制 chroot 前卸掉
+CAMPHOR_LOCAL_REPO=/path/to/localrepo \
+  sh mkimage/build.sh <仓库> <构建目录> image
 ```
 
 | 模式 | 什么时候用 | 做什么 |
@@ -73,16 +76,15 @@ CAMPHOR_LOCAL_REPO=/home/leaf/localrepo \
 
 脚本自己会做的检查（不过就退出，不要绕过）：
 
-1. 起手跑 `mkimage/preflight.sh`（构建前的十几项）
-2. 收尾跑 `mkimage/postbuild-check.sh`（镜像里该有的、不该有的）
+1. 起手跑 `mkimage/preflight.sh`
+2. 收尾跑 `mkimage/postbuild-check.sh`
 3. 撤构建期 dpkg 转移并核对 `start-stop-daemon` 是真 ELF、本地转移为 0
 4. 复制 chroot 前卸掉本地仓库挂载
 5. 打印 ISO 路径与 sha256
 
-它不负责的：`lb config`、首次从零 bootstrap、装系统包。那三件事见下面第二节与
-`mkimage/live/auto/config`；一次配好之后，日常就是跑这个脚本。
+它不负责的：`lb config`、首次从零 bootstrap、装系统包。那三件事见第四节。
 
-### 3.1 分步细节（脚本里就是这些）
+### 3.1 脚本里每一步在做什么
 
 ```sh
 # 1 包清单由 packages.txt 生成，不手工维护第二份
@@ -97,113 +99,49 @@ rsync -a --chown=root:root --chmod=D755,F755 "$REPO/usr/" "$BUILD/chroot/usr/"
 rsync -a --chown=root:root --chmod=D755,F644 --exclude=/fstab "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
 rsync -a --chown=root:root --chmod=D755,F755 "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
 
-# 2c 软件源与收尾脚本只放进 ISO（apt-setup 装完就找不到那张盘了；
-#    收尾由 late_command 调 /cdrom/camphor/postinstall.sh）
+# 3 软件源与收尾脚本只放进 ISO（apt-setup 装完就找不到那张盘了；
+#   收尾由 late_command 调 /cdrom/camphor/postinstall.sh）
 mkdir -p "$BUILD/config/includes.binary/camphor"
 cp "$REPO/mkimage/live/sources.list"   "$BUILD/config/includes.binary/camphor/"
 cp "$REPO/mkimage/live/postinstall.sh" "$BUILD/config/includes.binary/camphor/"
 
-# 2b 内核用现成的 linux-image deb，放进 packages.chroot：live-build 直接用 dpkg
-#    装它，不去下载。--linux-packages none 关掉了它自己装卸内核那一步
-mkdir -p "$BUILD/config/packages.chroot"
-cp /path/to/linux-image-<版本>_amd64.deb "$BUILD/config/packages.chroot/"
+# 4 重打两个 d-i initrd（预置答案改了才需要，脚本会自己做）
+#    install/initrd.gz 与 install/gtk/initrd.gz
 
-# 3 首次配置并整轮 bootstrap（之后不必再跑）
-cd "$BUILD"
-lb config
-lb build
+# 5 复制 live 母本，然后修副本：主机名、软件源、撤 dpkg 转移、出厂清理
+rm -f "$BUILD/.build/binary_chroot"
+lb binary_chroot
+
+# 6 压片
+rm -f "$BUILD"/.build/binary_{includes,hooks,rootfs,checksums,iso} "$BUILD/.lock"
+lb binary
 ```
 
-产物 `camphor-amd64.hybrid.iso`。
+## 四、首次从零
 
-写盘按 `live-manual` 4.4.2 的做法，用 `cp` 就够，不必 `dd`：
+一次配好之后日常只跑 `build.sh`。从零要做的三件事：
 
 ```sh
-cp camphor-amd64.hybrid.iso ${USBSTICK}   # 整盘，不是分区
-sync
+cd "$BUILD"
+
+# 1 带镜像源配置（来源改动后要先 lb clean --config 再 lb config，
+#   否则旧值会被保留，lb_config(1) 在 DESCRIPTION 里专门警告过）
+lb config
+
+# 2 内核用现成的 linux-image deb，放进 packages.chroot：live-build 直接用
+#   dpkg 装它，不去下载。--linux-packages none 关掉了它自己装卸内核那一步
+mkdir -p config/packages.chroot
+cp /path/to/linux-image-<版本>_amd64.deb config/packages.chroot/
+
+# 3 整轮构建
+lb build
 ```
 
 清理时用 `lb clean`（或 `--chroot --binary`），**不要用 `lb clean --all`**：
 `--all` 会连 `cache/` 一起删掉，下次构建所有包得重下一遍。
-已下载的 deb 另外留一份在构建目录外（例如 `<构建盘>/deb-cache/`），
-构建中每 30 秒同步一次，构建中断也不至于重来。
+已下载的 deb 另外留一份在构建目录外，构建中断也不至于重来。
 
-改了 `auto/config` 里的选项之后要先 `lb clean --config` 再 `lb config`，
-否则旧值会被保留，`lb_config(1)` 在 DESCRIPTION 里专门警告过这一点。
-
-## 三点五、只改镜像内容时怎么重出 ISO
-
-改了 `etc/`、`usr/`、`preseed.cfg`，不重跑 chroot 阶段也能出 ISO。顺序固定，
-每一步都在下面这些坑旁边：
-
-```sh
-B=<构建目录> ; REPO=<仓库>
-C=$B/chroot ; LIVE=$C/chroot
-
-# 1 仓库内容要铺两处：includes.chroot 影响「下一次 chroot 阶段」，
-#   外层 chroot 才是这一轮 lb binary_chroot 会复制的源。只铺前者等于没改。
-rsync -a --chown=root:root --chmod=D755,F644 --exclude=/fstab "$REPO/etc/" "$C/etc/"
-rsync -a --chown=root:root --chmod=D755,F755 "$REPO/usr/" "$C/usr/"
-
-# 2 预置答案改了要重打两个 d-i initrd（见第五节）
-repack install/initrd.gz ; repack install/gtk/initrd.gz
-
-# 3 重拷 live 母本，然后修副本（构建期的 apt 与人机痕迹不能进镜像）
-rm -f .build/binary_chroot ; lb binary_chroot
-#   软件源写成 mkimage/live/sources.list 的内容
-#   删 etc/apt/apt.conf.d/00secure 00recommends、usr/sbin/policy-rc.d、etc/debian_chroot
-#   撤掉本地 dpkg 转移（见 3.3）
-
-# 4 压片
-rm -f .build/binary_includes .build/binary_hooks .build/binary_rootfs \
-      .build/binary_checksums .build/binary_iso .lock
-lb binary
-```
-
-### 3.1 `includes.chroot` 不是给 `lb binary` 用的
-
-`lb binary_chroot` 复制的是外壳 `chroot/`。`config/includes.chroot` 只在
-**chroot 阶段**铺进去。只改仓库就跑 `lb binary`，镜像里仍是旧文件 ——
-而且 `lb binary` 退出码是 0、ISO 时间戳是新的，看着完全正常。
-
-### 3.2 `cache/bootstrap` 存在时，`binary_chroot` 会换掉外层 chroot
-
-```
-/usr/lib/live/build/binary_chroot
-    rm -rf chroot/chroot
-    if [ -d cache/bootstrap ]; then
-            mv chroot chroot.tmp
-            cp -a cache/bootstrap chroot     # 外层 chroot 变成干净 bootstrap
-    else
-            cp -a chroot chroot.tmp
-    fi
-    mv chroot.tmp chroot/chroot
-```
-
-真正的构建环境被搬到 `chroot/chroot`，而 `binary_rootfs` 收尾会
-`rm -rf chroot/chroot` —— **跑完这一轮，构建目录里就没有可用的环境了**，
-再跑只能得到一份最小 debootstrap。要么先 `rm -rf cache/bootstrap`（只复制，
-不搬），要么认下这一轮之后必须从环境备份还原。
-
-同理，binary 钩子不能指望外层 `chroot/boot` 有内核；`0100-live-kernel.binary`
-是从 `binary/live/filesystem.squashfs` 里取的。
-
-### 3.3 构建期的 dpkg 转移要连替身一起删
-
-live-build 把 `/usr/sbin/start-stop-daemon` 转移成 `/bin/true` 的符号链接。
-撤的时候直接 `dpkg-divert --rename --remove` 会被拒：
-
-```
-dpkg-divert: error: rename involves overwriting '/usr/sbin/start-stop-daemon'
-with different file '/usr/sbin/start-stop-daemon.distrib', not allowed
-```
-
-要先删掉那个替身再撤。撤不掉的后果不是"少一个包"，是装到真机上以后
-`dpkg-divert ... clashes` 和 `in-target is already running` 连锁失败。
-判断标准只有一条：`start-stop-daemon` 是 ELF，`dpkg-divert --list | grep -c
-'^local diversion'` 是 0。不满足就别压片。
-
-## 四、配置目录
+## 五、配置目录
 
 ```
 mkimage/live/
@@ -215,43 +153,15 @@ mkimage/live/
    ├─ hooks/live/0100-camphor.chroot    —— 重建 initramfs、启用单元、venv、出厂清理
    ├─ hooks/live/0100-live-kernel.binary —— 把内核与 initrd 放进 binary/live
    ├─ hooks/live/0200-grub-menu.binary  —— 菜单条目改名
-   └─ includes.installer/               —— d-i 的预置答案（三份，见 3.6）
+   └─ includes.installer/               —— d-i 的预置答案（三份，主流程见 PITFALLS.md）
 ```
 
-还有一处是第 2 步生成、不入库的：
+还有一处是构建时生成、不入库的：
 
 - `config/includes.chroot/` —— 含 `etc/`、`usr/`、`/opt/leaffs`，
   以及生成的 `config/package-lists/camphor.list.chroot`。
 
-## 三点六、这些坑已经被做成检查
-
-出过的错不再靠记性。两个脚本，起构建前跑前者，出了 ISO 跑后者：
-
-```sh
-sh mkimage/preflight.sh      <仓库> <构建目录>     # 不过就别起构建
-sh mkimage/postbuild-check.sh <ISO>                # 不过就别发
-```
-
-| 坑 | 症状 | 拦在哪 |
-|---|---|---|
-| `--bootappend-live` 缺 `boot=live` | Live 项掉进 busybox，屏幕一片花 | preflight |
-| `--linux-packages none` 却没放内核 | `/live` 无内核，报 file not found | preflight + postbuild |
-| 仓库里带 `etc/default/grub` | 装 grub 时弹 conffile 冲突 | preflight |
-| `late_command` 写成一条长命令 | 被 preseed 续行截断，收尾整段没跑 | preflight + postbuild |
-| 包清单缺 `os-prober` | 菜单里没有同盘的其它系统 | preflight + postbuild |
-| `.gitattributes` 缺 png binary | 引导底图提交后损坏 | preflight |
-| 钩子缺执行位 | `lb config` 静默忽略整份配置 | preflight |
-| `cache/bootstrap` 存在 | `binary_chroot` 换掉外层 chroot，跑完环境就没了 | preflight 提醒 |
-| 包仓库挂在外层 chroot | 整仓 deb 被复制进镜像（ISO 涨 900 MB） | preflight |
-| 删了 `binary_rootfs` 戳没重拷 chroot | 压出 4 KB 空 squashfs，退出码仍是 0 | postbuild（大小下限） |
-| 构建期 dpkg 转移没撤 | 真机 `dpkg-divert ... clashes` | preflight 报条数 + 压片前自检 |
-| `/etc/hostname` 是构建机的 | Live 与装好的系统都显示构建机主机名 | postbuild |
-| `/etc/machine-id` 非空、SSH 主机密钥在 | 出厂态就带了身份 | postbuild |
-| `/root/.cache`、旧字节码、安装日志 | 镜像里留着构建过程 | postbuild |
-| `/home/leaf`、`localrepo` 索引 | 构建路径进镜像 | postbuild |
-| `start-stop-daemon` 是 `/bin/true` 替身 | 真机上服务全起不来 | postbuild |
-
-## 五、验证
+## 六、验证
 
 不要在真机上试。用带 Secure Boot 变量文件的 OVMF 起 QEMU：
 
@@ -263,25 +173,36 @@ qemu-system-x86_64 -m 4096 -machine q35,smm=on \
   -drive id=d0,file=disk.img,format=raw,if=none -device virtio-blk-pci,drive=d0
 ```
 
-要验到：ISO 起得来 → 安装项把系统铺到 `disk.img` → 从 `disk.img` 起 → 桌面出来。
+三件事分开验，各有各的判据：
+
+| 验什么 | 判据 |
+|---|---|
+| ISO 起得来 | 菜单出现，Secure Boot 下 `shim → 签名 grub` 这条链被接受 |
+| 装得进去 | 交互安装每一屏都问、都不停；装完的盘上 fstab、账号、软件源、菜单都对 |
+| 装完起得来 | 从盘起，内核 → initramfs → 根挂上 → kiosk 出界面 |
 
 QEMU 有 virtio/bochs 显示，`/dev/dri/card0` 会出现，所以 kiosk 那套内存门槛也能一起验。
 
-## 六、还没验的几处
+验 Live 不要靠截图猜：绕开菜单，用 `-kernel` / `-initrd` / `-append "boot=live … console=ttyS0"`
+直接起，串口一次拿到内核、systemd 与 X 的全部输出。
 
-`preseed.cfg` 只写与机器无关的答案：不联网、不跑 tasksel、不留 root 口令、
-安装器缺固件时不问。分区、账号、主机名、时区、语言、键盘、引导位置都由安装者当场选。
-下面几处是实跑时先要看的：
+## 七、发版
 
-1. **装完能不能起。** `late_command` 把 `/etc/fstab` 的根从 `LABEL=camphor`
-   改成分区的 UUID —— 这行脚本单独在真 ext4 上跑通过（改出来的 UUID 与
-   `blkid` 一致），但还没在 d-i 里跑过整轮。装完先 `cat /etc/fstab` 核对。
-2. **分区由人做之后的盘。** 要验「已有分区 + 空闲区」的盘（GPT、MBR 各一次）：
-   能建出根、已有分区一个不动。整盘擦除不在方案里。
-3. **账号认不认得上。** ksmbd 的两个共享与 `camphor-filemgr` 的用户名由
-   `late_command` 换成安装者建的账号；验法是装完看 `ksmbd.conf` 里是不是那个名字，
-   再从另一台机器连一次共享。
-4. **交互屏不能停住。** 语言、键盘、主机名、时区、用户、分区、引导位置 ——
-   每一屏都要走一遍，看有没有哪一问把安装卡住。
-5. **要不要再出一份 tar。** `-b tar` 是 live-build 的合法产物类型，能给出裸根文件系统。
-   ISO 里的 squashfs 已经承担了"装到盘上"这件事，是否还需要 tar 形态，等 ISO 通了再定。
+写盘按 `live-manual` 4.4.2 的做法，用 `cp` 就够，不必 `dd`：
+
+```sh
+cp camphor-amd64.hybrid.iso ${USBSTICK}   # 整盘，不是分区
+sync
+```
+
+发布物进 `for-distribution/`，那里只放随产物给用户的东西：许可原文、第三方声明、使用说明。
+`build.sh` 结束时打印路径与 sha256 一并记下来。
+
+## 八、还没验的
+
+1. **菜单里出现其它系统（Windows）的端到端。** 机制就位（`os-prober` +
+   `GRUB_DISABLE_OS_PROBER=false` + 收尾重跑 `update-grub`），缺一块带 Windows 的盘实测。
+2. **要不要再出一份 tar。** `-b tar` 是 live-build 的合法产物类型，能给出裸根文件系统；
+   是否还需要这个形态，等需要时再定。
+3. **安装器固件弹窗的根因。** 现在用 `hw-detect/load_firmware false` 绕过；
+   镜像里 `/firmware/*.deb` 是软链、官方带固件的镜像是真文件，为什么软链不被取走还没查。
