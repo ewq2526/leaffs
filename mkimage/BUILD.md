@@ -20,6 +20,12 @@
 
 所以"内盒装系统"这一步不用自己写脚本，选对选项即可。
 
+**关掉的默认项也要写下来**，否则换一台机器重建时又会打开：
+
+| 选项 | 为什么关 |
+|---|---|
+| `--loadlin false` | `loadlin` 是 DOS 下引导 Linux 的老工具，Debian 13 已无此包；开着构建会停在 `binary_loadlin` 报 `Unable to locate package loadlin` |
+
 ## 二、构建环境
 
 Debian 13 amd64，root，能连 `deb.debian.org`：
