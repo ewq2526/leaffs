@@ -10,9 +10,9 @@ It runs on any machine that can boot an x86_64 kernel, mount a disk and drive a 
 
 1. Install a minimal Debian 13, ext4 root, 512M ESP.
 2. Copy `etc/`, `usr/` and `boot/` from this repository to the same paths on root and the ESP (`boot/grub.cfg` → `EFI/BOOT/grub.cfg`).
-3. Install the packages listed in `for-distribution/packages.txt` (fonts, ffmpeg, firmware),
+3. Install the packages listed in `mkimage/packages.txt` (fonts, ffmpeg, firmware),
    which is the single list that defines the system; to build a release image see
-   `for-distribution/BUILD.md`.
+   `mkimage/BUILD.md`.
 4. Add the kernel modules you need (storage, input, i915, rtw88, zram, netfilter, …); if the system disk is USB, `uas` must be in the initramfs.
 5. Enable the units listed in `etc/systemd/system/camphor-units.list`.
 

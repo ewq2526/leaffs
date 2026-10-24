@@ -35,9 +35,23 @@ too tight for that, so keep the build directory on an external disk and leave th
 clean — if anything goes wrong, delete the whole thing and start over:
 
 ```sh
-cp -a for-distribution/live /media/<mountpoint>/build-camphor
+cp -a mkimage/live /media/<mountpoint>/build-camphor
 cd /media/<mountpoint>/build-camphor
 ```
+
+Which mirror the build fetches from is set by environment variables, defaulting to upstream.
+Security updates live under a separate path on mirrors, and both have to be switched,
+otherwise the build stalls on `security.debian.org`:
+
+```sh
+CAMPHOR_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian/ \
+CAMPHOR_MIRROR_SECURITY=https://mirrors.tuna.tsinghua.edu.cn/debian-security/ \
+lb config
+```
+
+A direct connection to `deb.debian.org` often runs at tens of KB/s; a local mirror can be an
+order of magnitude faster. The `sources.list` installed into the target system still points
+upstream and is not affected by these variables.
 
 ## 3. Steps
 
@@ -49,7 +63,7 @@ REPO=/path/to/camphor          # working copy of the repository
 BUILD=/media/<mountpoint>/build-camphor
 
 # 1 the package list is generated from packages.txt; there is no second copy to maintain
-sed 's/#.*//' "$REPO/for-distribution/packages.txt" \
+sed 's/#.*//' "$REPO/mkimage/packages.txt" \
   | sed 's/[[:space:]]*$//' | grep -v '^$' \
   > "$BUILD/config/package-lists/camphor.list.chroot"
 
@@ -61,6 +75,12 @@ rsync -a "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
 rsync -a "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
 rsync -a "$REPO/leaffs/" "$BUILD/config/includes.chroot/opt/leaffs/leaffs/"
 cp "$REPO/requirements.txt" "$BUILD/config/includes.chroot/opt/leaffs/requirements.txt"
+
+# 2b the kernel comes from a ready-made linux-image deb in packages.chroot,
+#    which live-build installs with dpkg instead of downloading.
+#    --linux-packages none in auto/config turns off live-build's own kernel step
+mkdir -p "$BUILD/config/packages.chroot"
+cp /path/to/linux-image-<version>_amd64.deb "$BUILD/config/packages.chroot/"
 
 # 3 generate the configuration and build
 cd "$BUILD"
@@ -83,7 +103,7 @@ the old values are kept. `lb_config(1)` warns about this in its DESCRIPTION.
 ## 4. Configuration tree
 
 ```
-for-distribution/live/
+mkimage/live/
 ├─ auto/config                          —— every lb config option, with its reason
 └─ config/
    ├─ hooks/live/0100-camphor.chroot    —— creates leaf, enables units, venv, factory cleanup

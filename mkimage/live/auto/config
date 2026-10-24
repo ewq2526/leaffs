@@ -1,0 +1,42 @@
+#!/bin/sh
+# live-build 的 auto/config：lb config 时执行，命令行参数全在这里。
+# 每一项的理由见 mkimage/BUILD.md，不要在这里加没写进文档的选项。
+set -e
+
+# 构建期取包用的镜像。直连 deb.debian.org 往往只有几十 KB/s，
+# 换成本地镜像：CAMPHOR_MIRROR=https://mirrors.aliyun.com/debian/ lb config
+# 装进目标系统的 sources.list 仍指上游，不跟着变（--mirror-binary 保持默认）。
+MIRROR=${CAMPHOR_MIRROR:-http://deb.debian.org/debian/}
+# 安全更新在镜像站上是另一个路径（debian-security），要一起换掉，
+# 否则构建会卡在 security.debian.org 上
+MIRROR_SECURITY=${CAMPHOR_MIRROR_SECURITY:-http://security.debian.org/}
+
+# noauto 阻止 lb config 再次读取本文件而递归
+lb config noauto \
+	--mode debian \
+	--system live \
+	--distribution trixie \
+	--archive-areas "main non-free-firmware" \
+	--mirror-bootstrap "$MIRROR" \
+	--mirror-chroot "$MIRROR" \
+	--mirror-chroot-security "$MIRROR_SECURITY" \
+	--mirror-debian-installer "$MIRROR" \
+	--binary-image iso-hybrid \
+	--debian-installer live \
+	--bootloaders grub-efi \
+	--uefi-secure-boot enable \
+	--chroot-filesystem squashfs \
+	--chroot-squashfs-compression-type zstd \
+	--initramfs live-boot \
+	--initsystem systemd \
+	--linux-flavours amd64 \
+	--linux-packages none \
+	--image-name camphor \
+	--iso-volume CAMPHOR \
+	--iso-application Camphor \
+	--iso-publisher Camphor \
+	--checksums sha256 \
+	--apt-indices false \
+	--apt-source-archives false \
+	--apt-options "--yes --option Acquire::Languages=none" \
+	--bootappend-live "console=tty0 loglevel=4 net.ifnames=0"
