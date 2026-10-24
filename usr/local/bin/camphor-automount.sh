@@ -24,9 +24,10 @@ label=$(printf "%s" "${label:-$k}" | tr -c "A-Za-z0-9._-" "_")
 mkdir -p /media
 typearg=""; first=noatime
 case "$fst" in
-  # ntfs3 连只读都拒绝"脏卷"（Windows 没干净关机、或开着快速启动），加 force；
-  # 只读挂载时 force 不会写卷，也不用退回用户态的 ntfs-3g（FUSE 吞吐差一个量级）。
-  ntfs|ntfs3) typearg="-t ntfs3"; first=ro,noatime,force ;;
+  # ntfs3 只读挂载。**不加 force**：force 会挂上"脏卷"（Windows 没干净关机、
+  # 或开着快速启动），实测会让同一块盘上的 Windows 出问题。
+  # 脏卷就不挂，等那块盘在 Windows 里正常关机后再插。
+  ntfs|ntfs3) typearg="-t ntfs3"; first=ro,noatime ;;
   exfat) typearg="-t exfat" ;;
 esac
 case "$act" in
