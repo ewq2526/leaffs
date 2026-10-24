@@ -1,9 +1,7 @@
 # 目标系统的软件源。
 #
-# d-i 的 apt-setup 步骤会无条件用生成结果覆盖 /target/etc/apt/sources.list，
-# 而我们的安装过程不联网、也不选镜像，生成结果是空的（只有安装介质的
-# cdrom 源，装完那张盘就不在了）。所以这份随 ISO 走，由 preseed 的
-# late_command 在安装末尾覆盖回去。
+# 安装过程不联网、也不选镜像，装好的系统要有一份能用的源，否则 apt 什么也装不了。
+# 这份随介质走，安装器在写完 fstab 之后把它拷到目标系统的 /etc/apt/sources.list。
 #
 # 换镜像站时改这里，同时改 mkimage/live/auto/config 里的 MIRROR_BINARY*。
 deb http://deb.debian.org/debian/ trixie main non-free-firmware

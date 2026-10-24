@@ -1,13 +1,24 @@
 # 单元                             期望状态
+#
+# 这里是 camphor 自己的应用服务。系统服务（udev、journald、logind、getty）
+# 与网络基础不在这份清单里，也不受它影响。
+#
+# 状态一律保持 enabled。应用层是在首次启动时才铺进来的，所以主镜像里
+# 这些链接指向的单元大多还不存在 —— 铺完由 camphor-firstboot.sh 按同一份
+# 清单重新启用并启动。
 camphor-ssh.service                enabled
+ssh.service                        enabled
 camphor-wifi.service               enabled
 leaffs.service                     enabled
 camphor-kiosk.service              enabled
 ksmbd.service                      enabled
 wsdd2.service                      enabled
 avahi-daemon.service               enabled
-systemd-networkd.service           enabled
 camphor-netdiag.service            disabled
 camphor-filemgr.service            disabled
 camphor-zram-swap.service          enabled
-camphor-lowmem-notice.service       enabled
+camphor-lowmem-notice.service      enabled
+camphor-installer.service          enabled
+# 首次启动：把介质上的应用层装进来，装完自删。之后这条路径不再走。
+camphor-firstboot.service          enabled
+systemd-networkd.service           enabled

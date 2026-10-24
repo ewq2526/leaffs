@@ -1,0 +1,19 @@
+# 安装依赖镜像的包清单。
+#
+# 这一层只在「装系统」时用：分区、格式化、把 squashfs 解开。
+# 它们不进主安装镜像，开机时由启动脚本把这个镜像挂起来，用完卸载。
+#
+# 前两行是实际会被解开的 deb（mkimage/live/installer/deps/），
+# 其余是它们依赖的运行库 —— 打包脚本会把缺的库一并收进去。
+
+# 分区与格式化
+parted                     # 列盘、建分区、设标志
+dosfstools                 # 目标盘的 ESP 要 mkfs.vfat
+e2fsprogs                  # mkfs.ext4
+
+# 解开系统镜像
+squashfs-tools             # unsquashfs 把 filesystem.squashfs 铺到目标分区
+
+# 运行库（由 deb 的依赖自动带入，这里写出来是为了看清组成）
+libparted2t64
+libdevmapper1.02.1

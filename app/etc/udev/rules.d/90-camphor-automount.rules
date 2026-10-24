@@ -1,0 +1,7 @@
+# 自动挂载：分区一出现就挂到 /media 下，给文件服务器用。
+#
+# 安装模式下不要挂：安装器要格式化目标分区，分区被预先挂上 mkfs 会拒绝动它。
+# udev 规则不支持 ConditionKernelCommandLine，所以条件写在脚本里（见
+# camphor-automount.sh 开头对 camphor.installer=1 的判断）。
+ACTION=="add", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", ENV{ID_FS_TYPE}!="", RUN+="/usr/local/bin/camphor-automount.sh mount %k"
+ACTION=="remove", SUBSYSTEM=="block", ENV{DEVTYPE}=="partition", RUN+="/usr/local/bin/camphor-automount.sh umount %k"

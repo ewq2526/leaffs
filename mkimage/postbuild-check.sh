@@ -28,13 +28,11 @@ grep -q '/live/vmlinuz-' "$T/live.txt"   && ok "/live 有内核"   || bad "/live
 grep -q '/live/initrd.img-' "$T/live.txt" && ok "/live 有 initrd" || bad "/live 没有 initrd"
 grep -q '/live/filesystem.squashfs' "$T/live.txt" && ok "/live 有 squashfs" || bad "/live 没有 squashfs"
 grep -q '/camphor/sources.list' "$T/camphor.txt"    && ok "/camphor 有 sources.list"    || bad "/camphor 缺 sources.list"
-grep -q '/camphor/postinstall.sh' "$T/camphor.txt"  && ok "/camphor 有 postinstall.sh"  || bad "/camphor 缺 postinstall.sh"
+grep -q '/camphor/installer/' "$T/camphor.txt"      && ok "/camphor 有安装器"           || bad "/camphor 缺安装器"
 
-# 2 把 squashfs 与 d-i initrd 取出来看
+# 2 把 squashfs 取出来看
 xorriso -osirrox on -indev "$ISO" -extract /live/filesystem.squashfs "$T/fs.squashfs" >/dev/null 2>&1 \
 	|| bad "取不出 squashfs（xorriso extract 失败）"
-xorriso -osirrox on -indev "$ISO" -extract /install/initrd.gz "$T/initrd.gz" >/dev/null 2>&1 \
-	|| bad "取不出 /install/initrd.gz"
 
 if [ -f "$T/fs.squashfs" ]; then
 	sq_size=$(stat -c %s "$T/fs.squashfs")
@@ -46,14 +44,37 @@ if [ -f "$T/fs.squashfs" ]; then
 	unsquashfs -ll "$T/fs.squashfs" 2>/dev/null > "$T/sq.list"
 
 	# 该有的
-	grep -q '^os-prober' "$(dirname "$0")/packages.txt" 2>/dev/null && \
+	grep -q '^os-prober' "$(dirname "$0")/packages.base.txt" 2>/dev/null && \
 		{ grep -q 'squashfs-root/usr/bin/os-prober$' "$T/sq.list" && ok "镜像里有 os-prober" || bad "镜像里没有 os-prober"; }
 
 	hostname=$(unsquashfs -cat "$T/fs.squashfs" etc/hostname 2>/dev/null | tr -d '\n')
 	[ "$hostname" = "camphor" ] && ok "/etc/hostname = camphor" || bad "/etc/hostname = '$hostname'（应为 camphor）"
 
+	# 无线：配置在应用层，随 app.squashfs 铺进来。
+	# 主镜像里没有它是正常的 —— 这里只在镜像自称带应用时才查。
+	if grep -q 'squashfs-root/etc/wpa_supplicant/wpa_supplicant-wlan0.conf$' "$T/sq.list"; then
+		ok "镜像里有 wpa_supplicant-wlan0.conf"
+	else
+		echo "  [INFO] 主镜像不含 wpa_supplicant-wlan0.conf（在应用层）"
+	fi
+
 	mid=$(unsquashfs -cat "$T/fs.squashfs" etc/machine-id 2>/dev/null | tr -d '\n')
 	[ -z "$mid" ] && ok "/etc/machine-id 为空" || bad "/etc/machine-id 不是空的（出厂态应交给首次启动生成）"
+
+	# Secure Boot 的签名链：装到盘上的 grub 必须是签名版 + 微软签名的 shim。
+	# 少了它，装完所有启动项在固件里都报安全错误，装出来的系统起不来。
+	grep -q 'shimx64\.efi\.signed$' "$T/sq.list" \
+		&& ok "镜像里有签名 shim（shimx64.efi.signed）" \
+		|| bad "镜像里没有 shimx64.efi.signed：装完过不了 Secure Boot"
+	grep -q 'grubx64\.efi\.signed$' "$T/sq.list" \
+		&& ok "镜像里有签名 grub（grubx64.efi.signed）" \
+		|| bad "镜像里没有 grubx64.efi.signed：装完过不了 Secure Boot"
+	unsquashfs -cat "$T/fs.squashfs" var/lib/dpkg/status 2>/dev/null > "$T/dpkg.status"
+	for p in shim-signed grub-efi-amd64-signed; do
+		grep -q "^Package: $p$" "$T/dpkg.status" \
+			&& ok "$p 已装进镜像" \
+			|| bad "$p 不在镜像里（grub-installer 会写未签名版）"
+	done
 
 	# 不该有的
 	grep -q 'squashfs-root/etc/default/grub$' "$T/sq.list" \
@@ -78,24 +99,6 @@ if [ -f "$T/fs.squashfs" ]; then
 	ssd=$(unsquashfs -ll "$T/fs.squashfs" 2>/dev/null | grep 'squashfs-root/usr/sbin/start-stop-daemon$' | awk '{print $3}')
 	if [ "${ssd:-0}" -gt 1000 ]; then ok "start-stop-daemon 像真身（$ssd 字节）"
 	else bad "start-stop-daemon 是替身（${ssd:-?} 字节）"; fi
-fi
-
-# 3 d-i initrd：三份 preseed、late_command 只调用脚本、没有分区预置
-if [ -f "$T/initrd.gz" ]; then
-	( cd "$T" && mkdir -p ir && cd ir && gzip -dc ../initrd.gz | cpio -idm 'preseed*.cfg' 2>/dev/null )
-	for f in preseed.cfg preseed-hostname.cfg preseed-answers.cfg; do
-		[ -f "$T/ir/$f" ] && ok "initrd 里有 $f" || bad "initrd 里缺 $f"
-	done
-	[ -f "$T/ir/preseed-answers.cfg" ] && {
-		grep -q '^d-i preseed/late_command string sh /cdrom/camphor/postinstall.sh$' "$T/ir/preseed-answers.cfg" \
-			&& ok "late_command 只调用脚本" || bad "late_command 不是「只调用脚本」"
-		grep -q '^d-i partman' "$T/ir/preseed-answers.cfg" \
-			&& bad "preseed 里还有 partman 预置（分区会被自动点掉）" || ok "preseed 没有分区预置"
-	}
-	[ -f "$T/ir/preseed-hostname.cfg" ] && {
-		grep -q 'preseed/interactive boolean true' "$T/ir/preseed.cfg" 2>/dev/null \
-			&& ok "preseed/interactive 的链在" || bad "preseed.cfg 没打开 interactive（主机名预填不生效）"
-	}
 fi
 
 echo

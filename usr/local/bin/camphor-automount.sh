@@ -10,6 +10,11 @@
 set -u
 act=$1; k=${2:-}
 [ -n "$k" ] || exit 0
+
+# 安装模式（内核参数 camphor.installer=1）一律不挂：安装器要格式化目标分区，
+# 分区被预先挂上，mkfs 就会拒绝动它。udev 规则里没法写条件，放在这里判断。
+grep -q 'camphor.installer=1' /proc/cmdline 2>/dev/null && exit 0
+
 dev="/dev/$k"; [ -b "$dev" ] || exit 0
 prop() { /usr/bin/udevadm info --query=property --name="$dev" 2>/dev/null | sed -n "s/^$1=//p" | head -1; }
 label=$(prop ID_FS_LABEL); [ -n "$label" ] || label=$(prop ID_FS_LABEL_ENC)

@@ -1,0 +1,20 @@
+[Unit]
+Description=Camphor installer (components injected from the boot medium)
+# 只有带这个内核参数才启动。应用服务不在主镜像里（它们随应用层在首次启动时才
+# 铺进来），所以安装模式下没有任何服务会来抢这块屏，也不需要额外的停用条件。
+ConditionKernelCommandLine=camphor.installer=1
+After=systemd-udev-settle.service local-fs.target
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+User=root
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+ExecStart=/usr/local/bin/camphor-installer-boot.sh
+# 安装器不应该被反复重启：失败时它自己停在控制台，把原因留在屏幕上。
+Restart=no
+
+[Install]
+WantedBy=graphical.target

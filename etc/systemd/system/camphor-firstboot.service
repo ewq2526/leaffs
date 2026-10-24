@@ -1,0 +1,19 @@
+[Unit]
+Description=Camphor 第二阶段：把应用层装进系统并启服务（跑完自删）
+After=local-fs.target
+Before=multi-user.target
+# 与第一阶段互为开关：安装器的入口脚本还在，说明系统刚装好还没重启，
+# 这时不能装应用。安装器装完会删掉那个脚本，重启后这里才成立。
+ConditionPathExists=!/usr/local/bin/camphor-installer-boot.sh
+ConditionPathExists=/usr/local/bin/camphor-firstboot.sh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/camphor-firstboot.sh
+RemainAfterExit=yes
+Restart=no
+StandardOutput=kmsg
+StandardError=kmsg
+
+[Install]
+WantedBy=multi-user.target

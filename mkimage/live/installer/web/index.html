@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>安装 Camphor</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 36px 48px; color: #e8e8ea;
+    font: 15px/1.6 "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+    /* 底图是同一个夜间樟树，上面叠一道暗色遮罩：图能看见，字压得住。
+       遮罩跟着图一起 fixed，滚动时不会出现明暗断层。 */
+    background:
+      linear-gradient(rgba(10, 12, 16, 0.84), rgba(7, 9, 12, 0.90)),
+      #101014 url("backdrop.jpg") center / cover no-repeat fixed;
+    min-height: 100vh;
+  }
+  h1 { font-size: 28px; margin: 0 0 6px; font-weight: 600; }
+  h2 { font-size: 17px; margin: 0 0 12px; font-weight: 600; }
+  .sub { color: #8b8b93; margin-bottom: 22px; }
+  .step-dot { display: inline-block; color: #6b6b75; font-size: 13px; margin-right: 14px; }
+  .step-dot.on { color: #8fd18f; }
+  .disk { margin-bottom: 26px; }
+  .disk-name { color: #9aa0a6; font-size: 14px; margin-bottom: 8px; }
+
+  /* 外框要比页面底色亮一档，否则整条分区带糊在背景里看不出边界 */
+  .bar { display: flex; height: 54px; border-radius: 8px; overflow: hidden;
+         border: 1px solid #4a4a5c; background: #08080b;
+         box-shadow: 0 0 0 3px #06060a; }
+  .blk { position: relative; display: flex; align-items: center; justify-content: center;
+         font-size: 13px; color: #0e0e12; cursor: pointer; overflow: hidden;
+         border-right: 2px solid #08080b; white-space: nowrap; }
+  .blk:last-child { border-right: none; }
+  .blk.part { background: #8fb0c8; color: #10151a; }
+  .blk.part.esp { background: #b596d6; color: #171020; }
+  .blk.free { background: #56a874; color: #0d1a12; }
+  .blk.sel { outline: 3px solid #8fd18f; outline-offset: -3px; }
+  /* 选中带数据的分区：不是"选中"，是"要被格式化"，用警示色 */
+  .blk.sel.warn { outline: 4px solid #e06a6a; }
+  .warnbad { color: #e08a8a; }
+  .blk:hover { filter: brightness(1.15); }
+  .blk span { padding: 0 6px; overflow: hidden; text-overflow: ellipsis; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px;
+            color: #9aa0a6; font-size: 13px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+              margin-right: 6px; vertical-align: -1px; }
+  .legend i.part { background: #8fb0c8; }
+  .legend i.esp { background: #b596d6; }
+  .legend i.free { background: #56a874; }
+
+  .tools { display: flex; gap: 10px; align-items: center; margin-top: 10px;
+           min-height: 42px; flex-wrap: wrap; }
+  .tools label { color: #9aa0a6; font-size: 14px; }
+  input[type=number], input[type=text], input[type=password] {
+    font: inherit; padding: 8px 10px; border-radius: 7px;
+    border: 1px solid #33333d; background: #12121a; color: #e8e8ea;
+  }
+  input[type=number] { width: 110px; }
+  input[type=text], input[type=password] { width: 260px; }
+
+  button {
+    font: inherit; padding: 9px 18px; border-radius: 7px; cursor: pointer;
+    border: 1px solid #3a3a45; background: #1d1d25; color: #e8e8ea;
+  }
+  button.primary { background: #2f6b45; border-color: #3c8a58; }
+  button.danger { border-color: #6b3a3a; color: #e0a0a0; }
+  button:disabled { opacity: .4; cursor: default; }
+
+  .panel { display: none; }
+  .panel.show { display: block; }
+  .kv { display: grid; grid-template-columns: 100px 1fr; gap: 5px 14px; margin-bottom: 18px; }
+  .k { color: #8b8b93; font-size: 14px; }
+  .warn { color: #e0b06a; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; color: #9aa0a6; font-size: 14px; margin-bottom: 5px; }
+  .foot { margin-top: 18px; display: flex; gap: 12px; align-items: center; }
+  .hint { color: #7f8790; font-size: 14px; }
+  #step3 .step { font-size: 19px; margin-bottom: 14px; }
+  #step3 pre {
+    margin: 0; padding: 14px 16px; background: #16161c; border: 1px solid #26262e;
+    border-radius: 10px; height: 340px; overflow: auto; color: #b9b9c3;
+    font: 13px/1.7 ui-monospace, "DejaVu Sans Mono", monospace; white-space: pre-wrap;
+  }
+  .err { color: #e08a8a; }
+</style>
+</head>
+<body>
+  <div class="panel show" id="step1">
+    <h1>安装 Camphor</h1>
+    <div class="sub">
+      <span class="step-dot on">① 分区</span>
+      <span class="step-dot">② 账号</span>
+      <span class="step-dot">③ 安装</span>
+    </div>
+    <div class="sub">调整分区，然后选一个分区作为系统位置。</div>
+    <div id="list"></div>
+    <div class="foot">
+      <button id="next" class="primary" disabled>下一步</button>
+      <span class="hint" id="h1">先选一个分区</span>
+    </div>
+  </div>
+
+  <div class="panel" id="step2">
+    <h1>账号</h1>
+    <div class="sub">
+      <span class="step-dot">① 分区</span>
+      <span class="step-dot on">② 账号</span>
+      <span class="step-dot">③ 安装</span>
+    </div>
+    <div class="kv">
+      <div class="k">目标分区</div><div class="v" id="p-target"></div>
+      <div class="k">会做什么</div><div class="v warn" id="p-act"></div>
+      <div class="k">引导分区</div><div class="v" id="p-esp"></div>
+    </div>
+    <div class="field">
+      <label for="user">用户名</label>
+      <input id="user" type="text" autocomplete="off" placeholder="用这个账号登录系统">
+    </div>
+    <div class="field">
+      <label for="pass">口令</label>
+      <input id="pass" type="password" autocomplete="new-password">
+    </div>
+    <div class="field">
+      <label for="pass2">再输一次</label>
+      <input id="pass2" type="password" autocomplete="new-password">
+    </div>
+    <div class="foot">
+      <button id="back">返回</button>
+      <button id="go" class="primary" disabled>开始安装</button>
+      <span class="hint" id="h2">填好用户名与口令</span>
+    </div>
+  </div>
+
+  <div class="panel" id="step3">
+    <h1>正在安装</h1>
+    <div class="sub">
+      <span class="step-dot">① 分区</span>
+      <span class="step-dot">② 账号</span>
+      <span class="step-dot on">③ 安装</span>
+    </div>
+    <div class="step" id="plabel">准备中…</div>
+    <pre id="log"></pre>
+    <div class="foot">
+      <button id="reboot" class="primary" style="display:none">重启</button>
+      <span class="hint" id="h3"></span>
+    </div>
+  </div>
+
+<script>
+let picked = null;
+let timer = null;
+let disksData = [];
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+  const res = await fetch(path, opt);
+  const data = await res.json().catch(() => ({}));
+  if (data.error) throw new Error(data.error);
+  return data;
+}
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+const TYPE_NAMES = {
+  'esp': 'EFI 系统分区',
+  'bios-boot': 'BIOS 引导分区',
+  'msr': 'Microsoft 保留分区',
+  'win-recovery': 'Windows 恢复分区',
+  'win-data': 'Windows 数据分区',
+  'ldm': 'Windows 动态磁盘元数据',
+  'linux': 'Linux 分区',
+  'swap': '交换分区',
+};
+
+function typeName(r) {
+  return TYPE_NAMES[r.ptype] || (r.fstype ? r.fstype + ' 分区' : '分区');
+}
+
+function toolsId(device) { return 'tools-' + device.replace(/\W/g, ''); }
+
+
+function renderDisk(d) {
+  const box = el('div', 'disk');
+  box.appendChild(el('div', 'disk-name', `${d.device}   ${d.size}`));
+
+  const bar = el('div', 'bar');
+  const legend = el('div', 'legend');
+  const total = d.rows.reduce((n, r) => n + (parseFloat(r.size) || 0), 0) || 1;
+  for (const r of d.rows) {
+    const pct = (parseFloat(r.size) || 0) / total * 100;
+    const w = Math.max(2, pct);
+    const esp = /esp/i.test(r.flags || '');
+    const fs = r.fstype ? ' · ' + r.fstype : '';
+    const used = (typeof r.used_pct === 'number') ? r.used_pct : null;
+    const name = r.free ? '空闲' : (esp ? 'EFI 系统分区' : `分区 ${r.index}` + (r.ptype && r.ptype !== 'linux' ? `（${typeName(r)}）` : ''));
+    const full = `${name}${fs} · ${Math.round(r.size)} MiB` +
+                 (used !== null ? ` · 已用 ${used}%` : '') +
+                 ` · ${r.start}–${r.end} MiB`;
+    const blk = el('div', 'blk ' + (r.free ? 'free' : (esp ? 'part esp' : 'part')));
+    blk.style.flex = `0 0 ${w}%`;
+    blk.title = full + (r.protected ? '　（系统分区，格式化后另一套系统可能起不来）' : '');
+    // 已用部分压深一档：分区占用多少一眼能看出来
+    if (!r.free && used !== null) {
+      const base = esp ? '#b596d6' : '#8fb0c8';
+      const dark = esp ? '#7d5aa0' : '#4f7a99';
+      blk.style.background =
+        `linear-gradient(90deg, ${dark} 0 ${used}%, ${base} ${used}% 100%)`;
+    }
+    // 块窄了字会被裁成半个，就不画；信息在下面的图例里
+    if (pct >= 7) {
+      let label;
+      if (r.free) label = `${Math.round(r.size)}M`;
+      else if (pct >= 14) label = `分区 ${r.index}${r.fstype ? ' · ' + r.fstype : ''}`;
+      else label = r.fstype || `${Math.round(r.size)}M`;
+      blk.appendChild(el('span', null, label));
+    }
+    if (picked && picked.device === d.device && picked.row.rowid === r.rowid) {
+      blk.classList.add('sel');
+      // 有数据的分区被选中 = 这些数据要被格式化
+      if (!r.free && (r.fstype || (r.used_pct || 0) > 0)) blk.classList.add('warn');
+    }
+    blk.onclick = () => selectRow(d, r);
+    bar.appendChild(blk);
+
+    const item = el('span');
+    item.appendChild(el('i', r.free ? 'free' : (esp ? 'esp' : 'part')));
+    item.appendChild(document.createTextNode(full));
+    legend.appendChild(item);
+  }
+  box.appendChild(bar);
+  box.appendChild(legend);
+
+  const tools = el('div', 'tools');
+  tools.id = toolsId(d.device);
+  box.appendChild(tools);
+  return box;
+}
+
+async function selectRow(d, r) {
+  picked = { device: d.device, disk: d, row: r };
+  await load();                    // 先重画色块（会清空工具区）
+  const fresh = disksData.find(x => x.device === d.device);
+  const same = fresh && fresh.rows.find(x => x.rowid === r.rowid);
+  picked.row = same || r;
+  if (same) showTools(fresh, same);
+  checkNext();
+}
+
+function showTools(d, r) {
+  const tools = document.getElementById(toolsId(d.device));
+  if (!tools) return;
+  tools.innerHTML = '';
+  if (r.free) {
+    const size = el('input');
+    size.type = 'number';
+    size.min = 100;
+    size.value = Math.floor(parseFloat(r.size) || 0);
+    const btn = el('button', 'primary', '在这里新建分区');
+    btn.onclick = async () => {
+      const mib = parseInt(size.value, 10);
+      if (!mib || mib < 100) { alert('至少 100 MiB'); return; }
+      const end = Math.min(parseFloat(r.end), parseFloat(r.start) + mib);
+      btn.disabled = true;
+      try {
+        await api('/api/mkpart', { device: d.device, start: r.start, end: Math.round(end) });
+        picked = null;
+        await load();
+        checkNext();
+      } catch (e) { alert('新建失败：' + e.message); btn.disabled = false; }
+    };
+    tools.append(el('label', null, `大小（MiB，最多 ${Math.floor(r.size)}）`), size, btn);
+  } else {
+    const esp = /esp/i.test(r.flags || '');
+    if (esp) {
+      tools.append(el('span', 'hint', '这是 EFI 系统分区，装系统时会复用它，不会被格式化'));
+    } else {
+      const hasData = !!r.fstype || (r.used_pct || 0) > 0;
+      const desc = `${typeName(r)}${r.fstype ? '（' + r.fstype + '）' : ''}`;
+      tools.append(el(hasData || r.protected ? 'warnbad' : 'hint',
+        r.protected
+          ? `这是${desc}，属于系统引导/恢复一类的分区。选它装系统会把它格式化，另一套系统可能起不来`
+          : (hasData
+              ? `这个分区上有数据（${desc}${typeof r.used_pct === 'number' ? `，已用 ${r.used_pct}%` : ''}），下一步会把它格式化`
+              : '这个分区是空的，下一步会格式化它并装系统')));
+      const del = el('button', 'danger', `删除分区 ${r.index}`);
+      del.onclick = async () => {
+        const extra = r.protected ? `\n\n注意：这是${typeName(r)}，删掉后另一套系统可能起不来。` : '';
+        if (!confirm(`删除分区 ${r.index}？上面的数据会丢失。${extra}`)) return;
+        del.disabled = true;
+        try {
+          await api('/api/rmpart', { device: d.device, index: r.index });
+          picked = null;
+          await load();
+          checkNext();
+        } catch (e) { alert('删除失败：' + e.message); del.disabled = false; }
+      };
+      tools.append(del);
+    }
+  }
+}
+
+const MIN_ROOT_MIB = 4096;   // 系统解开约 2.4 GB，加应用层与运行余量
+
+function checkNext() {
+  const next = document.getElementById('next');
+  const h1 = document.getElementById('h1');
+  let why = '';
+  if (!picked) why = '先选一个分区，或选一块空闲空间';
+  next.disabled = !!why;
+  if (why) {
+    h1.textContent = why;
+    h1.className = 'hint';
+    return;
+  }
+  const r = picked.row;
+  const size = parseFloat(r.size) || 0;
+  if (size < MIN_ROOT_MIB) {
+    h1.textContent = `这块只有 ${Math.round(size)} MiB，系统至少要 ${MIN_ROOT_MIB} MiB`;
+    h1.className = 'warnbad';
+    return;
+  }
+  if (r.free) {
+    h1.textContent = `${picked.device} 空闲 ${Math.round(r.size)} MiB —— 会新建分区并装进去`;
+    h1.className = 'hint';
+    return;
+  }
+  const hasData = !!r.fstype || (r.used_pct || 0) > 0;
+  const desc = `${typeName(r)}${r.fstype ? '（' + r.fstype + '）' : ''}`;
+  h1.textContent = r.protected
+    ? `${picked.device} 分区 ${r.index} 是${desc} —— 选它装系统会把这个分区格式化`
+    : (hasData
+        ? `${picked.device} 分区 ${r.index}（${desc}，${r.size} MiB）—— 下一步会格式化它`
+        : `${picked.device} 分区 ${r.index}，${r.size} MiB`);
+  h1.className = (hasData || r.protected) ? 'warnbad' : 'hint';
+}
+
+function showStep(n) {
+  for (const i of [1, 2, 3]) {
+    document.getElementById('step' + i).classList.toggle('show', i === n);
+  }
+}
+
+document.getElementById('next').onclick = () => {
+  if (document.getElementById('next').disabled) return;
+  const r = picked.row;
+  document.getElementById('p-target').textContent = r.free
+    ? `${picked.device}   空闲 ${Math.round(r.size)} MiB`
+    : `${picked.device}   分区 ${r.index}   ${r.size} MiB`;
+  document.getElementById('p-act').textContent = r.free
+    ? '在这块空闲空间上新建分区，把系统装进去'
+    : '格式化这个分区，把系统装进去（数据会全部丢失）';
+  document.getElementById('p-esp').textContent = '同一块盘上已有的 EFI 分区会被复用；没有就新建一个';
+  showStep(2);
+  checkForm();
+};
+
+document.getElementById('back').onclick = () => { showStep(1); };
+
+function checkForm() {
+  const u = document.getElementById('user').value.trim();
+  const p = document.getElementById('pass').value;
+  const p2 = document.getElementById('pass2').value;
+  const go = document.getElementById('go');
+  const h2 = document.getElementById('h2');
+  let why = '';
+  if (!u) {
+    why = '填一个用户名';
+  } else if (/^[0-9]/.test(u)) {
+    // useradd 不接受数字开头的名字，这里先挡住，别等安装到一半才报错
+    why = '用户名不能以数字开头';
+  } else if (!/^[a-z_][a-z0-9_-]{0,31}$/.test(u)) {
+    why = '用户名只能用小写字母、数字、下划线、减号';
+  } else if (!p) {
+    why = '设一个口令';
+  } else if (p !== p2) {
+    why = '两次口令不一致';
+  }
+  go.disabled = !!why;
+  h2.textContent = why || '确认无误后开始安装';
+}
+for (const id of ['user', 'pass', 'pass2']) {
+  document.getElementById(id).addEventListener('input', checkForm);
+}
+
+async function load() {
+  const list = document.getElementById('list');
+  try {
+    const data = await api('/api/disks');
+    disksData = data.disks || [];
+    list.innerHTML = '';
+    if (!disksData.length) {
+      const dbg = data.debug || {};
+      list.appendChild(el('div', 'sub err',
+        '没有找到磁盘。候选：' + ((dbg.dev_candidates || []).join(', ') || '无')));
+      return;
+    }
+    for (const d of disksData) list.appendChild(renderDisk(d));
+    if (picked) {
+      const fresh = disksData.find(x => x.device === picked.device);
+      const same = fresh && fresh.rows.find(x => x.rowid === picked.row.rowid);
+      if (same) showTools(fresh, same);
+    }
+    checkNext();
+  } catch (e) {
+    list.innerHTML = '';
+    list.appendChild(el('div', 'sub err', '读不到磁盘：' + e.message));
+  }
+}
+
+async function poll() {
+  try {
+    const s = await api('/api/progress');
+    document.getElementById('plabel').textContent = s.step || '准备中…';
+    document.getElementById('log').textContent = (s.lines || []).join('\n');
+    const box = document.getElementById('log');
+    box.scrollTop = box.scrollHeight;
+    if (s.done) {
+      document.getElementById('reboot').style.display = 'inline-block';
+      document.getElementById('h3').textContent = '装好了，重启进入系统';
+      clearInterval(timer);
+    } else if (s.error) {
+      document.getElementById('plabel').className = 'step err';
+      document.getElementById('h3').textContent = '失败了：' + s.error;
+      clearInterval(timer);
+    }
+  } catch (e) { /* 服务还没起来 */ }
+}
+
+document.getElementById('go').onclick = async () => {
+  if (document.getElementById('go').disabled) return;
+  showStep(3);
+  await api('/api/install', {
+    device: picked.device,
+    rowid: picked.row.rowid,
+    username: document.getElementById('user').value.trim(),
+    password: document.getElementById('pass').value,
+  }).catch(() => {});
+  timer = setInterval(poll, 800);
+  poll();
+};
+
+document.getElementById('reboot').onclick = async () => {
+  await api('/api/reboot', {}).catch(() => {});
+};
+
+load();
+</script>
+</body>
+</html>

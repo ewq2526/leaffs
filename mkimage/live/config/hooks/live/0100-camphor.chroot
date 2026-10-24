@@ -23,10 +23,10 @@ fi
 ln -sf "vmlinuz-$kv" vmlinuz
 ln -sf "initrd.img-$kv" initrd.img
 
-# 引导菜单不进根文件系统：装好的系统由 grub-installer 调 grub-mkconfig 生成，
-# 按 UUID 找根；内核命令行参数由 etc/default/grub 提供，不在这里写死。
-# 账号不由镜像预置：账号与口令由 debian-installer 问安装者，装完由 preseed 的
-# late_command 把 ksmbd 与 camphor-filemgr 里按名字认人的两处改成那个账号。
+# 引导菜单不进根文件系统：装好的系统由安装器调 grub-mkconfig 生成，
+# 按 UUID 找根；内核命令行参数由安装器写的 etc/default/grub 提供。
+# 账号不由镜像预置：账号与口令在安装时由安装者填，ksmbd 与 camphor-filemgr 里
+# 按名字认人的两处由首次启动脚本改成那个账号。
 # 镜像里预先放一个账号，等于把一份已知口令随介质发出去。
 
 
@@ -36,7 +36,14 @@ ln -sf "initrd.img-$kv" initrd.img
 while read -r unit state; do
 	case "$unit" in ''|'#'*) continue ;; esac
 	if [ "$state" = enabled ]; then
-		systemctl enable "$unit"
+		# 清单描述的是完整系统要有哪些服务。分层之后，应用服务不在主镜像这一层，
+		# 单元文件根本不存在 —— 直接 enable 会让整个钩子以非零退出，构建停在这里。
+		# 缺的跳过，装完应用层再启。
+		if [ -f "/etc/systemd/system/$unit" ] || [ -f "/usr/lib/systemd/system/$unit" ]; then
+			systemctl enable "$unit"
+		else
+			echo "camphor: $unit 不在这一层，跳过"
+		fi
 	fi
 done < /etc/systemd/camphor-units.list
 
@@ -45,12 +52,19 @@ systemctl set-default graphical.target
 
 # leaffs 的依赖装进自己的 venv；--system-site-packages 是为了让 pywebview
 # 用到系统里的 gi 与 WebKit
-python3 -m venv --system-site-packages /opt/leaffs/venv
-# 构建期用国内索引：直连 files.pythonhosted.org 会中途超时，
-# pywebview 的 proxy_tools 是源码包，下载断了整个 chroot 阶段就失败
-PIP_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"
-/opt/leaffs/venv/bin/pip install --no-cache-dir --retries 5 --timeout 60 \
-	-i "$PIP_INDEX" -r /opt/leaffs/requirements.txt
+#
+# leaffs 是应用，不在主镜像这一层：主镜像里没有 /opt/leaffs，这一段跳过。
+# 应用层镜像构建时它在那里，装进 venv。
+if [ -d /opt/leaffs ] && [ -f /opt/leaffs/requirements.txt ]; then
+	python3 -m venv --system-site-packages /opt/leaffs/venv
+	# 构建期用国内索引：直连 files.pythonhosted.org 会中途超时，
+	# pywebview 的 proxy_tools 是源码包，下载断了整个 chroot 阶段就失败
+	PIP_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"
+	/opt/leaffs/venv/bin/pip install --no-cache-dir --retries 5 --timeout 60 \
+		-i "$PIP_INDEX" -r /opt/leaffs/requirements.txt
+else
+	echo "camphor: 这一层没有 /opt/leaffs，跳过 venv"
+fi
 
 # 出厂状态里不该有身份：首次启动由 systemd 生成 machine-id、
 # 由 camphor-ssh 的 ExecStartPre 生成主机密钥
@@ -67,4 +81,4 @@ rm -rf /var/log/journal/* /var/log/runit/*
 : > /var/log/lastlog
 : > /var/log/wtmp
 : > /var/log/btmp
-find /opt/leaffs -name __pycache__ -type d -prune -exec rm -rf {} +
+find /opt/leaffs -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true

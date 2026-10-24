@@ -1,0 +1,17 @@
+[Unit]
+Description=Camphor WiFi connection (wpa_supplicant on wlan0)
+After=systemd-networkd.service
+Wants=systemd-networkd.service
+
+[Service]
+Type=simple
+RuntimeDirectory=wpa_supplicant
+ExecStartPre=-/usr/sbin/rfkill unblock all
+# 等 wlan0 出现，但要有个上限：没有无线网卡的机器上，原来的写法会永远等下去，
+# 服务一直挂在 activating，界面上看就是卡住。
+ExecStart=/bin/sh -c 'n=0; while [ ! -e /sys/class/net/wlan0 ]; do n=$((n+1)); [ $n -gt 30 ] && exit 1; sleep 1; done; exec /usr/sbin/wpa_supplicant -c /etc/wpa_supplicant/wpa_supplicant-wlan0.conf -i wlan0'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

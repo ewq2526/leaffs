@@ -9,8 +9,8 @@
 #   构建目录段 —— 这个构建目录现在的状态会不会把镜像做坏
 #
 # 用法：sh mkimage/preflight.sh <仓库路径> <构建目录>
-#   <仓库路径>  eg. /mnt/e/os
-#   <构建目录>  eg. /home/leaf/build-camphor
+#   <仓库路径>  仓库检出目录
+#   <构建目录>  live-build 的构建目录（与仓库分开，出问题整目录重来）
 set -u
 
 REPO=${1:-.}
@@ -71,18 +71,13 @@ else
 	ok "仓库不带 etc/default/grub"
 fi
 
-# 7 收尾脚本与 software sources 要随 ISO 走，且 late_command 只调用脚本
-[ -f "$REPO/mkimage/live/postinstall.sh" ] && ok "postinstall.sh 在" || bad "缺 mkimage/live/postinstall.sh"
+# 7 软件源要随介质走：装完由安装器拷到目标系统，缺了装好的机器就没有 apt 源
 [ -f "$REPO/mkimage/live/sources.list" ] && ok "sources.list 在" || bad "缺 mkimage/live/sources.list"
-grep -q '^d-i preseed/late_command string sh /cdrom/camphor/postinstall.sh$' \
-	"$REPO/mkimage/live/config/includes.installer/preseed-answers.cfg" 2>/dev/null \
-	&& ok "late_command 只调用脚本" \
-	|| bad "late_command 不是「只调用脚本」的形态（长命令会在 preseed 里被截断）"
 
-# 8 其它系统进菜单：os-prober 在包清单里
-grep -q '^os-prober' "$REPO/mkimage/packages.txt" 2>/dev/null \
-	&& ok "包清单有 os-prober" \
-	|| bad "包清单缺 os-prober（菜单里不会出现其它系统）"
+# 8 其它系统进菜单：os-prober 在主镜像的包清单里
+grep -q '^os-prober' "$REPO/mkimage/packages.base.txt" 2>/dev/null \
+	&& ok "主镜像包清单有 os-prober" \
+	|| bad "主镜像包清单缺 os-prober（菜单里不会出现其它系统）"
 
 echo
 echo "== 构建目录：$BUILD"
@@ -112,10 +107,18 @@ fi
 
 # 11 外层 chroot 必须是完整环境：被 cache/bootstrap 顶掉过一次，
 #    之后压出来的是最小 debootstrap，且 binary_rootfs 会把真环境删掉
+#
+#    opt/leaffs 不在主镜像这一层：leaffs 是应用，装在应用层镜像里。
+#    主镜像的 chroot 里没有它是对的，出现在这里才该问一句。
 if [ -d "$BUILD/chroot" ]; then
-	for p in opt/leaffs usr/bin/python3 usr/sbin/start-stop-daemon; do
+	for p in usr/bin/python3 usr/sbin/start-stop-daemon; do
 		[ -e "$BUILD/chroot/$p" ] && ok "chroot 有 $p" || bad "chroot 缺 $p —— 外层 chroot 不是完整环境"
 	done
+	if [ -e "$BUILD/chroot/opt/leaffs" ]; then
+		ok "chroot 有 opt/leaffs"
+	else
+		echo "  [INFO] 主镜像不含 opt/leaffs（leaffs 在应用层）"
+	fi
 fi
 
 # 12 cache/bootstrap 存在时 binary_chroot 会 mv 掉外层 chroot：跑完这一轮环境就没了

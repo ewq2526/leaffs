@@ -1,0 +1,18 @@
+[Unit]
+Description=Camphor SSH server
+After=network.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p /run/sshd
+# 镜像里不带主机密钥（那是机器身份），首次启动时现生成
+# ssh-keygen 在 /usr/bin，不在 /usr/sbin
+ExecStartPre=/usr/bin/ssh-keygen -A
+# 走 2222：Debian 自带的 ssh.service 占着 22，两个 sshd 不能同抢一个端口。
+# 保留 Debian 那个当备用入口，我们自己这套的日志与配置独立
+ExecStart=/usr/sbin/sshd -D -e -p 2222
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

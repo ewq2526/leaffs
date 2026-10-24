@@ -1,48 +1,63 @@
-desktop-image: "../splash.png"
+# Camphor 引导菜单主题
+#
+# 底图就是原图（2560x1440 JPEG），没缩、没压暗、没裁切；GRUB 按屏幕分辨率缩放。
+#
+# 版式跟着底图走：樟树占中间，左上那片是暗星空。标题、副标题、菜单都放左上，
+# 不压在树冠上；菜单宽度只占三成，选中条才只包住那一行字。
+#
+# 不用 title-text：那条标题只能居中，位置改不动。标题用两个普通 label 画，
+# 大的那个用 camphor-title.pf2（DejaVu Bold 40px，只有 ASCII），
+# 中文那行用镜像自带的 unicode.pf2。
+#
+# 同一份 theme.txt 两处用：ISO 上的 /boot/grub/live-theme/（副标题是「安装程序」）、
+# 装好系统里的 /boot/grub/themes/camphor/（装机时由 build.sh 删掉副标题）。
+# 底图与字体都在 theme.txt 同目录，所以都写相对路径。
+#
+# 注意：这个 GRUB（2.12）不认 desktop-image-scale-method 这类属性，
+# 写错一个属性整份主题会被丢掉、退回纯文字菜单，而且不报错。
+# 百分比只写整数。
+
+desktop-image: "splash.jpg"
+# 留空是必须的：不写这一行，GRUB 会在正中上方画它自带的 "GRUB Boot Menu"。
 title-text: ""
 message-font: "Unifont Regular 16"
 terminal-font: "Unifont Regular 16"
 
-# 菜单
+# 标题：一张带透明通道的图，CAMPHOR 大字后面跟着小的「安装程序」。
+# 不用 label + 自定义字体：那个 pf2 加载了，label 还是退回点阵字体，
+# 图更省事，版式也所见即所得（生成脚本 .work/tools/make-title-image.ps1）。
++ image {
+	file = "title.png"
+	left = 6%
+	top = 6%
+}
+
+# 菜单：标题下面。宽度只放得下条目文字，选中条才只包住那一行字。
 + boot_menu {
 	left = 6%
-	top = 38%
-	width = 88%
-	height = 42%
+	top = 18%
+	width = 16%
+	height = 24%
 	item_font = "Unifont Regular 16"
-	item_color = "#9aa5ad"
-	selected_item_color = "#ffffff"
-	item_height = 26
-	item_padding = 6
-	item_spacing = 6
+	item_color = "#c6d2d8"
+	selected_item_color = "#a6e6bb"
+	item_height = 36
+	item_padding = 4
+	item_spacing = 16
+	selected_item_pixmap_style = "select_*.png"
 	icon_width = 0
 	icon_height = 0
 	item_icon_space = 0
 }
 
-# 底部按键说明
+# 底部按键提示
 + label {
-	top = 100%-40
-	left = 0
-	width = 100%
+	top = 100%-34
+	left = 6%
+	width = 40%
 	height = 20
 	text = "@KEYMAP_SHORT@"
-	align = "center"
-	color = "#5c666d"
+	align = "left"
+	color = "#8b98a2"
 	font = "Unifont Regular 16"
-}
-
-# 倒计时条
-+ progress_bar {
-	id = "__timeout__"
-	left = 6%
-	top = 100%-66
-	height = 6
-	width = 88%
-	font = "Unifont Regular 16"
-	text_color = "#7e8990"
-	fg_color = "#4ea36a"
-	bg_color = "#1c2426"
-	border_color = "#1c2426"
-	text = "@TIMEOUT_NOTIFICATION_SHORT@"
 }

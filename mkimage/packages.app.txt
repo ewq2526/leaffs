@@ -1,0 +1,27 @@
+# 应用及服务镜像的包清单。
+#
+# 这一层是 leaffs 这个应用本身要的东西：下载器、视频、中文界面、
+# SSH、SMB、发现、无线、防火墙。
+#
+# 它们不打进主安装镜像，而是单独打成一份镜像放在介质上；
+# 安装完成后的脚本把它铺进目标系统，再把服务启起来。
+# 所以主镜像开机时没有这些包，也就没有这些服务可启 —— 不需要任何开关。
+#
+# X、webkit、Python 不在这里：安装器和应用都要用，已经在主镜像那一层。
+
+# ── 应用运行时 ──────────────────────────────────────────────
+aria2                      # 下载器
+ffmpeg                     # 视频预览
+fonts-noto-cjk             # 界面中文
+
+# ── 网络、共享与发现 ────────────────────────────────────────
+openssh-server
+ksmbd-tools
+avahi-daemon
+wsdd2
+libnss-mdns
+wpasupplicant
+iw
+rfkill
+nftables                   # modules-load.d/camphor-netfilter.conf
+systemd-timesyncd

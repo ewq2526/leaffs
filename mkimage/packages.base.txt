@@ -1,0 +1,65 @@
+# 主安装镜像的包清单：基本系统。
+#
+# 这一层只到「内核 + systemd 骨架 + 能装系统的最小工具」。
+# 界面、文件服务、共享、无线这些不在这里 —— 它们在应用及服务镜像里，
+# 由安装完成后的脚本从那个镜像铺进来。
+#
+# 一行一个包名；# 之后是理由，不参与解析。
+# 与 mkimage/packages.app.txt、mkimage/packages.installer.txt 三份合起来才是整套系统。
+
+# ── 内核与固件 ──────────────────────────────────────────────
+# 内核按具体版本写：构建用本地包仓库，里面只有这一份 deb，没有 meta 包。
+# 换内核时同时改这里与仓库里的 deb。
+# 模块树是裁过的（850 个，33 MB）：网卡蓝牙整棵保留，声音、媒体、InfiniBand 不要。
+linux-image-6.12.113+deb13-amd64
+initramfs-tools            # 生成 initrd，配置用仓库的 /etc/initramfs-tools
+firmware-realtek
+firmware-iwlwifi
+firmware-atheros
+firmware-brcm80211
+firmware-intel-graphics    # i915
+firmware-misc-nonfree
+wireless-regdb
+intel-microcode
+
+# ── 图形：X 与窗口 ──────────────────────────────────────────
+# 安装器和应用都要用，所以放在主镜像这一层，两个支镜像共用的就是这一份。
+xserver-xorg-core
+xserver-xorg-input-libinput
+xserver-xorg-legacy        # xinit 由 root 起 X 时需要
+xinit
+x11-xserver-utils
+openbox                    # 会话里的窗口管理器，只承载一个全屏窗口
+libgl1-mesa-dri            # i915 的 GL 实现
+
+# ── 窗口里的那个视图 ────────────────────────────────────────
+gir1.2-webkit2-4.1         # 安装器与应用都靠它显示页面
+python3-gi
+python3-gi-cairo
+
+# ── Python ─────────────────────────────────────────────────
+# 安装器的后端与应用都是 Python 写的，同在公共层。
+python3
+python3-venv
+
+# ── 存储 ───────────────────────────────────────────────────
+e2fsprogs
+dosfstools                 # ESP 与 U 盘
+rsync                      # 应用镜像铺进系统时用它
+
+# ── 基础 ───────────────────────────────────────────────────
+locales
+console-setup
+keyboard-configuration
+tzdata
+dbus                       # logind 与各服务的会话总线
+ca-certificates
+sudo
+
+# ── 引导 ───────────────────────────────────────────────────
+# Secure Boot 那条链：装到盘上的 grub 必须是签名版，并由微软签名的 shim 拉起来。
+grub-efi-amd64-signed
+shim-signed
+efibootmgr
+# 装好的系统里 update-grub 要靠 os-prober 把同盘上的其它系统写进菜单。
+os-prober

@@ -1,0 +1,20 @@
+[Unit]
+Description=Camphor file management service
+After=network.target local-fs.target
+
+[Service]
+Type=simple
+# 占位：首次启动时由 camphor-firstboot.sh 换成安装时创建的账号及其主组
+User=nobody
+Group=nogroup
+ExecStart=/usr/bin/python3 /opt/camphor/filemgr/main.py
+Restart=always
+RestartSec=2
+StateDirectory=camphor
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/files
+
+[Install]
+WantedBy=multi-user.target
