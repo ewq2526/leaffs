@@ -123,8 +123,13 @@ def list_disks():
         size = ""
         # 用 JSON 输出解析：parted 的 -m 格式字段会随版本变，行尾分号、
         # 空闲行的段数都不一样（这里踩过）。JSON 里 number=0 就是空闲区。
+        #
+        # 单位用扇区、不用 MiB：parted 打印 MiB 时只保留到小数点后一位，
+        # 446467.1 MiB 会印成 "446467MiB"，拿这个值去建分区会压在前一个分区上，
+        # parted 于是把它顶到最近的位置，报 "The closest location we can manage is …"。
+        # 扇区是精确值，建分区直接用它的起止。
         p = subprocess.run(
-            ["parted", "-s", "-j", path, "unit", "MiB", "print", "free"],
+            ["parted", "-s", "-j", path, "unit", "s", "print", "free"],
             capture_output=True, text=True,
         )
         blob = p.stdout
@@ -138,7 +143,14 @@ def list_disks():
         if not disk_json:
             # 真读不出来就别把这块盘列出来，让人看到的是"读不到"而不是错的布局
             raise RuntimeError("parted 读不出 %s：%s" % (path, (p.stderr or p.stdout).strip()[:200]))
-        size = disk_json.get("size", "")
+
+        def sectors(value):
+            return int(str(value).rstrip("s") or 0)
+
+        def mib(value):
+            return round(sectors(value) / 2048.0, 2)
+
+        size = "%d MiB" % int(sectors(disk_json.get("size", "0s")) / 2048)
         rowid = 0
         for part in disk_json.get("partitions", []):
             num = part.get("number", 0)
@@ -153,9 +165,12 @@ def list_disks():
             rows.append({
                 "rowid": rowid,
                 "index": num if num else None,
-                "start": part.get("start", "").replace("MiB", ""),
-                "end": part.get("end", "").replace("MiB", ""),
-                "size": part.get("size", "").replace("MiB", ""),
+                "start": mib(part.get("start", "0s")),
+                "end": mib(part.get("end", "0s")),
+                "size": mib(part.get("size", "0s")),
+                # 精确边界：建分区只认这两个
+                "start_s": sectors(part.get("start", "0s")),
+                "end_s": sectors(part.get("end", "0s")),
                 "fstype": fstype,
                 "free": is_free,
                 "name": part.get("name", ""),
@@ -186,39 +201,58 @@ def layout(device):
     return {"device": device, "size": "", "rows": []}
 
 
-def parse_size(text):
-    """把 parted JSON 里的 "20480MiB" 之类换成数字（MiB）。"""
-    m = re.match(r"([0-9.]+)\s*([KMGTP]i?B)?", (text or "").strip())
-    if not m:
-        return 0.0
-    val = float(m.group(1))
-    unit = (m.group(2) or "MiB").upper()
-    factor = {"B": 1 / 1048576.0, "KB": 1 / 1024.0, "KIB": 1 / 1024.0,
-              "MB": 1.0, "MIB": 1.0, "GB": 1024.0, "GIB": 1024.0,
-              "TB": 1048576.0, "TIB": 1048576.0}.get(unit, 1.0)
-    return val * factor
+def create_partition(device, start_s, end_s, name, fs_type=""):
+    """按扇区建一个分区。
+
+    GPT 上 mkpart 的第一个参数是分区**名字**（不是 primary 那种分区类型），
+    名字之后可跟文件系统类型，最后才是起止。名字写 "primary" 的记录里
+    会真叫 primary，读起来像是没填。
+    """
+    argv = ["parted", "-s", "-a", "none", device, "unit", "s", "mkpart", name]
+    if fs_type:
+        argv.append(fs_type)
+    argv += ["%ds" % start_s, "%ds" % end_s]
+    run(argv)
 
 
-def mkpart(device, start, end):
-    """新建一个分区。start/end 是 MiB，end 可以是 100%。
+def mkpart(device, rowid, size_mib, name="camphor", fs_type="ext4"):
+    """在一块空闲区里新建分区。rowid 是界面上那一行的编号，size_mib 是要的大小。
 
-    GPT 自己占着盘最前面的一点空间，分区不能从 0 MiB 起 —— parted 会拒绝，
-    报 “closest location we can manage is 0.02MiB”。这里统一抬到 1 MiB，
-    顺带按 1 MiB 对齐，分区起止都落在整齐的边界上。
+    起点用空闲区的扇区边界，不用 MiB 值：parted 打印 MiB 只保留有限位数，
+    446467.1 MiB 会印成 "446467MiB"，照这个值建会压在前一个分区上，
+    parted 就把它顶到最近位置、报 "The closest location we can manage is …"。
+
+    唯一要抬的是盘的第一个空闲区：GPT 表头占着最前面那些扇区，从 0 起会被拒。
+
+    也不加 `-a opt`：盘上已有分区的对齐偏移不一定是 1 MiB 的整数倍，
+    带上它 parted 同样会拒绝精确取值。边界是自己算好的，用 `-a none` 照做。
     """
     ensure_label(device)
-    s = int(float(start))
-    if s < 1:
-        s = 1
-    if str(end) == "100%":
-        e = "100%"
-    else:
-        e = int(float(end))
-        if e <= s:
-            raise RuntimeError("结束位置 %d MiB 不大于起始位置 %d MiB" % (e, s))
-        e = "%dMiB" % e
-    run(["parted", "-s", "-a", "opt", device, "unit", "MiB", "mkpart", "primary",
-         "%dMiB" % s, e])
+
+    region = None
+    for row in layout(device)["rows"]:
+        if row["rowid"] == rowid and row.get("free"):
+            region = row
+            break
+    if region is None:
+        raise RuntimeError("第 %d 行不是空闲区，建不了分区" % rowid)
+
+    start_s = region["start_s"]
+    if start_s < 2048:            # GPT 表头之后第一块可用位置
+        start_s = 2048
+    end_s = region["end_s"]
+    want_s = int(float(size_mib) * 2048)
+    if start_s + want_s < end_s:
+        end_s = start_s + want_s
+    if end_s - start_s < 2048:
+        raise RuntimeError("这块空闲区剩下的空间不够（%d MiB）"
+                           % int((region["end_s"] - region["start_s"]) / 2048))
+
+    try:
+        create_partition(device, start_s, end_s, name, fs_type)
+    except RuntimeError as exc:
+        raise RuntimeError("建分区失败（%d–%d MiB）：%s"
+                           % (start_s // 2048, end_s // 2048, exc))
     run(["partprobe", device], check=False)
     time.sleep(1)
     return layout(device)
@@ -418,12 +452,9 @@ def install_worker(device, rowid, username="", password=""):
         root_dev = ""
         if row["free"]:
             set_state(step="新建分区")
-            add_line("新建分区：%s %s – %s MiB" % (device, row["start"], row["end"]))
-            # 空闲区可能一直延伸到盘尾，那种情况用 100% 让 parted 自己算；
-            # 起点由 mkpart 抬到 1 MiB 并对齐，GPT 表头占着最前面那一点。
-            disk = layout(device)
-            at_end = abs(float(row["end"]) - parse_size(disk.get("size", "0"))) < 1.0
-            after = mkpart(device, row["start"], "100%" if at_end else row["end"])
+            add_line("新建分区：%s（用掉这块空闲区）" % device)
+            # 大小给整块空闲区，mkpart 自己会截到它的末尾
+            after = mkpart(device, row["rowid"], row["size"])
             nums = [r["index"] for r in after["rows"] if not r["free"] and r["index"]]
             if not nums:
                 raise RuntimeError("分区建完却没有看到新分区")
@@ -446,37 +477,37 @@ def install_worker(device, rowid, username="", password=""):
 
         # ESP：同一块盘上已有的复用，没有就新建
         esp_dev = ""
-        for line in run(["parted", "-s", "-m", device, "unit", "MiB", "print"]).splitlines():
-            parts = [p.strip().rstrip(";") for p in line.split(":")]
-            if len(parts) >= 7 and parts[0].isdigit() and is_esp(device, parts[0]):
-                esp_dev = partdev(device, parts[0])
+        for r in layout(device)["rows"]:
+            if not r["free"] and r["ptype"] == "esp":
+                esp_dev = partdev(device, r["index"])
                 add_line("使用已有 EFI 系统分区：%s" % esp_dev)
                 break
 
         if not esp_dev:
             set_state(step="新建 EFI 系统分区")
-            free = None
-            for line in run(["parted", "-s", "-m", device, "unit", "MiB", "print", "free"]).splitlines():
-                parts = [p.strip().rstrip(";") for p in line.split(":")]
-                if len(parts) >= 5 and parts[4] == "free":
-                    sz = float(parts[3].replace("MiB", ""))
-                    if sz >= 600:
-                        free = parts
-                        break
-            if free:
-                start = float(free[1].replace("MiB", ""))
-                run(["parted", "-s", device, "unit", "MiB", "mkpart", "primary", "fat32",
-                     "%sMiB" % start, "%sMiB" % (start + 512)])
+            # 找一块放得下 512 MiB 的空闲区，用最靠前的那块。
+            # 边界同样用扇区值，理由与 mkpart 一样：MiB 值是被截断过的。
+            spot = None
+            for r in layout(device)["rows"]:
+                if r["free"] and (r["end_s"] - max(r["start_s"], 2048)) >= 512 * 2048:
+                    spot = r
+                    break
+            if spot:
+                start_s = max(2048, spot["start_s"])
+                end_s = start_s + 512 * 2048
+                run(["parted", "-s", "-a", "none", device, "unit", "s",
+                     "mkpart", "EFI", "fat32", "%ds" % start_s, "%ds" % end_s])
                 run(["partprobe", device], check=False)
                 time.sleep(2)
-                out = run(["parted", "-s", "-m", device, "unit", "MiB", "print"])
-                last = ""
-                for line in out.splitlines():
-                    parts = [p.strip().rstrip(";") for p in line.split(":")]
-                    if len(parts) >= 5 and parts[0].isdigit():
-                        last = parts[0]
-                esp_dev = partdev(device, last)
-                run(["parted", "-s", device, "set", last, "esp", "on"], check=False)
+                num = ""
+                for r in layout(device)["rows"]:
+                    if not r["free"] and r["start_s"] == start_s:
+                        num = str(r["index"])
+                        break
+                if not num:
+                    raise RuntimeError("EFI 系统分区建完却没有看到它")
+                esp_dev = partdev(device, num)
+                run(["parted", "-s", device, "set", num, "esp", "on"], check=False)
                 unmount_device(esp_dev)
                 run(["mkfs.vfat", "-F", "32", "-n", "CAMPHOR", esp_dev])
                 add_line("创建 EFI 系统分区：%s（512 MiB，fat32）" % esp_dev)
@@ -695,13 +726,13 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/mkpart":
             device = data.get("device", "")
-            start = data.get("start")
-            end = data.get("end")
-            if not re.match(r"^/dev/(sd|vd|nvme)", device) or start is None or end is None:
+            rowid = int(data.get("rowid") or 0)
+            size = data.get("size")
+            if not re.match(r"^/dev/(sd|vd|nvme)", device) or rowid <= 0 or size is None:
                 self._send(400, json.dumps({"error": "参数不对"}, ensure_ascii=False))
                 return
             try:
-                body = json.dumps(mkpart(device, start, end), ensure_ascii=False)
+                body = json.dumps(mkpart(device, rowid, size), ensure_ascii=False)
             except RuntimeError as e:
                 self._send(500, json.dumps({"error": str(e)}, ensure_ascii=False))
                 return

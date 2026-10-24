@@ -51,7 +51,9 @@ sh mkimage/postbuild-check.sh <ISO>              # 出 ISO 后
 
 | 症状 | 根因 | 拦在哪 | 修法 |
 |---|---|---|---|
-| `parted mkpart 0MiB …` 报"最近的位置是 0.02MiB" | GPT 表头占着盘最前面几十个扇区，分区不能从 0 起 | 人工 | 起点抬到 1 MiB，并用 `-a opt` 对齐 |
+| `parted mkpart 0MiB …` 报"最近的位置是 0.02MiB" | GPT 表头占着盘最前面几十个扇区，分区不能从 0 起 | 人工 | 起点抬到 1 MiB |
+| 建分区偶发失败：「You requested a partition from X to Y … The closest location we can manage is …」 | 拿 MiB 值当边界。parted 按 MiB 打印时只保留有限位数，空闲区的真实起点被截断，传回去就压在前一个分区上，parted 于是把它顶到最近位置；`-a opt`/`-a none` 都不是病根 | 人工 | 读布局与建分区一律用扇区单位 `s`（手册里「精确位置」就是这么指定的），边界直接用空闲区自己的扇区值 |
+| 分区一多，色块被压成一条线、字看不见 | 色块按百分比分宽度，没有下限 | 人工 | 每块给最小宽度，放不下的折到下一行 |
 | 点色块不出编辑框 | 点击后先异步重画整个列表，随后写入的工具区被这次重画清空 | 人工 | 先重画、再挂工具区 |
 | 装完重启 `camphor-firstboot.service` 失败 | 脚本按介质的路径找 `app.squashfs`，装好的系统里没有介质 | 人工 | 应用镜像套进主镜像，从盘上取 |
 | 安装器 X 退出、后端被带走 | `session.sh` 去应用层的 venv 找解释器 | 人工 | 用主镜像自带的 `python3` + gi/WebKit |

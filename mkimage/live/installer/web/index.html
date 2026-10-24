@@ -25,12 +25,18 @@
   .disk-name { color: #9aa0a6; font-size: 14px; margin-bottom: 8px; }
 
   /* 外框要比页面底色亮一档，否则整条分区带糊在背景里看不出边界 */
-  .bar { display: flex; height: 54px; border-radius: 8px; overflow: hidden;
+  /* 分区多了会把每块压成一条线：给每块一个最小宽度，放不下的折到下一行，
+     不缩到看不见，也不做成横向滚动。 */
+  .barwrap { padding-bottom: 2px; }
+  .bar { display: flex; flex-wrap: wrap; align-content: flex-start;
+         border-radius: 8px; overflow: hidden; min-width: 100%;
          border: 1px solid #4a4a5c; background: #08080b;
          box-shadow: 0 0 0 3px #06060a; }
   .blk { position: relative; display: flex; align-items: center; justify-content: center;
+         height: 54px;
          font-size: 13px; color: #0e0e12; cursor: pointer; overflow: hidden;
-         border-right: 2px solid #08080b; white-space: nowrap; }
+         border-right: 2px solid #08080b; border-bottom: 2px solid #08080b;
+         white-space: nowrap; min-width: 58px; }
   .blk:last-child { border-right: none; }
   .blk.part { background: #8fb0c8; color: #10151a; }
   .blk.part.esp { background: #b596d6; color: #171020; }
@@ -216,14 +222,14 @@ function renderDisk(d) {
       blk.style.background =
         `linear-gradient(90deg, ${dark} 0 ${used}%, ${base} ${used}% 100%)`;
     }
-    // 块窄了字会被裁成半个，就不画；信息在下面的图例里
-    if (pct >= 7) {
-      let label;
-      if (r.free) label = `${Math.round(r.size)}M`;
-      else if (pct >= 14) label = `分区 ${r.index}${r.fstype ? ' · ' + r.fstype : ''}`;
-      else label = r.fstype || `${Math.round(r.size)}M`;
-      blk.appendChild(el('span', null, label));
-    }
+    // 每块至少有 58px（CSS 的 min-width），够写一个编号。
+    // 宽的地方写全，窄的地方只留编号，完整信息在下面的图例与悬停提示里。
+    let label;
+    if (r.free) label = `${Math.round(r.size)}M`;
+    else if (pct >= 14) label = `分区 ${r.index}${r.fstype ? ' · ' + r.fstype : ''}`;
+    else if (pct >= 6) label = `${r.index}${r.fstype ? ' · ' + r.fstype : ''}`;
+    else label = String(r.index);
+    blk.appendChild(el('span', null, label));
     if (picked && picked.device === d.device && picked.row.rowid === r.rowid) {
       blk.classList.add('sel');
       // 有数据的分区被选中 = 这些数据要被格式化
@@ -237,7 +243,9 @@ function renderDisk(d) {
     item.appendChild(document.createTextNode(full));
     legend.appendChild(item);
   }
-  box.appendChild(bar);
+  const barwrap = el('div', 'barwrap');
+  barwrap.appendChild(bar);
+  box.appendChild(barwrap);
   box.appendChild(legend);
 
   const tools = el('div', 'tools');
@@ -269,10 +277,10 @@ function showTools(d, r) {
     btn.onclick = async () => {
       const mib = parseInt(size.value, 10);
       if (!mib || mib < 100) { alert('至少 100 MiB'); return; }
-      const end = Math.min(parseFloat(r.end), parseFloat(r.start) + mib);
       btn.disabled = true;
       try {
-        await api('/api/mkpart', { device: d.device, start: r.start, end: Math.round(end) });
+        // 只报行号与大小：边界由后端按空闲区的扇区值算，前端不碰偏移量
+        await api('/api/mkpart', { device: d.device, rowid: r.rowid, size: mib });
         picked = null;
         await load();
         checkNext();
