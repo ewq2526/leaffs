@@ -54,43 +54,61 @@ lb config
 直连 `deb.debian.org` 通常只有几十 KB/s，换成本地镜像能差一个数量级。
 装进目标系统的 `sources.list` 仍指上游，不受这两个变量影响。
 
-## 三、步骤
+## 三、标准流程
 
-构建目录放在外挂盘上（第二节），仓库另有它处。下面用两个变量区分：
+只有一个入口，不要手敲步骤：
 
 ```sh
-REPO=/path/to/camphor          # 仓库的工作副本
-BUILD=/media/<挂载点>/build-camphor
+sh mkimage/build.sh <仓库> <构建目录> [image|iso]
 
+# 例（本地包仓库也给了，脚本会临时挂进 chroot 装包）
+CAMPHOR_LOCAL_REPO=/home/leaf/localrepo \
+  sh mkimage/build.sh /mnt/e/os /home/leaf/restore/build-camphor image
+```
+
+| 模式 | 什么时候用 | 做什么 |
+|---|---|---|
+| `image`（默认） | 改过 `etc/`、`usr/`、钩子、preseed、引导素材 | 铺内容 → 重打两个 initrd → 复制 live 母本 → 修母本（主机名、软件源、dpkg 转移、出厂清理）→ 压片 → 镜像检查 |
+| `iso` | 只改过 preseed 或 ISO 上的载荷（`/camphor/*`） | 重打 initrd → 压片 → 镜像检查 |
+
+脚本自己会做的检查（不过就退出，不要绕过）：
+
+1. 起手跑 `mkimage/preflight.sh`（构建前的十几项）
+2. 收尾跑 `mkimage/postbuild-check.sh`（镜像里该有的、不该有的）
+3. 撤构建期 dpkg 转移并核对 `start-stop-daemon` 是真 ELF、本地转移为 0
+4. 复制 chroot 前卸掉本地仓库挂载
+5. 打印 ISO 路径与 sha256
+
+它不负责的：`lb config`、首次从零 bootstrap、装系统包。那三件事见下面第二节与
+`mkimage/live/auto/config`；一次配好之后，日常就是跑这个脚本。
+
+### 3.1 分步细节（脚本里就是这些）
+
+```sh
 # 1 包清单由 packages.txt 生成，不手工维护第二份
 sed 's/#.*//' "$REPO/mkimage/packages.txt" \
   | sed 's/[[:space:]]*$//' | grep -v '^$' \
   > "$BUILD/config/package-lists/camphor.list.chroot"
 
-# 2 仓库里的 etc/ 与 usr/ 铺进 chroot 的根。每次构建都要重做，
-#   config/includes.chroot/ 是产物，不入库
-rm -rf "$BUILD/config/includes.chroot"
-mkdir -p "$BUILD/config/includes.chroot/opt/leaffs"
-rsync -a "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
-rsync -a "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
+# 2 仓库里的 etc/ 与 usr/ 要铺两处：外层 chroot（这一轮会被复制）、
+#   includes.chroot（下一次 chroot 阶段用）
+rsync -a --chown=root:root --chmod=D755,F644 --exclude=/fstab "$REPO/etc/" "$BUILD/chroot/etc/"
+rsync -a --chown=root:root --chmod=D755,F755 "$REPO/usr/" "$BUILD/chroot/usr/"
+rsync -a --chown=root:root --chmod=D755,F644 --exclude=/fstab "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
+rsync -a --chown=root:root --chmod=D755,F755 "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
 
-# 2c 软件源不进根文件系统，只放进 ISO：apt-setup 在不联网、不选镜像时只写
-#    cdrom 源，装完那张盘就不在了，由 preseed 的 late_command 从安装介质
-#    拷回镜像站版本。引导菜单不再随 ISO 提供 —— grub-installer 自己生成
-#    按 UUID 找根的版本，内核命令行参数来自 etc/default/grub。
+# 2c 软件源与收尾脚本只放进 ISO（apt-setup 装完就找不到那张盘了；
+#    收尾由 late_command 调 /cdrom/camphor/postinstall.sh）
 mkdir -p "$BUILD/config/includes.binary/camphor"
-cp "$REPO/mkimage/live/sources.list" "$BUILD/config/includes.binary/camphor/sources.list"
-rsync -a "$REPO/leaffs/" "$BUILD/config/includes.chroot/opt/leaffs/leaffs/"
-cp "$REPO/requirements.txt" "$BUILD/config/includes.chroot/opt/leaffs/requirements.txt"
+cp "$REPO/mkimage/live/sources.list"   "$BUILD/config/includes.binary/camphor/"
+cp "$REPO/mkimage/live/postinstall.sh" "$BUILD/config/includes.binary/camphor/"
 
-# 2b 内核用现成的 linux-image deb，放进 packages.chroot：live-build 直接
-#    用 dpkg 装它，不去下载。auto/config 里的 --linux-packages none 关掉了
-#    live-build 自己装卸内核包那一步
+# 2b 内核用现成的 linux-image deb，放进 packages.chroot：live-build 直接用 dpkg
+#    装它，不去下载。--linux-packages none 关掉了它自己装卸内核那一步
 mkdir -p "$BUILD/config/packages.chroot"
 cp /path/to/linux-image-<版本>_amd64.deb "$BUILD/config/packages.chroot/"
-rsync -a "/lib/modules/$KV" "$BUILD/config/includes.chroot/lib/modules/"
 
-# 3 生成配置并构建
+# 3 首次配置并整轮 bootstrap（之后不必再跑）
 cd "$BUILD"
 lb config
 lb build
@@ -190,16 +208,48 @@ with different file '/usr/sbin/start-stop-daemon.distrib', not allowed
 ```
 mkimage/live/
 ├─ auto/config                          —— 全部 lb config 选项与理由
+├─ sources.list                         —— 装好的系统用的软件源，随 ISO 走
+├─ postinstall.sh                       —— 安装末尾的收尾（软件源、grub 设置、账号）
 └─ config/
+   ├─ bootloaders/grub-pc/              —— 引导界面底图与主题
    ├─ hooks/live/0100-camphor.chroot    —— 重建 initramfs、启用单元、venv、出厂清理
    ├─ hooks/live/0100-live-kernel.binary —— 把内核与 initrd 放进 binary/live
-   └─ includes.installer/preseed.cfg    —— d-i 的预置答案
+   ├─ hooks/live/0200-grub-menu.binary  —— 菜单条目改名
+   └─ includes.installer/               —— d-i 的预置答案（三份，见 3.6）
 ```
 
 还有一处是第 2 步生成、不入库的：
 
 - `config/includes.chroot/` —— 含 `etc/`、`usr/`、`/opt/leaffs`，
   以及生成的 `config/package-lists/camphor.list.chroot`。
+
+## 三点六、这些坑已经被做成检查
+
+出过的错不再靠记性。两个脚本，起构建前跑前者，出了 ISO 跑后者：
+
+```sh
+sh mkimage/preflight.sh      <仓库> <构建目录>     # 不过就别起构建
+sh mkimage/postbuild-check.sh <ISO>                # 不过就别发
+```
+
+| 坑 | 症状 | 拦在哪 |
+|---|---|---|
+| `--bootappend-live` 缺 `boot=live` | Live 项掉进 busybox，屏幕一片花 | preflight |
+| `--linux-packages none` 却没放内核 | `/live` 无内核，报 file not found | preflight + postbuild |
+| 仓库里带 `etc/default/grub` | 装 grub 时弹 conffile 冲突 | preflight |
+| `late_command` 写成一条长命令 | 被 preseed 续行截断，收尾整段没跑 | preflight + postbuild |
+| 包清单缺 `os-prober` | 菜单里没有同盘的其它系统 | preflight + postbuild |
+| `.gitattributes` 缺 png binary | 引导底图提交后损坏 | preflight |
+| 钩子缺执行位 | `lb config` 静默忽略整份配置 | preflight |
+| `cache/bootstrap` 存在 | `binary_chroot` 换掉外层 chroot，跑完环境就没了 | preflight 提醒 |
+| 包仓库挂在外层 chroot | 整仓 deb 被复制进镜像（ISO 涨 900 MB） | preflight |
+| 删了 `binary_rootfs` 戳没重拷 chroot | 压出 4 KB 空 squashfs，退出码仍是 0 | postbuild（大小下限） |
+| 构建期 dpkg 转移没撤 | 真机 `dpkg-divert ... clashes` | preflight 报条数 + 压片前自检 |
+| `/etc/hostname` 是构建机的 | Live 与装好的系统都显示构建机主机名 | postbuild |
+| `/etc/machine-id` 非空、SSH 主机密钥在 | 出厂态就带了身份 | postbuild |
+| `/root/.cache`、旧字节码、安装日志 | 镜像里留着构建过程 | postbuild |
+| `/home/leaf`、`localrepo` 索引 | 构建路径进镜像 | postbuild |
+| `start-stop-daemon` 是 `/bin/true` 替身 | 真机上服务全起不来 | postbuild |
 
 ## 五、验证
 

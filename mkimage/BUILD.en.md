@@ -53,15 +53,38 @@ A direct connection to `deb.debian.org` often runs at tens of KB/s; a local mirr
 order of magnitude faster. The `sources.list` installed into the target system still points
 upstream and is not affected by these variables.
 
-## 3. Steps
+## 3. The standard flow
 
-The build directory lives on the external disk (section 2); the repository is elsewhere. The
-commands below use two variables to keep them apart:
+There is one entry point; do not type the steps by hand:
 
 ```sh
-REPO=/path/to/camphor          # working copy of the repository
-BUILD=/media/<mountpoint>/build-camphor
+sh mkimage/build.sh <repository> <build directory> [image|iso]
 
+# example, with a local package repository the script mounts into the chroot for installs
+CAMPHOR_LOCAL_REPO=/home/leaf/localrepo \
+  sh mkimage/build.sh /mnt/e/os /home/leaf/restore/build-camphor image
+```
+
+| Mode | When | What it does |
+|---|---|---|
+| `image` (default) | `etc/`, `usr/`, hooks, preseed or boot artwork changed | lay content in → repack both initrds → copy the live root → fix it (hostname, apt sources, dpkg diversions, factory cleanup) → build → check |
+| `iso` | only the preseed or the ISO payload (`/camphor/*`) changed | repack initrds → build → check |
+
+What the script checks itself (it exits non-zero; do not work around it):
+
+1. `mkimage/preflight.sh` before doing anything
+2. `mkimage/postbuild-check.sh` after the ISO is produced
+3. removes build-time dpkg diversions and verifies `start-stop-daemon` is a real ELF
+4. unmounts the local repository before copying the chroot
+5. prints the ISO path and sha256
+
+What it does not do: `lb config`, the first bootstrap from scratch, installing the system
+packages. Those are described below and in `mkimage/live/auto/config`; once configured, day
+to day is just this script.
+
+### 3.1 The detailed steps (what the script runs)
+
+```sh
 # 1 the package list is generated from packages.txt; there is no second copy to maintain
 sed 's/#.*//' "$REPO/mkimage/packages.txt" \
   | sed 's/[[:space:]]*$//' | grep -v '^$' \
@@ -74,14 +97,15 @@ mkdir -p "$BUILD/config/includes.chroot/opt/leaffs"
 rsync -a "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
 rsync -a "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
 
-# 2c the apt sources do not go into the root filesystem, only onto the ISO:
-#    with no network and no mirror, apt-setup writes nothing but a cdrom source,
-#    and that disc is gone after the install; the preseed late_command copies
-#    the mirror version back from the medium. The boot menu is no longer shipped
-#    on the ISO — grub-installer generates a UUID-based one itself, and the
-#    kernel command line comes from etc/default/grub.
+# 2c the apt sources and the post-install script do not go into the root
+#    filesystem, only onto the ISO: with no network and no mirror, apt-setup
+#    writes nothing but a cdrom source, and that disc is gone after the install.
+#    The finish-up work (sources, grub settings, usernames) is done by the
+#    preseed late_command calling /cdrom/camphor/postinstall.sh. The boot menu is
+#    no longer shipped on the ISO — grub-installer generates a UUID-based one.
 mkdir -p "$BUILD/config/includes.binary/camphor"
 cp "$REPO/mkimage/live/sources.list" "$BUILD/config/includes.binary/camphor/sources.list"
+cp "$REPO/mkimage/live/postinstall.sh" "$BUILD/config/includes.binary/camphor/postinstall.sh"
 rsync -a "$REPO/leaffs/" "$BUILD/config/includes.chroot/opt/leaffs/leaffs/"
 cp "$REPO/requirements.txt" "$BUILD/config/includes.chroot/opt/leaffs/requirements.txt"
 
@@ -188,16 +212,48 @@ a missing package: on real hardware it fails as `dpkg-divert ... clashes` follow
 ```
 mkimage/live/
 ├─ auto/config                          —— every lb config option, with its reason
+├─ sources.list                         —— apt sources for the installed system, shipped on the ISO
+├─ postinstall.sh                       —— finish-up at install time (sources, grub settings, account)
 └─ config/
+   ├─ bootloaders/grub-pc/              —— boot menu artwork and theme
    ├─ hooks/live/0100-camphor.chroot    —— rebuilds initramfs, enables units, venv, factory cleanup
    ├─ hooks/live/0100-live-kernel.binary —— puts the kernel and initrd into binary/live
-   └─ includes.installer/preseed.cfg    —— debian-installer answers
+   ├─ hooks/live/0200-grub-menu.binary  —— renames the menu entries
+   └─ includes.installer/               —— debian-installer answers (three files, see 3.6)
 ```
 
 One more path is produced by step 2 rather than committed:
 
 - `config/includes.chroot/` —— `etc/`, `usr/`, `/opt/leaffs`, plus the generated
   `config/package-lists/camphor.list.chroot`.
+
+## 3.6 The pitfalls are checks now
+
+Two scripts. Before building, run the first; after the ISO is produced, run the second:
+
+```sh
+sh mkimage/preflight.sh      <repository> <build directory>   # do not build if it fails
+sh mkimage/postbuild-check.sh <ISO>                           # do not ship if it fails
+```
+
+| Pitfall | Symptom | Caught by |
+|---|---|---|
+| `--bootappend-live` without `boot=live` | live entry drops into busybox, garbled screen | preflight |
+| `--linux-packages none` and no kernel copied | `/live` has no kernel, "file not found" | preflight + postbuild |
+| `etc/default/grub` in the repository | conffile prompt while installing grub | preflight |
+| `late_command` written as one long command | truncated by preseed continuation, finish-up never runs | preflight + postbuild |
+| `os-prober` missing from the package list | no other OS entries in the menu | preflight + postbuild |
+| `.gitattributes` without the png binary rule | boot artwork corrupted on checkout | preflight |
+| Hook without the executable bit | `lb config` silently ignores the whole configuration | preflight |
+| `cache/bootstrap` present | `binary_chroot` replaces the outer chroot; environment gone after the run | preflight (warning) |
+| Package repository mounted inside the outer chroot | the whole repo is copied into the image (ISO grows by 900 MB) | preflight |
+| `binary_rootfs` stamp removed without recopying the chroot | 4 KB empty squashfs, exit code still 0 | postbuild (size floor) |
+| Build-time dpkg diversions not removed | `dpkg-divert ... clashes` on real hardware | preflight + build-time self-check |
+| `/etc/hostname` from the build machine | live and installed system show the builder's name | postbuild |
+| `/etc/machine-id` non-empty, SSH host keys present | the image ships an identity | postbuild |
+| `/root/.cache`, stale bytecode, install logs | the image keeps the build process | postbuild |
+| `/home/leaf`, `localrepo` indexes | build paths inside the image | postbuild |
+| `start-stop-daemon` replaced by `/bin/true` | no service starts on real hardware | postbuild |
 
 ## 5. Verification
 
