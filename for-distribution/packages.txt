@@ -1,0 +1,72 @@
+# Camphor 系统包清单
+#
+# 镜像的包来源只有这一份文件：从 Debian 13 的 minbase 装起，再装下面这些。
+# 不从已安装好的系统复制 —— 那样带进来的是那套环境的历史，既不可复现，
+# 也把发布版撑大好几倍。
+#
+# 用法（在 chroot 里）：
+#   apt install $(sed 's/#.*//' packages.txt)
+#
+# 一行一个包名；# 之后是理由，不参与解析。
+# 不列入：编译器、qemu、git、桌面环境、语音合成与无障碍组件。
+
+# ── 内核与固件 ──────────────────────────────────────────────
+linux-image-amd64          # Debian 签发，Secure Boot 下才起得来
+firmware-realtek           # Realtek 无线网卡
+firmware-iwlwifi
+firmware-atheros
+firmware-brcm80211
+firmware-intel-graphics    # i915
+firmware-misc-nonfree
+wireless-regdb
+intel-microcode
+
+# ── 图形：X 与窗口 ──────────────────────────────────────────
+xserver-xorg-core
+xserver-xorg-input-libinput
+xserver-xorg-legacy        # xinit 由 root 起 X 时需要
+xinit
+x11-xserver-utils
+openbox                    # 会话里的窗口管理器，只承载 kiosk 那一个窗口
+libgl1-mesa-dri            # i915 的 GL 实现
+
+# ── 窗口里的那个视图 ────────────────────────────────────────
+gir1.2-webkit2-4.1         # pywebview 的 GTK 后端
+python3-gi
+python3-gi-cairo
+
+# ── Python ─────────────────────────────────────────────────
+python3
+python3-venv
+
+# ── 应用运行时 ──────────────────────────────────────────────
+aria2                      # 下载器
+ffmpeg                     # 视频预览
+fonts-noto-cjk             # 界面中文
+
+# ── 网络、共享与发现 ────────────────────────────────────────
+openssh-server
+ksmbd-tools
+avahi-daemon
+wsdd2
+libnss-mdns
+wpasupplicant
+iw
+rfkill
+nftables                   # modules-load.d/camphor-netfilter.conf
+systemd-timesyncd
+
+# ── 存储 ───────────────────────────────────────────────────
+e2fsprogs
+dosfstools                 # ESP 与 U 盘
+rsync
+
+# ── 基础 ───────────────────────────────────────────────────
+locales
+console-setup
+keyboard-configuration
+tzdata
+dbus
+dbus-x11
+ca-certificates
+sudo

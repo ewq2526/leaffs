@@ -1,0 +1,58 @@
+#!/bin/sh
+# live-build 的 chroot 钩子：镜像里那个根文件系统的收尾。
+# 跑在 chroot 内、以 root 身份。仓库的 etc/ 与 usr/ 此时已由
+# config/includes.chroot/ 铺到目标路径上。
+set -e
+
+# 仓库里检出时可能丢了执行位，脚本直接起不来
+chmod +x /usr/local/bin/camphor-*.sh
+
+# 菜单只认 /boot/vmlinuz 与 /boot/initrd.img，不写具体版本号，
+# 换内核时只改这两个链接
+cd /boot
+kv=$(ls -1 vmlinuz-* 2>/dev/null | sed 's/^vmlinuz-//' | head -1)
+if [ -z "$kv" ]; then
+	echo "camphor: /boot 下没有内核" >&2
+	exit 1
+fi
+ln -sf "vmlinuz-$kv" vmlinuz
+ln -sf "initrd.img-$kv" initrd.img
+
+# 菜单按卷标找根。留一份在 /usr/share/camphor 下：安装时 grub-installer
+# 会把 /boot/grub/grub.cfg 重写成按 UUID 找根的版本，preseed 的
+# late_command 再从这份拷回去
+install -Dm644 /boot/grub.cfg /usr/share/camphor/grub.cfg
+rm -f /boot/grub.cfg
+
+# leaf：固定 1000，与 /opt/leaffs、/srv/leaffs 的属主一致
+if ! id leaf >/dev/null 2>&1; then
+	useradd -m -u 1000 -s /bin/bash leaf
+fi
+usermod -aG sudo,tty,video,render,netdev,plugdev leaf 2>/dev/null || true
+echo 'leaf:leaf' | chpasswd
+
+# 运行数据目录。服务的 LEAFFS_PROJECT_ROOT 指向这里，
+# 不能是 /opt/leaffs —— 那本是程序目录
+install -d -o root -g root -m 755 /srv/leaffs
+
+# 仓库里的单元按清单启用
+while read -r unit state; do
+	case "$unit" in ''|'#'*) continue ;; esac
+	if [ "$state" = enabled ]; then
+		systemctl enable "$unit"
+	fi
+done < /etc/systemd/system/camphor-units.list
+
+# 界面挂在 graphical.target 上，默认目标得跟着改，否则图形界面永远不启动
+systemctl set-default graphical.target
+
+# leaffs 的依赖装进自己的 venv；--system-site-packages 是为了让 pywebview
+# 用到系统里的 gi 与 WebKit
+python3 -m venv --system-site-packages /opt/leaffs/venv
+/opt/leaffs/venv/bin/pip install --no-cache-dir -r /opt/leaffs/requirements.txt
+
+# 出厂状态里不该有身份：首次启动由 systemd 生成 machine-id、
+# 由 camphor-ssh 的 ExecStartPre 生成主机密钥
+: > /etc/machine-id
+rm -f /etc/ssh/ssh_host_*
+rm -rf /opt/leaffs/config /opt/leaffs/shared_files /opt/leaffs/.cache
