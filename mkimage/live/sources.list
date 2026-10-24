@@ -1,0 +1,11 @@
+# 目标系统的软件源。
+#
+# d-i 的 apt-setup 步骤会无条件用生成结果覆盖 /target/etc/apt/sources.list，
+# 而我们的安装过程不联网、也不选镜像，生成结果是空的（只有安装介质的
+# cdrom 源，装完那张盘就不在了）。所以这份随 ISO 走，由 preseed 的
+# late_command 在安装末尾覆盖回去，和 camphor/grub.cfg 同一个路子。
+#
+# 换镜像站时改这里，同时改 mkimage/live/auto/config 里的 MIRROR_BINARY*。
+deb http://deb.debian.org/debian/ trixie main non-free-firmware
+deb http://deb.debian.org/debian/ trixie-updates main non-free-firmware
+deb http://security.debian.org/ trixie-security main non-free-firmware
