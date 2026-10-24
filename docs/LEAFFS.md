@@ -53,7 +53,7 @@
 
 ## 开发
 
-- 入口 `leaffs/app.py`（`leaffs/leaffs.py` 是兼容垫片）；按域分目录：`auth`、`files`、`share`、`config`、`dl`、`web`、`server`、`system`、`utils`。
+- 入口 `app/opt/leaffs/app.py`（同目录的 `leaffs.py` 是兼容垫片）；按域分目录：`auth`、`files`、`share`、`config`、`dl`、`web`、`server`、`system`、`utils`。
 - `system/` 是只读采集与无线控制：`host.py` 读 `/proc`、`/sys`、`systemctl`，`wifi.py` 走 `wpa_cli`，`api.py` 组装响应；鉴权统一在 `server/handler.py` 的分派层判定，不在处理函数里各判一遍。
 - 页面中英双份，英文文件以 `.en.html` 结尾；语言判定顺序为 cookie `leaf_lang` → 账号偏好。英文为 AI 翻译，术语见 `TRANSLATION_GLOSSARY.md`。
 - 注释中英双语，只留有信息量的。
