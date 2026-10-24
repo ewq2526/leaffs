@@ -4,8 +4,8 @@
 # 不从已安装好的系统复制 —— 那样带进来的是那套环境的历史，既不可复现，
 # 也把发布版撑大好几倍。
 #
-# 用法（在 chroot 里）：
-#   apt install $(sed 's/#.*//' packages.txt)
+# 用法：由 mkimage/BUILD.md 第 1 步转成 live-build 的包清单
+#   sed 's/#.*//' packages.txt | grep -v '^$' > config/package-lists/camphor.list.chroot
 #
 # 一行一个包名；# 之后是理由，不参与解析。
 # 不列入：编译器、qemu、git、桌面环境、语音合成与无障碍组件。

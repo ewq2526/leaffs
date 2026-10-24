@@ -73,7 +73,12 @@ rm -rf "$BUILD/config/includes.chroot"
 mkdir -p "$BUILD/config/includes.chroot/opt/leaffs"
 rsync -a "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
 rsync -a "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
-rsync -a "$REPO/boot/" "$BUILD/config/includes.chroot/boot/"
+
+# 2c the menu does not go into the root filesystem, only onto the ISO:
+#    grub-installer rewrites /boot/grub/grub.cfg during install, so the
+#    label-based one is copied into the target by the preseed late_command
+mkdir -p "$BUILD/config/includes.binary/camphor"
+cp "$REPO/boot/grub.cfg" "$BUILD/config/includes.binary/camphor/grub.cfg"
 rsync -a "$REPO/leaffs/" "$BUILD/config/includes.chroot/opt/leaffs/leaffs/"
 cp "$REPO/requirements.txt" "$BUILD/config/includes.chroot/opt/leaffs/requirements.txt"
 

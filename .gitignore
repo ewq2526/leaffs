@@ -36,8 +36,12 @@ leaffs.log
 /mkimage/live/cache
 /mkimage/live/chroot
 /mkimage/live/config/includes.chroot
+/mkimage/live/config/includes.binary
 *.iso
 *.squashfs
+
+# 本地工作提示词，不入库
+/AGENTS.md
 
 # 安全启动密钥
 *.key
