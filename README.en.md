@@ -14,7 +14,7 @@ It runs on any machine that can boot an x86_64 kernel, mount a disk and drive a 
    which is the single list that defines the system; to build a release image see
    `mkimage/BUILD.md`.
 4. Add the kernel modules you need (storage, input, i915, rtw88, zram, netfilter, …); if the system disk is USB, `uas` must be in the initramfs.
-5. Enable the units listed in `etc/systemd/system/camphor-units.list`.
+5. Enable the units listed in `etc/systemd/camphor-units.list`.
 
 ## Use
 

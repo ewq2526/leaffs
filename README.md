@@ -11,7 +11,7 @@
 3. 装 `mkimage/packages.txt` 里列的包（含字体、ffmpeg、各家固件），
    一份清单管住系统组成；要打发布镜像见 `mkimage/BUILD.md`。
 4. 内核模块按需补（存储、输入、i915、rtw88、zram、netfilter 等）；系统盘走 USB 时，`uas` 必须进 initramfs。
-5. 启用 `etc/systemd/system/camphor-units.list` 里列的单元。
+5. 启用 `etc/systemd/camphor-units.list` 里列的单元。
 
 ## 使用
 

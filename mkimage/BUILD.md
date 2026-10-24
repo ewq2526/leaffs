@@ -67,6 +67,7 @@ rm -rf "$BUILD/config/includes.chroot"
 mkdir -p "$BUILD/config/includes.chroot/opt/leaffs"
 rsync -a "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
 rsync -a "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
+rsync -a "$REPO/boot/" "$BUILD/config/includes.chroot/boot/"
 rsync -a "$REPO/leaffs/" "$BUILD/config/includes.chroot/opt/leaffs/leaffs/"
 cp "$REPO/requirements.txt" "$BUILD/config/includes.chroot/opt/leaffs/requirements.txt"
 
@@ -91,6 +92,11 @@ lb build
 cp camphor-amd64.hybrid.iso ${USBSTICK}   # 整盘，不是分区
 sync
 ```
+
+清理时用 `lb clean`（或 `--chroot --binary`），**不要用 `lb clean --all`**：
+`--all` 会连 `cache/` 一起删掉，下次构建所有包得重下一遍。
+已下载的 deb 另外留一份在构建目录外（例如 `<构建盘>/deb-cache/`），
+构建中每 30 秒同步一次，构建中断也不至于重来。
 
 改了 `auto/config` 里的选项之后要先 `lb clean --config` 再 `lb config`，
 否则旧值会被保留，`lb_config(1)` 在 DESCRIPTION 里专门警告过这一点。

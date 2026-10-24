@@ -73,6 +73,7 @@ rm -rf "$BUILD/config/includes.chroot"
 mkdir -p "$BUILD/config/includes.chroot/opt/leaffs"
 rsync -a "$REPO/etc/" "$BUILD/config/includes.chroot/etc/"
 rsync -a "$REPO/usr/" "$BUILD/config/includes.chroot/usr/"
+rsync -a "$REPO/boot/" "$BUILD/config/includes.chroot/boot/"
 rsync -a "$REPO/leaffs/" "$BUILD/config/includes.chroot/opt/leaffs/leaffs/"
 cp "$REPO/requirements.txt" "$BUILD/config/includes.chroot/opt/leaffs/requirements.txt"
 
@@ -96,6 +97,12 @@ Writing it to a stick follows `live-manual` 4.4.2 — `cp` is enough, `dd` is no
 cp camphor-amd64.hybrid.iso ${USBSTICK}   # the whole device, not a partition
 sync
 ```
+
+To clean up, use `lb clean` (or `--chroot --binary`), **never `lb clean --all`**:
+`--all` deletes `cache/` as well, and the next build has to download everything again.
+Also keep a copy of the downloaded debs outside the build directory (for example
+`<build disk>/deb-cache/`) and sync it during the build, so an interrupted build does not
+force a full re-download.
 
 After changing options in `auto/config`, run `lb clean --config` before `lb config`; otherwise
 the old values are kept. `lb_config(1)` warns about this in its DESCRIPTION.
