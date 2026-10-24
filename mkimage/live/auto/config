@@ -37,6 +37,7 @@ lb config noauto \
 	--chroot-squashfs-compression-type zstd \
 	--initramfs live-boot \
 	--initsystem systemd \
+	--loadlin false \
 	--linux-flavours amd64 \
 	--linux-packages none \
 	--image-name camphor \

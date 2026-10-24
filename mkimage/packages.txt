@@ -11,9 +11,11 @@
 # 不列入：编译器、qemu、git、桌面环境、语音合成与无障碍组件。
 
 # ── 内核与固件 ──────────────────────────────────────────────
-# 内核不在这份清单里：它由 config/packages.chroot/ 里放的那个 linux-image
-# 安装包装上，装法与其余包一样走 dpkg，不从运行中的系统拷文件。
-# 该 deb 的版本要与镜像其余部分一致。
+# 内核按普通包装：auto/config 里的 --linux-packages none 只关掉 live-build
+# 自己装卸内核那一步，内核由下面这一行从包源装，不从运行中的系统拷文件。
+# 写具体版本而不是 linux-image-amd64：构建用的是本地包仓库，
+# 里面只有这一份内核 deb，没有 meta 包。换内核时同步改这里与仓库里的 deb。
+linux-image-6.12.113+deb13-amd64
 initramfs-tools            # 生成 initrd，配置用仓库的 /etc/initramfs-tools
 firmware-realtek           # Realtek 无线网卡
 firmware-iwlwifi
