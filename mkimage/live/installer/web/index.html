@@ -437,8 +437,31 @@ document.getElementById('back').onclick = () => { showStep(1); };
 //   ① 焦点在空白处按 Enter = 下一步（焦点在色块上时由色块自己处理）
 //   ② 在输入框里按 Enter = 开始安装，Esc = 返回
 //   ③ 装好后按 Enter = 重启
+//   ④ 上下键在可聚焦元素之间走（装机器上可能只有键盘，光有 Tab 不够顺手）
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), ' +
+  'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+function walkFocus(dir) {
+  const list = [...document.querySelectorAll(FOCUSABLE)]
+    .filter((n) => n.tabIndex >= 0 && n.offsetParent !== null);
+  if (!list.length) return false;
+  const i = list.indexOf(document.activeElement);
+  if (i < 0) { list[0].focus(); return true; }
+  const j = i + dir;
+  if (j < 0 || j >= list.length) return false;
+  list[j].focus();
+  return true;
+}
+
 document.addEventListener('keydown', function (e) {
   const shown = (id) => document.getElementById(id).classList.contains('show');
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    // 上下键在单行输入框里没有用途，可以征用；select 里是改值，textarea 里是翻行，不碰。
+    if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+    const tag = e.target && e.target.tagName;
+    if (tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if (walkFocus(e.key === 'ArrowDown' ? 1 : -1)) e.preventDefault();
+    return;
+  }
   if (e.key === 'Enter') {
     if (shown('step1') && document.activeElement === document.body) {
       const next = document.getElementById('next');

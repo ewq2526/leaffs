@@ -185,6 +185,7 @@ document.addEventListener('keydown', function(e) {
     if (btn) btn.click();
 });
 
+
 // ========== WebSocket 连接（带心跳） ==========
 var ws = null, wsConnected = false;
 // 端口由服务端注入页面(window.__WS_PORT__)，不再硬编码，改端口后仍能连上
