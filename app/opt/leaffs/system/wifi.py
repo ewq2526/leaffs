@@ -23,6 +23,37 @@ CTRL_DIR = '/run/wpa_supplicant'
 CLI = '/sbin/wpa_cli'
 
 
+def _unescape(text):
+    """把 wpa_supplicant 转义过的字符串还原成正常文本。
+
+    wpa_cli 输出的 SSID 走的是 wpa_supplicant 自己的 printf_encode：非 ASCII 的
+    字节写成 `\\xNN`（中文 SSID 就是 `\\xe4\\xb8\\xad…`），反斜杠与双引号前面各加
+    一个反斜杠。不还原的话，页面上的网络名就是一段转义源码。这里按同样的规则拼回
+    字节，再按 UTF-8 解码。
+    """
+    if '\\' not in text:
+        return text
+    buf = bytearray()
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '\\' and i + 1 < n:
+            nxt = text[i + 1]
+            if nxt == 'x' and i + 3 < n:
+                try:
+                    buf.append(int(text[i + 2:i + 4], 16))
+                    i += 4
+                    continue
+                except ValueError:
+                    pass
+            buf.extend(nxt.encode('utf-8'))
+            i += 2
+            continue
+        buf.extend(ch.encode('utf-8'))
+        i += 1
+    return buf.decode('utf-8', 'replace')
+
+
 def _iface():
     """控制目录下以接口名命名的套接字，取第一个无线接口。"""
     try:
@@ -85,7 +116,7 @@ def _networks():
         except ValueError:
             continue
         flags = parts[3] if len(parts) > 3 else ''
-        out.append((nid, parts[1], flags))
+        out.append((nid, _unescape(parts[1]), flags))
     return out
 
 
@@ -97,7 +128,7 @@ def status():
         return data
     fields = _kv('status')
     data.update({
-        'ssid': fields.get('ssid', ''),
+        'ssid': _unescape(fields.get('ssid', '')),
         'state': fields.get('wpa_state', ''),
         'bssid': fields.get('bssid', ''),
         'freq': fields.get('freq', ''),
@@ -117,7 +148,7 @@ def _scan_raw():
         parts = line.split('\t')
         if len(parts) < 5:
             continue
-        bssid, freq, signal, flags, ssid = parts[0], parts[1], parts[2], parts[3], parts[4]
+        bssid, freq, signal, flags, ssid = parts[0], parts[1], parts[2], parts[3], _unescape(parts[4])
         if not ssid.strip():
             continue
         if 'WPA3' in flags:

@@ -83,6 +83,22 @@ def _usage(path):
     return {'total': total, 'used': used, 'free': free, 'percent': percent}
 
 
+def _udev_fs_type(major_minor):
+    """分区上的文件系统类型。
+
+    内核不提供这个信息：/sys/class/block/<分区>/uevent 里只有 DEVNAME/DEVTYPE/
+    PARTN 这些，没有 FSTYPE（以前就是照这个读的，于是没挂载的分区一律显示空）。
+    真正的类型是 blkid 探出来的，udev 把结果记在 /run/udev/data/b<major>:<minor>
+    里，读它既不用开设备、也不会把睡下去的盘叫醒。
+    """
+    if not major_minor:
+        return ''
+    for line in _read('/run/udev/data/b' + major_minor).splitlines():
+        if line.startswith('E:ID_FS_TYPE='):
+            return line.split('=', 1)[1]
+    return ''
+
+
 def disks():
     """按物理盘枚举，而不是按挂载点。
 
@@ -122,10 +138,7 @@ def disks():
             u = _usage(mnt['mount']) if mnt else None
             fstype = mnt['fstype'] if mnt else ''
             if not fstype:
-                for line in _read(os.path.join(pdir, 'uevent')).splitlines():
-                    if line.startswith('FSTYPE='):
-                        fstype = line.split('=', 1)[1]
-                        break
+                fstype = _udev_fs_type(_read(os.path.join(pdir, 'dev')))
             parts.append({
                 'name': part,
                 'device': dev,
