@@ -131,12 +131,17 @@ sh mkimage/build.sh <仓库> <构建目录> [prep|iso|image]
 6  复制 live 母本        lb binary_chroot → 构建目录里的 chroot/chroot
                         之后所有「改母本」的动作都作用在它身上
 
-7  修母本                /etc/hostname = camphor
+7  修母本                sync-rootfs.sh：把 chroot 阶段的钩子放进母本里跑一遍
+                         image 模式不跑 chroot 阶段，钩子里的母本手术全靠这一步：
+                           屏蔽 wait-online、摘掉全部 xserver-xorg-video-*、
+                           重建 initramfs、建 /boot 链接、按清单启用单元、设图形目标
+                         /etc/hostname = camphor
                         去掉 /etc/default/grub（它是 conffile，装 grub 时会弹冲突）
                         /etc/apt/sources.list 换成装好系统要用的那份
                         删构建期 apt 配置、policy-rc.d、debian_chroot
                         撤 dpkg 转移（判据：start-stop-daemon 是真 ELF、本地转移为 0）
-                        按 camphor-units.list 建启用链接（这一层没有的单元跳过）
+                        先撤掉清单里那些单元的旧启用链接，再由钩子重建
+                        （systemctl enable 不会纠正已存在的错链接）
                         出厂清理：/home、apt 列表、日志、machine-id、SSH 主机密钥
 
 8  构建期依赖           外层 chroot 挂同一个仓库，把 binary 阶段要用的包装进 chroot

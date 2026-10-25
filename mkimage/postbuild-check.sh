@@ -50,6 +50,22 @@ if [ -f "$T/fs.squashfs" ]; then
 	hostname=$(unsquashfs -cat "$T/fs.squashfs" etc/hostname 2>/dev/null | tr -d '\n')
 	[ "$hostname" = "camphor" ] && ok "/etc/hostname = camphor" || bad "/etc/hostname = '$hostname'（应为 camphor）"
 
+	# 母本手术的产物：钩子只在 chroot 阶段跑，image 模式靠 build.sh 第 7 步
+	# （sync-rootfs.sh）把同一份钩子放进母本里再跑一遍。这里查它到底跑没跑。
+	grep -q 'squashfs-root/etc/systemd/system/systemd-networkd-wait-online.service -> /dev/null' "$T/sq.list" \
+		&& ok "wait-online 已屏蔽" \
+		|| bad "systemd-networkd-wait-online.service 没有屏蔽（开机要等网络）"
+	grep -q 'squashfs-root/etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service' "$T/sq.list" \
+		&& bad "network-online.target.wants 里还有 wait-online（屏蔽不生效）" \
+		|| ok "wait-online 不在 network-online.target.wants 里"
+
+	# 启用链接要指向真实单元文件。手工 ln 成 /etc/systemd/system/<单元> 时，
+	# 单元在 /usr/lib/systemd/system/ 下的（networkd）就是条空链，服务起不来，
+	# 而且 systemctl enable 之后也不会纠正它。
+	grep -q 'multi-user.target.wants/systemd-networkd.service -> /usr/lib/systemd/system/systemd-networkd.service' "$T/sq.list" \
+		&& ok "networkd 启用链接指向 /usr/lib" \
+		|| bad "networkd 启用链接不对（服务起不来，系统没有网络配置）"
+
 	# 无线：配置在应用层，随 app.squashfs 铺进来。
 	# 主镜像里没有它是正常的 —— 这里只在镜像自称带应用时才查。
 	if grep -q 'squashfs-root/etc/wpa_supplicant/wpa_supplicant-wlan0.conf$' "$T/sq.list"; then
@@ -75,6 +91,12 @@ if [ -f "$T/fs.squashfs" ]; then
 			&& ok "$p 已装进镜像" \
 			|| bad "$p 不在镜像里（grub-installer 会写未签名版）"
 	done
+
+	# X 驱动：旧系统一个 DDX 都没有，X 走 xserver-xorg-core 里的 modesetting。
+	# 有 DDX 时 X 会先挑它，挑错就是灰屏。
+	grep -q '^Package: xserver-xorg-video-' "$T/dpkg.status" \
+		&& bad "镜像里有 xserver-xorg-video-*（旧 DDX 会盖掉 modesetting，界面灰屏）" \
+		|| ok "没有 xserver-xorg-video-*"
 
 	# 不该有的
 	grep -q 'squashfs-root/etc/default/grub$' "$T/sq.list" \

@@ -7,6 +7,36 @@ set -e
 # 仓库里检出时可能丢了执行位，脚本直接起不来
 chmod +x /usr/local/bin/camphor-*.sh
 
+# 屏蔽 network-online 的等待。
+#
+# 网络可能走无线、也可能没有插网线：等 network-online 会让开机停在
+# "Waiting for Network to be Configured" 上两分钟，第二阶段被它挡住，
+# 看起来就是卡在启动。能正常启动的旧系统里，这个单元是指向 /dev/null 的屏蔽状态。
+# 我们的服务都只要求 After=network.target，不需要"网真的通了"。
+rm -f /etc/systemd/system/network-online.target.wants/systemd-networkd-wait-online.service
+ln -sf /dev/null /etc/systemd/system/systemd-networkd-wait-online.service
+
+# 摘掉全部旧 X 驱动（DDX）。
+#
+# 能正常显示的旧系统里没有一个 xserver-xorg-video-* 包，X 用的是内核 DRM 上的
+# modesetting 驱动 —— 它在 xserver-xorg-core 里，不随这些包走。
+# 这一整套是这么进来的：xinit 推荐 xserver-xorg 元包，元包依赖
+# xserver-xorg-video-all，后者把各家 DDX 全装上。其中 intel 那个在部分核显上
+# 会画出灰屏；vesa / fbdev 这类退回路径在模式选错时同样会盖掉 modesetting。
+# Debian 的包说明写明 video-all 只是依赖集合、想要哪些驱动就装哪些，可以直接删；
+# 删它时依赖它的 xserver-xorg 元包会一起走，xserver-xorg-core 不动。
+if dpkg -l 'xserver-xorg-video-*' 2>/dev/null | grep -q '^ii'; then
+	DEBIAN_FRONTEND=noninteractive apt-get purge -y \
+		xserver-xorg-video-all 'xserver-xorg-video-*' xserver-xorg
+	echo "camphor: 已摘掉全部 xserver-xorg-video-*（X 走 modesetting）"
+fi
+
+# 摘完之后 X 必须还有 modesetting，否则一个驱动都不剩
+if [ ! -f /usr/lib/xorg/modules/drivers/modesetting_drv.so ]; then
+	echo "camphor: 没有 modesetting_drv.so，X 没有可用驱动" >&2
+	exit 1
+fi
+
 # initramfs 按仓库的 /etc/initramfs-tools 重建：内核包是构建时先装的，
 # 它的 postinst 生成 initrd 时仓库这份配置还没铺进来，所以这里重做一次
 # 钩子的 PATH 里没有 /usr/sbin，必须给绝对路径

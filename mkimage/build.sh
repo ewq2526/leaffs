@@ -34,79 +34,6 @@ sync_etc_usr() {
 	rsync -a --chown=root:root --chmod=D755,F755 "$REPO/usr/" "$1/usr/"
 }
 
-# 撤掉构建期的 dpkg 转移。live-build 把 start-stop-daemon 换成 /bin/true，
-# 撤的时候要先删替身，否则 dpkg-divert --rename 拒绝覆盖。
-clear_diversions() {
-	root=$1
-	for path in $(chroot "$root" dpkg-divert --list 2>/dev/null | \
-			sed -n 's/^local diversion of \([^ ]*\) to \(.*\)$/\1/p'); do
-		to=$(chroot "$root" dpkg-divert --list 2>/dev/null | \
-			sed -n "s|^local diversion of ${path} to \(.*\)\$|\1|p")
-		if [ -n "$to" ] && [ -e "$root$to" ]; then
-			rm -f "$root$path"
-			chroot "$root" dpkg-divert --local --rename --remove "$path" >/dev/null 2>&1 || true
-		else
-			chroot "$root" dpkg-divert --local --no-rename --remove "$path" >/dev/null 2>&1 || true
-		fi
-	done
-	n=$(chroot "$root" dpkg-divert --list 2>/dev/null | grep -c '^local diversion' || true)
-	if [ "${n:-0}" != "0" ]; then
-		echo "构建期 dpkg 转移还剩 ${n} 条，撤不干净就别压片" >&2
-		exit 1
-	fi
-	case "$(file -b "$root/usr/sbin/start-stop-daemon" 2>/dev/null)" in
-		*ELF*) ;;
-		*) echo "start-stop-daemon 还是替身，别压片" >&2; exit 1 ;;
-	esac
-}
-
-# 按清单启用单元。
-#
-# 不能指望 0100-camphor.chroot 里的 systemctl enable：复用 chroot 时那一步不跑，
-# 单元文件在、启用链接不在，服务就永远起不来（安装器就是这样被漏掉的）。
-#
-# 只建链接，不写任何条件。主镜像里没有应用服务（它们在应用层镜像里），
-# 所以这些链接在主镜像里对应用不起作用；应用层铺进来之后再按同一份清单启用。
-enable_units() {
-	root=$1
-	list=$root/etc/systemd/camphor-units.list
-	[ -f "$list" ] || return 0
-	# 早先试过用条件文件控制自启，给单元写过 drop-in。chroot 复用时它们不会
-	# 自己消失，会继续把服务挡在外面 —— 每次构建先清干净。
-	rm -f "$root"/etc/systemd/system/*.service.d/no-service.conf 2>/dev/null || true
-	while read -r unit state; do
-		case "$unit" in ''|'#'*) continue ;; esac
-		[ "$state" = enabled ] || continue
-		file=$root/etc/systemd/system/$unit
-		[ -f "$file" ] || file=$root/usr/lib/systemd/system/$unit
-		[ -f "$file" ] || continue
-		want=$(sed -n 's/^WantedBy=//p' "$file" | tail -1)
-		[ -n "$want" ] || continue
-		mkdir -p "$root/etc/systemd/system/$want.wants"
-		ln -sf "/etc/systemd/system/$unit" "$root/etc/systemd/system/$want.wants/$unit"
-	done < "$list"
-}
-
-# 出厂状态：不留构建过程与身份
-factory_cleanup() {
-	root=$1
-	# 构建时在 chroot 里干活的账号目录，连同整个 /home 一起清掉：
-	# 镜像里不该有任何人的家目录，账号是安装时才建的。
-	rm -rf "$root/home"
-	rm -rf "$root/var/lib/apt/lists"
-	mkdir -p "$root/var/lib/apt/lists/partial"
-	rm -rf "$root/root/.cache"
-	find "$root/var/log" -maxdepth 1 -type f ! -name README -delete 2>/dev/null || true
-	rm -f "$root"/var/log/apt/* "$root"/var/log/apt/*.xz
-	rm -rf "$root"/var/log/journal/* "$root"/var/log/runit/*
-	: > "$root/var/log/lastlog"
-	: > "$root/var/log/wtmp"
-	: > "$root/var/log/btmp"
-	find "$root/opt/leaffs" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
-	: > "$root/etc/machine-id"
-	rm -f "$root"/etc/ssh/ssh_host_*
-}
-
 C=$BUILD/chroot
 LIVE=$C/chroot
 
@@ -203,6 +130,10 @@ rsync -a --chown=root:root --chmod=D755,F644 --exclude=splash.* --exclude=title.
 install -m 644 "$REPO/mkimage/live/assets/backdrop.jpg" "$THEME/splash.jpg"
 # 介质上的标题是「安装程序」，装好的系统不是安装程序，换成机器用途。
 install -m 644 "$REPO/mkimage/live/assets/title-system.png" "$THEME/title.png"
+# 装好系统的菜单条目由 grub-mkconfig 生成，带 "Advanced options for …" 这种长标题，
+# 还可能挂着别的系统。介质上那两三条短条目用 16% 的窄框刚好，这里必须放宽，
+# 否则文字被截断成 "Advanced options for Camphor GNU/Li…"。
+sed -i 's/^\twidth = 16%$/\twidth = 56%/' "$THEME/theme.txt"
 # includes.chroot 只在 chroot 阶段复制；image 模式下那一步已经跑过，外层直接补一份。
 if [ -d "$C" ]; then
 	mkdir -p "$C/boot/grub/themes/camphor"
@@ -272,17 +203,10 @@ cd "$BUILD"
 rm -f .build/binary_chroot
 lb binary_chroot
 
-step "7 修母本"
-printf 'camphor\n' > "$LIVE/etc/hostname"
-chmod 644 "$LIVE/etc/hostname"
-rm -f "$LIVE/etc/default/grub"
-cp "$REPO/mkimage/live/sources.list" "$LIVE/etc/apt/sources.list"
-rm -f "$LIVE"/etc/apt/apt.conf.d/00secure "$LIVE"/etc/apt/apt.conf.d/00recommends "$LIVE/etc/apt/apt.conf"
-rm -f "$LIVE/usr/sbin/policy-rc.d" "$LIVE/etc/debian_chroot"
-clear_diversions "$LIVE"
-enable_units "$LIVE"
-factory_cleanup "$LIVE"
-echo "  主机名 $(cat "$LIVE/etc/hostname")；os-prober $([ -e "$LIVE/usr/bin/os-prober" ] && echo 在 || echo 缺)"
+step "7 修母本：与 chroot 阶段同一份钩子"
+# 钩子只在 chroot 阶段跑，image 模式是复制母本之后直接压片 —— 母本手术全靠
+# 这一步补上，补法是把同一份钩子放进母本里执行，见 sync-rootfs.sh 的说明。
+sh "$REPO/mkimage/sync-rootfs.sh" "$REPO" "$LIVE"
 
 step "8 构建依赖：给外层 chroot 挂仓库"
 if [ -n "$LOCAL_REPO" ]; then
