@@ -1,5 +1,5 @@
 [Unit]
-Description=Camphor 开机内存检查（不够就在屏幕上说明界面为何没起来）
+Description=Camphor boot memory check (explains why the UI did not start)
 # 它自己被 WantedBy=multi-user.target 拉起，再写 After=multi-user.target 就成了
 # 依赖环：systemd 会打破环并把单元判成起不来（首次启动日志里那条
 # 「camphor-lowmem-notice.service 起不来」就是它）。这里不需要任何排序。

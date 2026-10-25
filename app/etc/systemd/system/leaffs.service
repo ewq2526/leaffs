@@ -1,5 +1,5 @@
 [Unit]
-Description=Camphor 文件服务（只跑服务，不开窗口；窗口由 camphor-kiosk 拉起）
+Description=Camphor file service (server only, no window; the window is started by camphor-kiosk)
 After=network.target
 
 [Service]

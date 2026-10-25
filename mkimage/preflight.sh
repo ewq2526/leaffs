@@ -193,6 +193,17 @@ else
 	ok "控制台脚本只输出 ASCII"
 fi
 
+# 17b 单元的 Description 也会出现在控制台上（systemctl status、启动失败时的提示），
+# 同样只能 ASCII，否则那里也是一串方框。
+desc=$(grep -rnP '^Description=[^\n]*[^\x00-\x7F]' \
+		"$REPO/etc/systemd" "$REPO/app/etc/systemd" 2>/dev/null | head -5)
+if [ -n "$desc" ]; then
+	bad "单元 Description 里有非 ASCII（TTY 上是方框）"
+	echo "$desc" | sed 's/^/         /'
+else
+	ok "单元 Description 都是 ASCII"
+fi
+
 if [ "$fails" -gt 0 ]; then
 	echo "自检不过：$fails 项，先修再起构建"
 	exit 1
