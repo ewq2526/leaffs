@@ -17,7 +17,6 @@ SERVICES = (
     'camphor-kiosk',
     'camphor-ssh',
     'camphor-wifi',
-    'camphor-trust-cert',
     'ksmbd',
     'wsdd2',
     'avahi-daemon',
