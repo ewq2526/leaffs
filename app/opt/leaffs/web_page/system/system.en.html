@@ -34,6 +34,8 @@
 .disk-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--card-bg); }
 .disk-card:last-child { margin-bottom: 0; }
 .disk-head { display: flex; align-items: baseline; gap: 8px; cursor: pointer; flex-wrap: wrap; }
+/* 键盘焦点：这两类行是可点的，默认轮廓在深色底上几乎看不见 */
+.srow:focus-visible, .disk-head:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
 .disk-head .name { font-weight: 600; font-size: 13px; color: var(--text); }
 .disk-head .meta { font-size: 11px; color: var(--text-light); }
 .disk-head .io { margin-left: auto; font-size: 11.5px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
@@ -187,6 +189,18 @@ function fmtTime(ts) {
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 function level(v, warn, danger) { return v >= danger ? 'danger' : (v >= warn ? 'warn' : ''); }
+
+// 可点的行（无线网络、磁盘标题）原本只有 click：键盘 Tab 到不了，也按不动。
+// 统一套一层：能 Tab、Enter 或空格触发、有 role 与说明，屏幕阅读器也读得出。
+function keyActivate(node, fn, label) {
+    node.tabIndex = 0;
+    node.setAttribute('role', 'button');
+    if (label) node.setAttribute('aria-label', label);
+    node.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); }
+    });
+    return node;
+}
 
 // 折线：0~100 固定量程，避免曲线在低负载时把噪声放大成"满格"
 function drawChart(el, data, cls) {
@@ -444,6 +458,7 @@ function renderWifiList() {
             (n.saved ? ' · saved' : '') + '</span>' +
             '<span class="srow-path" style="flex:0 0 auto">' + bars + ' ' + n.signal + ' dBm</span>';
         row.addEventListener('click', function () { wifiForm(row, n); });
+        keyActivate(row, function () { wifiForm(row, n); }, 'Connect ' + n.ssid);
         box.appendChild(row);
     });
 }
@@ -468,16 +483,24 @@ function wifiForm(row, net) {
         }).then(function (r) {
             return r.json().then(function (d) { return { ok: r.ok, d: d }; });
         }).then(function (res) {
-            if (res.ok) { toast('Connected to ' + net.ssid, 'success'); form.remove(); }
+            if (res.ok) { toast('Connected to ' + net.ssid, 'success'); form.remove(); row.style.cursor = 'pointer'; row.focus(); }
             else { toast(res.d.error || 'Connection failed', 'error'); }
             loadWifiStatus();
         }).catch(function () { toast('Connection failed', 'error'); })
         .then(function () { btns[0].disabled = false; btns[0].textContent = 'Connect'; });
     });
-    btns[1].addEventListener('click', function () { form.remove(); row.style.cursor = 'pointer'; });
+    btns[1].addEventListener('click', function () { form.remove(); row.style.cursor = 'pointer'; row.focus(); });
     row.appendChild(form);
     row.style.cursor = 'default';
-    if (input) input.focus();
+    if (input) {
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { e.preventDefault(); btns[0].click(); }
+            else if (e.key === 'Escape') { e.preventDefault(); btns[1].click(); }
+        });
+        input.focus();
+    } else {
+        btns[0].focus();
+    }
 }
 
 function scanWifi() {
@@ -570,10 +593,13 @@ function renderDisks(list) {
 
         head.addEventListener('click', function () {
             card.classList.toggle('open');
+            head.setAttribute('aria-expanded', card.classList.contains('open') ? 'true' : 'false');
             if (card.classList.contains('open')) {
                 drawChartMax(chart, histIo[d.name] || [], '');
             }
         });
+        head.setAttribute('aria-expanded', card.classList.contains('open') ? 'true' : 'false');
+        keyActivate(head, function () { head.click(); }, 'Expand ' + d.name);
         if (card.classList.contains('open')) {
             drawChartMax(chart, histIo[d.name] || [], '');
         }

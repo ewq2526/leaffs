@@ -89,6 +89,16 @@
     font: 13px/1.7 ui-monospace, "DejaVu Sans Mono", monospace; white-space: pre-wrap;
   }
   .err { color: #e08a8a; }
+
+  /* 键盘：焦点必须看得见。深色底上浏览器默认那圈几乎看不出来，
+     所以统一给一条亮色轮廓；分区块用它自己的虚线框，跟"已选中"的绿框区分开。 */
+  button:focus-visible, input:focus-visible, #log:focus {
+    outline: 3px solid #dcdce8; outline-offset: 2px;
+  }
+  .blk:focus-visible {
+    outline: 3px dashed #f2f2f2; outline-offset: -6px; z-index: 1;
+  }
+  button:focus:not(:focus-visible) { outline: none; }
 </style>
 </head>
 <body>
@@ -103,7 +113,7 @@
     <div id="list"></div>
     <div class="foot">
       <button id="next" class="primary" disabled>下一步</button>
-      <span class="hint" id="h1">先选一个分区</span>
+      <span class="hint" id="h1" aria-live="polite">先选一个分区</span>
     </div>
   </div>
 
@@ -134,7 +144,7 @@
     <div class="foot">
       <button id="back">返回</button>
       <button id="go" class="primary" disabled>开始安装</button>
-      <span class="hint" id="h2">填好用户名与口令</span>
+      <span class="hint" id="h2" aria-live="polite">填好用户名与口令</span>
     </div>
   </div>
 
@@ -145,11 +155,11 @@
       <span class="step-dot">② 账号</span>
       <span class="step-dot on">③ 安装</span>
     </div>
-    <div class="step" id="plabel">准备中…</div>
-    <pre id="log"></pre>
+    <div class="step" id="plabel" aria-live="polite">准备中…</div>
+    <pre id="log" tabindex="-1"></pre>
     <div class="foot">
       <button id="reboot" class="primary" style="display:none">重启</button>
-      <span class="hint" id="h3"></span>
+      <span class="hint" id="h3" aria-live="polite"></span>
     </div>
   </div>
 
@@ -235,7 +245,30 @@ function renderDisk(d) {
       // 有数据的分区被选中 = 这些数据要被格式化
       if (!r.free && (r.fstype || (r.used_pct || 0) > 0)) blk.classList.add('warn');
     }
-    blk.onclick = () => selectRow(d, r);
+    // 键盘：每块都能 Tab 到，Enter/空格选中，左右键在同一块盘的分区之间走。
+    blk.tabIndex = 0;
+    blk.setAttribute('role', 'button');
+    blk.dataset.key = d.device + '#' + r.rowid;
+    blk.setAttribute('aria-label', (r.free ? '空闲空间' : `分区 ${r.index}`) + '，' + full);
+    if (picked && picked.device === d.device && picked.row.rowid === r.rowid) {
+      blk.setAttribute('aria-pressed', 'true');
+    }
+    blk.onclick = () => selectRow(d, r, false);
+    blk.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        selectRow(d, r, true);
+        return;
+      }
+      const blocks = [...bar.querySelectorAll('.blk')];
+      const i = blocks.indexOf(blk);
+      let j = -1;
+      if (e.key === 'ArrowRight') j = i + 1;
+      else if (e.key === 'ArrowLeft') j = i - 1;
+      else if (e.key === 'Home') j = 0;
+      else if (e.key === 'End') j = blocks.length - 1;
+      if (j >= 0 && j < blocks.length) { e.preventDefault(); blocks[j].focus(); }
+    });
     bar.appendChild(blk);
 
     const item = el('span');
@@ -254,17 +287,28 @@ function renderDisk(d) {
   return box;
 }
 
-async function selectRow(d, r) {
+async function selectRow(d, r, fromKeyboard) {
   picked = { device: d.device, disk: d, row: r };
   await load();                    // 先重画色块（会清空工具区）
   const fresh = disksData.find(x => x.device === d.device);
   const same = fresh && fresh.rows.find(x => x.rowid === r.rowid);
   picked.row = same || r;
-  if (same) showTools(fresh, same);
+  if (same) showTools(fresh, same, fromKeyboard);
   checkNext();
+  // 键盘选中的：焦点跟到工具区（能直接输大小），没有工具就停在色块上，
+  // 否则重画之后焦点掉回 body，再按 Tab 就得从头走。
+  if (fromKeyboard && !document.querySelector('#' + toolsId(d.device) + ' input')) {
+    focusBlock(picked.device, picked.row.rowid);
+  }
 }
 
-function showTools(d, r) {
+function focusBlock(device, rowid) {
+  const b = document.querySelector(`.blk[data-key="${device}#${rowid}"]`);
+  if (b) b.focus();
+  return b;
+}
+
+function showTools(d, r, fromKeyboard) {
   const tools = document.getElementById(toolsId(d.device));
   if (!tools) return;
   tools.innerHTML = '';
@@ -273,6 +317,7 @@ function showTools(d, r) {
     size.type = 'number';
     size.min = 100;
     size.value = Math.floor(parseFloat(r.size) || 0);
+    size.setAttribute('aria-label', '新分区大小（MiB）');
     const btn = el('button', 'primary', '在这里新建分区');
     btn.onclick = async () => {
       const mib = parseInt(size.value, 10);
@@ -286,7 +331,12 @@ function showTools(d, r) {
         checkNext();
       } catch (e) { alert('新建失败：' + e.message); btn.disabled = false; }
     };
+    // 在大小输入框里按 Enter 直接建，不用再去摸按钮
+    size.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); btn.click(); }
+    });
     tools.append(el('label', null, `大小（MiB，最多 ${Math.floor(r.size)}）`), size, btn);
+    if (fromKeyboard) size.focus();
   } else {
     const esp = /esp/i.test(r.flags || '');
     if (esp) {
@@ -356,6 +406,15 @@ function showStep(n) {
   for (const i of [1, 2, 3]) {
     document.getElementById('step' + i).classList.toggle('show', i === n);
   }
+  // 换页之后焦点跟着走：停在隐藏面板里的控件上，键盘就全废了
+  if (n === 2) {
+    document.getElementById('user').focus();
+  } else if (n === 3) {
+    document.getElementById('log').focus();
+  } else {
+    const b = document.querySelector('.blk.sel') || document.querySelector('.blk');
+    if (b) b.focus();
+  }
 }
 
 document.getElementById('next').onclick = () => {
@@ -373,6 +432,29 @@ document.getElementById('next').onclick = () => {
 };
 
 document.getElementById('back').onclick = () => { showStep(1); };
+
+// 键盘：三页都能只靠键盘走完。
+//   ① 焦点在空白处按 Enter = 下一步（焦点在色块上时由色块自己处理）
+//   ② 在输入框里按 Enter = 开始安装，Esc = 返回
+//   ③ 装好后按 Enter = 重启
+document.addEventListener('keydown', function (e) {
+  const shown = (id) => document.getElementById(id).classList.contains('show');
+  if (e.key === 'Enter') {
+    if (shown('step1') && document.activeElement === document.body) {
+      const next = document.getElementById('next');
+      if (!next.disabled) { e.preventDefault(); next.click(); }
+    } else if (shown('step2') && e.target.tagName === 'INPUT') {
+      const go = document.getElementById('go');
+      if (!go.disabled) { e.preventDefault(); go.click(); }
+    } else if (shown('step3')) {
+      const rb = document.getElementById('reboot');
+      if (rb.style.display !== 'none') { e.preventDefault(); rb.click(); }
+    }
+  } else if (e.key === 'Escape' && shown('step2')) {
+    e.preventDefault();
+    showStep(1);
+  }
+});
 
 function checkForm() {
   const u = document.getElementById('user').value.trim();
@@ -402,6 +484,10 @@ for (const id of ['user', 'pass', 'pass2']) {
 
 async function load() {
   const list = document.getElementById('list');
+  // 重画会把 DOM 整个换掉：先记下当前焦点在哪一块，画完再放回去，
+  // 否则一次刷新（选分区就会触发）焦点就掉回 body，键盘得从头 Tab。
+  const keepKey = (document.activeElement && document.activeElement.dataset)
+    ? document.activeElement.dataset.key : '';
   try {
     const data = await api('/api/disks');
     disksData = data.disks || [];
@@ -413,10 +499,14 @@ async function load() {
       return;
     }
     for (const d of disksData) list.appendChild(renderDisk(d));
+    if (keepKey) {
+      const b = list.querySelector(`.blk[data-key="${keepKey}"]`);
+      if (b) b.focus();
+    }
     if (picked) {
       const fresh = disksData.find(x => x.device === picked.device);
       const same = fresh && fresh.rows.find(x => x.rowid === picked.row.rowid);
-      if (same) showTools(fresh, same);
+      if (same) showTools(fresh, same, false);
     }
     checkNext();
   } catch (e) {
