@@ -1,7 +1,9 @@
 [Unit]
 Description=Camphor 开机内存检查（不够就在屏幕上说明界面为何没起来）
-After=multi-user.target
-# 界面被 ConditionMemory 跳过时屏幕上什么都没有，这条负责把原因写出来
+# 它自己被 WantedBy=multi-user.target 拉起，再写 After=multi-user.target 就成了
+# 依赖环：systemd 会打破环并把单元判成起不来（首次启动日志里那条
+# 「camphor-lowmem-notice.service 起不来」就是它）。这里不需要任何排序。
+# 界面被 ConditionMemory 跳过时屏幕上什么都没有，这条负责把原因写出来。
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/camphor-lowmem-notice.sh

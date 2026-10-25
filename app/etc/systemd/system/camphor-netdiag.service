@@ -1,6 +1,7 @@
 [Unit]
 Description=Camphor network diagnostics on console
-After=multi-user.target
+# 同 camphor-lowmem-notice：自己被 WantedBy=multi-user.target 拉起，就不能再
+# After=multi-user.target，否则是依赖环。默认 disabled，手动启用时不至于起不来。
 
 [Service]
 Type=oneshot

@@ -1,7 +1,9 @@
 [Unit]
 Description=WSD/LLMNR discovery for Camphor (ksmbd based)
-After=network-online.target ksmbd.service
-Wants=network-online.target
+# 只挂 network.target。network-online 要等地址真的配好，没插网线时会一直等 ——
+# 这台机器的启动时间历史上有一大截（9.76 秒）就花在等它上面。
+After=network.target ksmbd.service
+Wants=network.target
 
 [Service]
 Type=simple

@@ -71,17 +71,23 @@ fi
 
 # 3 服务：按清单启用并启动
 systemctl daemon-reload
-started=0
+units=
 while read -r unit state; do
 	case "$unit" in ''|'#'*) continue ;; esac
 	[ "$state" = enabled ] || continue
 	if [ ! -f "/etc/systemd/system/$unit" ] && [ ! -f "/usr/lib/systemd/system/$unit" ]; then
 		continue
 	fi
-	systemctl enable --quiet "$unit" 2>/dev/null || true
-	systemctl start "$unit" 2>/dev/null && started=$((started + 1)) || say "$unit 起不来"
+	units="$units $unit"
 done < "$LIST"
-say "启动 $started 个服务"
+# 一次调用启一个事务，由 systemd 自己并行起。原来逐个 systemctl enable/start：
+# 每个 enable 都触发一次 daemon-reload，start 又各等各的，十几个单元串下来就是
+# 半分钟，屏幕前看起来就是"卡在首次启动"。
+say "启用并启动服务：$units"
+systemctl enable --quiet $units 2>/dev/null || true
+systemctl start $units 2>/dev/null || true
+failed=$(systemctl --failed --no-legend 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
+[ -n "$failed" ] && say "起不来的：$failed"
 
 umount "$MNT"
 
