@@ -170,23 +170,43 @@ def _scan_raw():
     return nets
 
 
-def scan():
-    """触发一次扫描并等结果。已保存过的网络带 saved 标记。
+def _scan_cycle(timeout=8):
+    """发起一次扫描，等 BSS 表稳定下来再返回。
 
-    刚扫过时 `scan` 会返回 FAIL-BUSY，这时直接读上一次的结果 —— 那也是有效数据。
+    关联状态下第一次 SCAN 很容易只给出当前那个 AP：wpa_supplicant 在已关联时
+    是拿新结果去更新已有的 BSS 表，第一轮往往还没补齐。`scan` 返回 FAIL-BUSY
+    也是同一件事——上一轮扫描还没结束，这时更该等它，而不是立刻把旧结果当答案。
     """
-    before = set(_scan_raw())
     try:
         _cli('scan')
-    except RuntimeError:
-        pass
-    deadline = time.time() + 6
-    nets = {}
+    except RuntimeError as e:
+        if 'BUSY' not in str(e):
+            raise
+    prev = _scan_raw()
+    stable = 0
+    deadline = time.time() + timeout
     while time.time() < deadline:
-        nets = _scan_raw()
-        if set(nets) - before:
-            break
-        time.sleep(0.4)
+        time.sleep(0.5)
+        cur = _scan_raw()
+        if cur != prev:
+            prev = cur
+            stable = 0
+        else:
+            stable += 1
+            if stable >= 2 and cur:
+                return cur
+    return prev
+
+
+def scan():
+    """触发一次扫描并等结果。已保存过的网络带 saved 标记。"""
+    nets = _scan_cycle()
+    # 已经连着网的时候，第一轮常常只回当前这一个 AP；再走一轮才齐。
+    # 有这个症状的前提就是 COMPLETED，所以只在关联状态下补一轮。
+    if len(nets) <= 1 and _kv('status').get('wpa_state') == 'COMPLETED':
+        more = _scan_cycle()
+        if len(more) > len(nets):
+            nets = more
     saved = {ssid for _, ssid, _ in _networks()}
     # 同一个 SSID 往往有多个 BSSID（2.4G/5G、多 AP），列表只按 SSID 留信号最好的那个，
     # 否则点一次扫描会出现一堆重名条目。
