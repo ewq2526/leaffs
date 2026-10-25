@@ -206,6 +206,15 @@ EOF
 	chroot "$C" apt-get -y install os-prober >/dev/null 2>&1 || echo "  （os-prober 已装或装不上，postbuild 会查）"
 	umount "$C$LOCAL_REPO"
 	echo "  已卸下 $C$LOCAL_REPO"
+	# chroot.packages.install 是 lb 装包那一刻记下的集合。钩子后来会 purge 掉一批
+	# （旧 X 驱动及其依赖），这个文件没人更新，就与实际装的包对不上 —— 拿它当依据
+	# 会得出错的结论。按实际重写一份，让记录跟着盘上的东西走。
+	chroot "$C" dpkg-query -W -f='${binary:Package}\t${Version}\n' \
+		> "$BUILD/chroot.packages.install" 2>/dev/null || true
+	echo "  包记录已按实际重写：$(wc -l < "$BUILD/chroot.packages.install") 个"
+	# image 模式不重跑 chroot 阶段的收尾，这几份清单会停在上一轮全量构建的时间上。
+	# 留着它们，谁翻出来当"这版装了哪些包"就会看错。
+	rm -f "$BUILD/camphor-amd64.files" "$BUILD/camphor-amd64.packages" "$BUILD/chroot.files"
 else
 	echo "  没给 CAMPHOR_LOCAL_REPO，跳过装包"
 fi
