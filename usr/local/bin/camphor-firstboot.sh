@@ -37,13 +37,28 @@ mountpoint -q "$MNT" && umount "$MNT"
 mount -t squashfs -o loop,ro "$APP" "$MNT" || fail "挂不上应用镜像"
 
 # 1 依赖：走 dpkg，包的 postinst 要跑（avahi、sshd 这些系统用户靠它建）
+#
+# 但 postinst 会把服务拉起来，而这时应用层的文件还没铺 —— 配置与 drop-in 都还不在。
+# ksmbd 就是这样：13:18:06 被 dpkg 拉起，找不到 /etc/ksmbd/ksmbd.conf 直接以 1 退出；
+# avahi 与 ssh 也在同一时刻先起来了。服务统一放到下面第 3 步起，那时配置已就位。
+#
+# 挡的办法是 policy-rc.d —— Debian 的公开接口，不是自造的补丁：
+#   · sysv 脚本：invoke-rc.d(8) 先问它，101 表示不让执行；
+#   · systemd 单元：postinst 走 deb-systemd-invoke，那份脚本的说明第一句就是
+#     "wrapper around systemctl, respecting policy-rc.d"，同样按 101 判定不跑。
+# 中途被打断也要撤掉：这个文件留着，以后所有 apt 操作都不会再启动服务。
 if [ -d "$MNT/pool" ]; then
 	n=$(ls "$MNT/pool"/*.deb 2>/dev/null | wc -l)
 	say "装 $n 个依赖包（约 20 秒，下面没有输出是正常的）"
+	trap 'rm -f /usr/sbin/policy-rc.d' EXIT INT TERM HUP
+	printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d
+	chmod 0755 /usr/sbin/policy-rc.d
 	dpkg -i --force-confnew "$MNT/pool"/*.deb >/tmp/firstboot-dpkg.log 2>&1 || {
 		say "dpkg 有失败，日志在 /tmp/firstboot-dpkg.log"
 		tail -5 /tmp/firstboot-dpkg.log
 	}
+	rm -f /usr/sbin/policy-rc.d
+	trap - EXIT INT TERM HUP
 	say "依赖包装完"
 fi
 
