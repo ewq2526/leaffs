@@ -4,7 +4,7 @@
 
     status / scan / scan_results    读
     list_networks                   已保存的网络
-    add_network / set_network / remove_network / select_network / save_config   写
+    add_network / set_network / remove_network / enable_network / reassociate / save_config   写
 
 `save_config` 负责持久化 —— 配置文件里本来就有 `update_config=1`，所以不用碰文件也不用管转义。
 这台机器没有 NetworkManager，`camphor-wifi` 单元用固定配置文件拉起 wpa_supplicant，
@@ -188,26 +188,26 @@ def _get(nid, field):
     return value
 
 
-def _restore(ssid, psk):
-    """把之前连着的网络重新装回去（失败回滚用）。"""
-    quoted = '"' + ssid.replace('\\', '\\\\').replace('"', '\\"') + '"'
-    for nid, name, _flags in _networks():
-        if name == ssid:
-            _cli('remove_network', str(nid))
-    nid = _cli('add_network')[-1].strip()
-    _cli('set_network', nid, 'ssid', quoted)
-    if psk:
-        _cli('set_network', nid, 'psk', '"%s"' % psk)
-    else:
-        _cli('set_network', nid, 'key_mgmt', 'NONE')
-    _cli('select_network', nid)
-    _cli('save_config')
+def _priority(nid):
+    try:
+        return int(_get(nid, 'priority') or 0)
+    except ValueError:
+        return 0
 
 
 def connect(ssid, psk):
     """连到一个网络。psk 为空表示开放网络；否则必须 8~63 位，或 64 位十六进制。
 
-    同名网络先删掉再建，避免 `list_networks` 里越积越多同名块（旧密码会干扰选网）。
+    用「抬优先级 + enable_network + disconnect/reassociate」，**不用 select_network**：
+    后者的语义是 "select a network (disable others)"，会把其它网络全部标成 disabled，
+    连一次失败就永久少一个候选，重启几次之后配置里只剩连不上的那个，表现就是越重启
+    越连不上。抬优先级只影响这次选谁，失败时其它网络还在，能退回去。
+
+    落盘同样只在 COMPLETED 之后：`save_config` 是持久的，先存再验会把失败的连接写进
+    配置，下一轮开机读到的就是那个连不上的结果。
+
+    同名网络沿用原来的块（不删）：删掉再建的话，这一轮失败就把已经存好的那个也弄没了。
+    新密码只在连上之后才落盘，失败时改回配置文件里的旧值（reconfigure）。
     """
     ssid = (ssid or '').strip()
     psk = (psk or '').strip()
@@ -219,25 +219,30 @@ def connect(ssid, psk):
         raise RuntimeError('密码长度必须是 8~63 位（或 64 位十六进制）')
 
     quoted = '"' + ssid.replace('\\', '\\\\').replace('"', '\\"') + '"'
-    # 先把当前连着的那个网络记下来：保存配置是持久化操作，新网络连不上时必须能退回去，
-    # 否则这台设备会既没网也没了配置，只能从屏幕前重新输密码。
-    keep = None
-    for nid, name, flags in _networks():
-        if 'CURRENT' in flags:
-            keep = (name, _get(nid, 'psk'))
-            break
-
-    for nid, name, _flags in _networks():
+    nid = None
+    for _id, name, _flags in _networks():
         if name == ssid:
-            _cli('remove_network', str(nid))
-    nid = _cli('add_network')[-1].strip()
-    _cli('set_network', nid, 'ssid', quoted)
+            nid = _id
+            break
+    if nid is None:
+        nid = int(_cli('add_network')[-1].strip())
+
+    _cli('set_network', str(nid), 'ssid', quoted)
     if psk:
-        _cli('set_network', nid, 'psk', '"%s"' % psk)
+        _cli('set_network', str(nid), 'psk', '"%s"' % psk)
     else:
-        _cli('set_network', nid, 'key_mgmt', 'NONE')
-    _cli('select_network', nid)
-    _cli('save_config')                                   # 持久化交给 wpa_supplicant
+        _cli('set_network', str(nid), 'key_mgmt', 'NONE')
+
+    # 抬优先级让 wpa_supplicant 挑它：priority 越大越先匹配（官方 wpa_supplicant.conf
+    # 里 priority 一节的说明）。不用 select_network —— 那个命令的语义是
+    # "select a network (disable others)"，会把其它网络全标成 disabled。
+    top = max([_priority(i) for i, _, _ in _networks()] + [0]) + 10
+    _cli('set_network', str(nid), 'priority', str(top))
+    _cli('enable_network', str(nid))
+    # 让它立刻按新的优先级重新选一次：disconnect 是"断开并等 reassociate"，
+    # reassociate 是"强制重新关联"。两个都是官方列出的一等命令，且都不禁用别的网络。
+    _cli('disconnect')
+    _cli('reassociate')
 
     deadline = time.time() + 20
     state = ''
@@ -245,9 +250,15 @@ def connect(ssid, psk):
         fields = _kv('status')
         state = fields.get('wpa_state', '')
         if state == 'COMPLETED' and fields.get('ssid') == ssid:
+            _cli('save_config')                           # 连上了才落盘
             return {'ok': True, 'ssid': ssid, 'state': state, 'ip': _ip(_iface())}
         time.sleep(0.5)
-    if keep and keep[0] != ssid:
-        _restore(keep[0], keep[1])
-        raise RuntimeError('连不上 %s（状态 %s），已回滚到 %s' % (ssid, state or '未知', keep[0]))
+
+    # 没连上：从文件重新读配置（新建的块随之消失、改过的密码回到旧值，优先级也回退），
+    # 再重新关联一次把原来那个网络接回来。配置文件一个字都不动。
+    try:
+        _cli('reconfigure')
+        _cli('reassociate')
+    except RuntimeError:
+        pass
     raise RuntimeError('连不上 %s（当前状态 %s，通常是密码不对或信号太弱）' % (ssid, state or '未知'))
