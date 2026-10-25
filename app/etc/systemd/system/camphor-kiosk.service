@@ -1,5 +1,5 @@
 [Unit]
-Description=Camphor kiosk (leaffs desktop form: window + services in one process)
+Description=Camphor kiosk (fullscreen window showing the local leaffs page; the server runs in leaffs.service)
 After=network.target leaffs.service
 Wants=leaffs.service
 Conflicts=getty@tty1.service
