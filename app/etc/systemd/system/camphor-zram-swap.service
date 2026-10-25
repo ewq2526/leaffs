@@ -1,5 +1,9 @@
 [Unit]
 Description=zram compressed swap (quarter of RAM)
+# 不关默认依赖会得到 Requires/After=sysinit.target，而 swap 单元按设计在
+# sysinit.target 之前激活（Before=swap.target），两头一夹就是环 ——
+# 每次启动 systemd 都要删掉 swap.target 的启动任务才解得开。
+DefaultDependencies=no
 After=systemd-modules-load.service
 Before=swap.target
 
