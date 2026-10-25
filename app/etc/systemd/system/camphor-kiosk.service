@@ -19,6 +19,9 @@ Environment=LEAFFS_KIOSK=1
 Environment=LEAFFS_ATTACH=1
 Environment=LEAFFS_PROJECT_ROOT=/srv/leaffs
 Environment=PYTHONUNBUFFERED=1
+# 部分核显上 WebKit 的加速合成会画出灰白一片（窗口在、内容不出现）。
+# 关掉合成走软件绘制：这一屏就是一页网页，软件绘制完全够用。
+Environment=WEBKIT_DISABLE_COMPOSITING_MODE=1
 # launch.sh 先等 /dev/dri/card0 出现再 exec 成 xinit：显卡没就绪时不启动 X，
 # 避免一次注定 no screens found 的失败和随之而来的黑屏
 ExecStart=/usr/local/bin/camphor-kiosk-launch.sh

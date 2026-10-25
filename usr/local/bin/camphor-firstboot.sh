@@ -15,9 +15,12 @@ APP=/opt/camphor/app.squashfs
 MNT=/run/camphor-app
 LIST=/etc/systemd/camphor-units.list
 
+# 进度要打在屏上：这一段要跑一两分钟，什么都不显示就等于死机。
+# /dev/kmsg 里的消息带级别前缀，<6> 是 info；不带前缀时默认级别会被
+# 内核的 loglevel 挡掉，屏上就什么都看不到。
 say() {
 	echo "firstboot: $*"
-	echo "firstboot: $*" >/dev/kmsg 2>/dev/null || true
+	printf '<6>firstboot: %s\n' "$*" >/dev/kmsg 2>/dev/null || true
 }
 
 fail() {
@@ -36,11 +39,12 @@ mount -t squashfs -o loop,ro "$APP" "$MNT" || fail "挂不上应用镜像"
 # 1 依赖：走 dpkg，包的 postinst 要跑（avahi、sshd 这些系统用户靠它建）
 if [ -d "$MNT/pool" ]; then
 	n=$(ls "$MNT/pool"/*.deb 2>/dev/null | wc -l)
-	say "装 $n 个依赖包"
+	say "装 $n 个依赖包（约 20 秒，下面没有输出是正常的）"
 	dpkg -i --force-confnew "$MNT/pool"/*.deb >/tmp/firstboot-dpkg.log 2>&1 || {
 		say "dpkg 有失败，日志在 /tmp/firstboot-dpkg.log"
 		tail -5 /tmp/firstboot-dpkg.log
 	}
+	say "依赖包装完"
 fi
 
 # 2 应用核心：文件与单元
@@ -51,6 +55,7 @@ fi
 
 # 2.1 用户名回填：应用层里那两处账号是占位的，账号要等安装时才建出来。
 #   ksmbd 用 nobody 只能读不能写，管理端的文件管理服务也是普通用户就跑不动。
+say "账号回填"
 u=$(awk -F: '$3 >= 1000 && $3 < 65534 { print $1; exit }' /etc/passwd)
 if [ -n "$u" ]; then
 	say "账号回填：$u"

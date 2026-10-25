@@ -18,6 +18,7 @@ camphor-netdiag.service            disabled
 camphor-filemgr.service            disabled
 camphor-zram-swap.service          enabled
 camphor-lowmem-notice.service      enabled
+camphor-trust-cert.service         enabled
 camphor-installer.service          enabled
 # 首次启动：把介质上的应用层装进来，装完自删。之后这条路径不再走。
 camphor-firstboot.service          enabled
