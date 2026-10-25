@@ -17,6 +17,12 @@ MIRROR_SECURITY=${CAMPHOR_MIRROR_SECURITY:-http://security.debian.org/}
 MIRROR_BINARY=${CAMPHOR_MIRROR_BINARY:-http://deb.debian.org/debian/}
 MIRROR_BINARY_SECURITY=${CAMPHOR_MIRROR_BINARY_SECURITY:-http://security.debian.org/}
 
+# 推荐包一律不装（--apt-recommends false）。
+# 清单是唯一来源；apt 默认装 Recommends，等于让每个包的维护者决定镜像里还有什么。
+# 实际后果：xinit 推荐 xserver-xorg 元包、它再依赖 xserver-xorg-video-all，
+# 把各家 DDX 全拉进来；linux-image 推荐 apparmor；openbox 推荐 obconf 与 scrot；
+# libwebkit2gtk 推荐 gstreamer 插件。这些都不在清单里，却会随装随到。
+
 # noauto 阻止 lb config 再次读取本文件而递归
 lb config noauto \
 	--mode debian \
@@ -45,5 +51,6 @@ lb config noauto \
 	--checksums sha256 \
 	--apt-indices false \
 	--apt-source-archives false \
+	--apt-recommends false \
 	--apt-options "--yes --option Acquire::Languages=none" \
 	--bootappend-live "boot=live components console=tty0 loglevel=4 net.ifnames=0"

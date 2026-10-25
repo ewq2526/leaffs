@@ -13,14 +13,20 @@
 # 模块树是裁过的（850 个，33 MB）：网卡蓝牙整棵保留，声音、媒体、InfiniBand 不要。
 linux-image-6.12.113+deb13-amd64
 initramfs-tools            # 生成 initrd，配置用仓库的 /etc/initramfs-tools
+zstd                       # 那份配置里 COMPRESS=zstd，重做 initrd 时要用
 firmware-realtek
 firmware-iwlwifi
 firmware-atheros
 firmware-brcm80211
 firmware-intel-graphics    # i915
 firmware-misc-nonfree
+firmware-mediatek          # MT7921/7922 与 mt76x0 的无线、蓝牙固件（模块树里都有）
+firmware-ath9k-htc         # Atheros AR9271 USB 无线
+firmware-carl9170          # Atheros AR9170 USB 无线
+firmware-intel-misc        # Intel 蓝牙（ibt-*.sfi）与 e100 网卡
 wireless-regdb
 intel-microcode
+amd64-microcode            # 与 intel-microcode 对称：AMD 平台的 CPU 微码
 
 # ── 图形：X 与窗口 ──────────────────────────────────────────
 # 安装器和应用都要用，所以放在主镜像这一层，两个支镜像共用的就是这一份。
@@ -31,11 +37,22 @@ xinit
 x11-xserver-utils
 openbox                    # 会话里的窗口管理器，只承载一个全屏窗口
 libgl1-mesa-dri            # i915 的 GL 实现
+librsvg2-common            # GTK 的 SVG 图标加载器
 
 # ── 窗口里的那个视图 ────────────────────────────────────────
 gir1.2-webkit2-4.1         # 安装器与应用都靠它显示页面
+gir1.2-freedesktop         # Gdk 依赖的 cairo/xlib typelib，缺了 gi.repository.Gdk 导入失败
 python3-gi
 python3-gi-cairo
+publicsuffix               # libpsl 的域名后缀表，WebKit 判 cookie 域要用
+
+# ── 预览页的播放 ────────────────────────────────────────────
+# 预览页把文件挂到 <video src="/download/…"> 上播（preview.js），WebKitGTK 的解码
+# 走 GStreamer：这一组不在，视频只有声音没有画面，或者干脆不动。
+gstreamer1.0-libav
+gstreamer1.0-plugins-bad
+gstreamer1.0-gl
+gstreamer1.0-x
 
 # ── Python ─────────────────────────────────────────────────
 # 安装器的后端与应用都是 Python 写的，同在公共层。
@@ -64,6 +81,7 @@ console-setup
 keyboard-configuration
 tzdata
 dbus                       # logind 与各服务的会话总线
+linux-sysctl-defaults      # 内核默认参数，不自带会改变一批 sysctl 默认值
 ca-certificates
 sudo
 

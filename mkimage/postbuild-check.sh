@@ -105,6 +105,69 @@ if [ -f "$T/fs.squashfs" ]; then
 		ok "包清单里的包都在镜像里"
 	fi
 
+	# 清单之外的包只允许由 Depends 拉进来。apt 默认装 Recommends，等于让每个包的
+	# 维护者决定镜像里还有什么：xinit 推荐 xserver-xorg 元包（再依赖 video-all）、
+	# linux-image 推荐 apparmor、openbox 推荐 obconf 与 scrot、libwebkit2gtk 推荐
+	# gstreamer 插件。构建已用 --apt-recommends false 关掉，判据是：
+	# apt 标了自动安装、又没有任何已装包依赖它 —— 这样的包只可能来自 Recommends，
+	# 或者来自一个已经被删掉的依赖者，两种都不该留在镜像里。
+	unsquashfs -cat "$T/fs.squashfs" var/lib/apt/extended_states 2>/dev/null > "$T/extended_states"
+	if [ -s "$T/extended_states" ]; then
+		orphans=$(awk -v ES="$T/extended_states" '
+			function trimver(t) { gsub(/\([^)]*\)/, "", t); gsub(/[ \t\r]/, "", t); sub(/:any$/, "", t); return t }
+			BEGIN {
+				FS = "\n"; RS = "\n"
+				while ((getline line < ES) > 0) {
+					gsub(/\r/, "", line)
+					if (line ~ /^Package: /) cur = substr(line, 10)
+					else if (line ~ /^Auto-Installed: 1/) autopkg[cur] = 1
+				}
+				close(ES)
+				RS = ""
+			}
+			{
+				pkg = ""; st = ""
+				for (i = 1; i <= NF; i++) {
+					if ($i ~ /^Package: /) pkg = substr($i, 10)
+					else if ($i ~ /^Status: /) st = $i
+					else if ($i ~ /^(Depends|Pre-Depends): /) {
+						v = $i; sub(/^[^:]*: /, "", v); dep[pkg] = dep[pkg] "," v
+					}
+					else if ($i ~ /^Provides: /) {
+						v = $i; sub(/^[^:]*: /, "", v); prov[pkg] = prov[pkg] "," v
+					}
+				}
+				gsub(/\r/, "", pkg)
+				if (st ~ /install ok installed/) inst[pkg] = 1
+			}
+			END {
+				for (p in inst) {
+					n = split(dep[p], a, ",")
+					for (i = 1; i <= n; i++) {
+						k = split(a[i], alt, "|")
+						for (j = 1; j <= k; j++) { t = trimver(alt[j]); if (t != "") depended[t] = 1 }
+					}
+				}
+				# 依赖可以写成虚包名，由 Provides 提供：aspell-dictionary 由 aspell-en 提供、
+				# default-dbus-session-bus 由 dbus-user-session 提供、libre2-11-absl20240722
+				# 由 libre2-11 提供。不认 Provides 就会把这三个当成推荐包报出来。
+				for (p in inst) {
+					n = split(prov[p], a, ",")
+					for (i = 1; i <= n; i++) {
+						t = trimver(a[i])
+						if (t != "" && (t in depended)) depended[p] = 1
+					}
+				}
+				for (p in inst) if (autopkg[p] && !depended[p]) printf "%s ", p
+			}
+		' "$T/dpkg.status")
+		if [ -z "$orphans" ]; then
+			ok "没有只为推荐装进来的包"
+		else
+			bad "有只靠 Recommends（或依赖者已删）装进来的包：$orphans"
+		fi
+	fi
+
 	# X 驱动：旧系统一个 DDX 都没有，X 走 xserver-xorg-core 里的 modesetting。
 	# 有 DDX 时 X 会先挑它，挑错就是灰屏。
 	grep -q '^Package: xserver-xorg-video-' "$T/dpkg.status" \

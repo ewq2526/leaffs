@@ -37,6 +37,22 @@ if [ ! -f /usr/lib/xorg/modules/drivers/modesetting_drv.so ]; then
 	exit 1
 fi
 
+# 摘掉 cron。
+#
+# 它不是清单里的包：logrotate 写的是
+#   Depends: cron | anacron | cron-daemon | systemd-sysv
+# apt 按备选顺序取了第一个，明明 systemd-sysv 已经在，还是装了个 cron。
+# 它没有活可干：/etc/crontab 只有四条 run-parts，/etc/cron.d 只有
+# e2fsprogs 的 e2scrub_all，而后者每条命令都以 `test -e /run/systemd/system ||`
+# 开头 —— systemd 在跑就不执行；日志轮转走 logrotate.timer。
+# cron-daemon-common 要一起摘：/etc/crontab 与 /etc/cron.* 的空目录是它的，
+# 只摘 cron 会留下一份没人读的 crontab。
+# 删掉之后 logrotate 的那条依赖仍由 systemd-sysv 满足。
+if dpkg -l cron cron-daemon-common 2>/dev/null | grep -q '^ii'; then
+	DEBIAN_FRONTEND=noninteractive apt-get purge -y cron cron-daemon-common
+	echo "camphor: 已摘掉 cron（依赖备选顺带装进来的；logrotate 由 systemd-sysv 满足）"
+fi
+
 # initramfs 按仓库的 /etc/initramfs-tools 重建：内核包是构建时先装的，
 # 它的 postinst 生成 initrd 时仓库这份配置还没铺进来，所以这里重做一次
 # 钩子的 PATH 里没有 /usr/sbin，必须给绝对路径
