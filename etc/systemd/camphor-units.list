@@ -25,3 +25,6 @@ camphor-zram-swap.service          enabled
 camphor-lowmem-notice.service      enabled
 systemd-resolved.service           enabled
 systemd-networkd.service           enabled
+# 时钟：机器没有可靠的 RTC，第一次开机时钟是错的 —— 而界面走 HTTPS，
+# 证书要按时间校验。没有这条，新装的系统第一次开机不做时间同步。
+systemd-timesyncd.service          enabled
