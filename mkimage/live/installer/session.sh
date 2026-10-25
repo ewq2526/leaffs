@@ -34,5 +34,7 @@ done
 if /usr/bin/python3 -c 'import gi; gi.require_version("WebKit2", "4.1")' 2>/dev/null; then
 	exec /usr/bin/python3 /run/camphor-installer/webview.py "http://127.0.0.1:$PORT/"
 fi
-echo "installer: 没有可用的 WebKit 解释器，退回控制台" >/dev/tty1
+# 控制台那一句走 camphor-console-msg.sh：写之前强制转 ASCII，不会有方框
+CAMPHOR_CONSOLE=/dev/tty1 /usr/local/bin/camphor-console-msg.sh \
+	"installer: no usable WebKit interpreter, falling back to the console"
 exec /bin/sh

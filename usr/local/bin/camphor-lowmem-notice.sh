@@ -12,11 +12,12 @@ FLOOR_MB=${FLOOR_MB:-1500}
 total_mb=$(( $(awk '/^MemTotal:/{print $2}' /proc/meminfo) / 1024 ))
 
 if [ "$total_mb" -lt "$FLOOR_MB" ]; then
-    msg="内存不足：本机 ${total_mb} MB，低于图形界面所需的 1.5 GB，界面不启动"
-    printf '%s\n' "$msg" > /dev/tty1 2>/dev/null || true
-    logger -t camphor-lowmem "$msg" 2>/dev/null || true
+    # 屏幕那一句走 camphor-console-msg.sh：它在写之前强制转成 ASCII。
+    # 内核控制台字体只有 256/512 个字形，汉字在屏幕上是方框；中文版进 journal。
+    CAMPHOR_CONSOLE=/dev/tty1 /usr/local/bin/camphor-console-msg.sh \
+        "camphor: not enough memory: ${total_mb} MB, the UI needs 1.5 GB; kiosk not started"
+    logger -t camphor-lowmem "内存不足：${total_mb} MB，低于图形界面所需的 1.5 GB，界面不启动" 2>/dev/null || true
     logger -t camphor-lowmem "文件服务（Web / SMB / SSH）正常；要强开界面：systemctl start camphor-kiosk" 2>/dev/null || true
-    printf '%s\n' "$msg"
 else
     logger -t camphor-lowmem "内存 ${total_mb} MB，够用" 2>/dev/null || true
 fi

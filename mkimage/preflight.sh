@@ -165,13 +165,32 @@ if [ -n "${CAMPHOR_LOCAL_REPO:-}" ]; then
 			done
 		done
 		if [ -n "$absent" ]; then
-			fail "本地包仓库里没有这些包：$absent"
+			bad "本地包仓库里没有这些包：$absent"
 		else
 			ok "包清单里的包本地仓库都有"
 		fi
 	else
 		warn "本地包仓库没有索引 $IDX，跳过包齐全检查"
 	fi
+fi
+
+# 17 往控制台写的脚本只许输出 ASCII。
+# 内核控制台的字体只能是 256 或 512 个字形（drivers/tty/vt/vt.c 的
+# max_font_glyphs，fbcon 只收这两种 charcount），一个汉字都画不出来 ——
+# 写了就是方框。中文留给网页与 journal。
+con=$(grep -rlE '/dev/(tty[0-9]|console)' \
+		"$REPO/usr" "$REPO/mkimage" 2>/dev/null | grep -v '\.pyc$' | grep -v '\.deb$')
+cjk=
+for f in $con; do
+	h=$(grep -nP '(\becho\b|\bprintf\b)[^\n]*[^\x00-\x7F]' "$f" 2>/dev/null | head -3)
+	[ -n "$h" ] && cjk="$cjk
+$f: $h"
+done
+if [ -n "$cjk" ]; then
+	bad "控制台脚本里有非 ASCII 输出（会是方框）"
+	echo "$cjk" | sed 's/^/         /'
+else
+	ok "控制台脚本只输出 ASCII"
 fi
 
 if [ "$fails" -gt 0 ]; then
