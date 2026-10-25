@@ -152,6 +152,28 @@ echo "  [INFO] packages.chroot 里 $n 个 deb"
 	echo "  [INFO] 外部 deb 备份：$CAMPHOR_DEB_CACHE（$(ls "$CAMPHOR_DEB_CACHE"/*.deb 2>/dev/null | wc -l) 个）"
 
 echo
+# 16 三份包清单里的每一个包，本地包仓库的索引里都得有。
+# 否则构建到装包那一步才失败，白跑一轮；也可能像 systemd-resolved 那样，
+# 清单加了包、仓库里没有，最后干脆漏装进镜像。
+if [ -n "${CAMPHOR_LOCAL_REPO:-}" ]; then
+	IDX=$CAMPHOR_LOCAL_REPO/dists/trixie/main/binary-amd64/Packages
+	if [ -f "$IDX" ]; then
+		absent=
+		for f in packages.base.txt packages.app.txt packages.installer.txt; do
+			for p in $(sed 's/#.*//' "$REPO/mkimage/$f" | sed 's/[[:space:]]*$//' | grep -v '^$'); do
+				grep -q "^Package: $p$" "$IDX" || absent="$absent $p"
+			done
+		done
+		if [ -n "$absent" ]; then
+			fail "本地包仓库里没有这些包：$absent"
+		else
+			ok "包清单里的包本地仓库都有"
+		fi
+	else
+		warn "本地包仓库没有索引 $IDX，跳过包齐全检查"
+	fi
+fi
+
 if [ "$fails" -gt 0 ]; then
 	echo "自检不过：$fails 项，先修再起构建"
 	exit 1
