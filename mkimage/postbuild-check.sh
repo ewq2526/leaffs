@@ -92,6 +92,19 @@ if [ -f "$T/fs.squashfs" ]; then
 			|| bad "$p 不在镜像里（grub-installer 会写未签名版）"
 	done
 
+	# 包清单是唯一来源：清单里写了的包必须真的在镜像里。image 模式复用已有的
+	# chroot、chroot 阶段不会重跑，新加进清单的包以前会静默漏掉 —— 出现过
+	# 「清单里加了 systemd-resolved，镜像里没有，DNS 照旧不通」。
+	missing=
+	for p in $(sed 's/#.*//' "$(dirname "$0")/packages.base.txt" | sed 's/[[:space:]]*$//' | grep -v '^$'); do
+		grep -q "^Package: $p$" "$T/dpkg.status" || missing="$missing $p"
+	done
+	if [ -n "$missing" ]; then
+		bad "包清单里有没装进镜像的：$missing"
+	else
+		ok "包清单里的包都在镜像里"
+	fi
+
 	# X 驱动：旧系统一个 DDX 都没有，X 走 xserver-xorg-core 里的 modesetting。
 	# 有 DDX 时 X 会先挑它，挑错就是灰屏。
 	grep -q '^Package: xserver-xorg-video-' "$T/dpkg.status" \

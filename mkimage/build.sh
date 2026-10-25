@@ -191,6 +191,18 @@ EOF
 	mkdir -p "$C$LOCAL_REPO"
 	mountpoint -q "$C$LOCAL_REPO" || mount --bind "$LOCAL_REPO" "$C$LOCAL_REPO"
 	chroot "$C" apt-get update >/dev/null 2>&1 || echo "  （apt-get update 失败，检查 $LOCAL_REPO）"
+	# 包清单是唯一来源：image 模式复用已有的 chroot，chroot 阶段不会重跑，
+	# 所以清单里新加的包必须在这里补装 —— 否则改了清单等于没改，镜像里照样没有。
+	# 已经装过的 apt 会跳过，只有新增的才会真装。
+	pkgs=$(sed 's/#.*//' "$BUILD/config/package-lists/camphor.list.chroot" | tr '\n' ' ')
+	if [ -n "$pkgs" ]; then
+		if ! chroot "$C" apt-get -y install $pkgs >/tmp/camphor-apt.log 2>&1; then
+			echo "  包清单有装不上的，尾部日志：" >&2
+			tail -8 /tmp/camphor-apt.log >&2
+			umount "$C$LOCAL_REPO" 2>/dev/null || true
+			exit 1
+		fi
+	fi
 	chroot "$C" apt-get -y install os-prober >/dev/null 2>&1 || echo "  （os-prober 已装或装不上，postbuild 会查）"
 	umount "$C$LOCAL_REPO"
 	echo "  已卸下 $C$LOCAL_REPO"
