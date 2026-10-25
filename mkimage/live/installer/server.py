@@ -474,6 +474,17 @@ def bind_mounts():
         dst = os.path.join(TARGET, d)
         os.makedirs(dst, exist_ok=True)
         subprocess.run(["mount", "--bind", src, dst], capture_output=True)
+    # /run/udev 也要挂：os-prober 的 EFI 探测（os-probes/mounted/05efi）先问 udevadm
+    # 分区类型（ID_PART_ENTRY_TYPE / ID_PART_ENTRY_SCHEME）来判断哪块是 ESP，
+    # 这些属性只在 udev 的库里。不挂 /run/udev 时 udevadm 只给出 DEVNAME/DEVTYPE，
+    # 那段判断就把所有分区当成"不是 ESP"直接退出 —— 同盘的 Windows 引导进不了菜单，
+    # 而 ext4 上的另一个 Linux 照样认得出（那条探测不看分区类型），
+    # 于是看起来就是"Windows 没了、只多出一份别的 Linux"。
+    udev_db = "/run/udev"
+    if os.path.isdir(udev_db):
+        dst = os.path.join(TARGET, "run/udev")
+        os.makedirs(dst, exist_ok=True)
+        subprocess.run(["mount", "--bind", udev_db, dst], capture_output=True)
     # efivars 单独再挂一次：grub-install 要靠它写 NVRAM 启动项，
     # 光靠 /sys 的 bind 在有的环境里 chroot 内看不到。
     efivars = "/sys/firmware/efi/efivars"
