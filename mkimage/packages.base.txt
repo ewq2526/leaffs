@@ -43,6 +43,9 @@ librsvg2-common            # GTK 的 SVG 图标加载器
 # 用 Droid Sans Fallback（7 MB，一个 ttf）：Debian 稳定版里的老包，之前那一版镜像
 # 里就是它。Noto CJK 那套 91 MB，简繁日韩、明体黑体全在，用不到。
 fonts-droid-fallback
+# 界面里用 ✅ ❌ ⚙ ⚠ 这些符号表示状态，DejaVu 与 Droid 都没有前两个的字形，
+# 缺了就是方框。Noto Color Emoji 是 Debian 里的标准 emoji 字体，11 MB。
+fonts-noto-color-emoji
 
 # ── 窗口里的那个视图 ────────────────────────────────────────
 gir1.2-webkit2-4.1         # 安装器与应用都靠它显示页面
