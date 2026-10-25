@@ -22,7 +22,7 @@
 .sys-core { font-size: 10.5px; color: var(--text-light); }
 .sys-core .val { float: right; }
 .sys-bar { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 3px; }
-.sys-bar > i { display: block; height: 100%; background: var(--primary); border-radius: 3px; transition: width 0.4s var(--ease); }
+.sys-bar > i { display: block; height: 100%; background: var(--primary); border-radius: 3px; }
 .sys-bar > i.warn { background: var(--warn); }
 .sys-bar > i.danger { background: var(--danger); }
 .sys-head { display: flex; align-items: baseline; gap: 8px; }
@@ -86,6 +86,7 @@
                 <div class="info-row"><span class="info-label">架构 / CPU</span><span class="info-value" id="rowArch">-</span></div>
                 <div class="info-row"><span class="info-label">运行时长</span><span class="info-value" id="rowUptime">-</span></div>
                 <div class="info-row"><span class="info-label">启动于</span><span class="info-value" id="rowBoot">-</span></div>
+        <div class="info-row"><span class="info-label">时区</span><span class="info-value"><select id="tzSelect" class="tz-select" aria-label="时区"></select></span></div>
                 <div class="info-row"><span class="info-label">负载（1 / 5 / 15 分钟）</span><span class="info-value" id="rowLoad">-</span></div>
             </section>
 
@@ -260,14 +261,25 @@ function renderCpu(cpu) {
     document.getElementById('cpuPeak').textContent = '峰值 ' + peak.toFixed(0) + '%';
     drawChart(document.getElementById('cpuChart'), hist.cpu, level(total, 75, 90));
 
+    // 每核格子按结构复用：核数不变就只改数字与条宽，不再每秒把这一块拆了重建
+    var cores = cpu.cores || [];
     var box = document.getElementById('cpuCores');
-    box.innerHTML = '';
-    (cpu.cores || []).forEach(function (v, i) {
-        var d = document.createElement('div');
-        d.className = 'sys-core';
-        d.innerHTML = 'CPU' + i + '<span class="val">' + v.toFixed(0) + '%</span>' +
-                      '<div class="sys-bar"><i class="' + level(v, 75, 90) + '" style="width:' + v + '%"></i></div>';
-        box.appendChild(d);
+    if (box.children.length !== cores.length) {
+        box.innerHTML = '';
+        cores.forEach(function (v, i) {
+            var d = document.createElement('div');
+            d.className = 'sys-core';
+            d.innerHTML = 'CPU' + i + '<span class="val"></span>' +
+                          '<div class="sys-bar"><i></i></div>';
+            box.appendChild(d);
+        });
+    }
+    cores.forEach(function (v, i) {
+        var d = box.children[i];
+        d.querySelector('.val').textContent = v.toFixed(0) + '%';
+        var bar = d.querySelector('.sys-bar > i');
+        bar.className = level(v, 75, 90);
+        bar.style.width = v + '%';
     });
 }
 
@@ -289,19 +301,26 @@ function renderMemory(m) {
     ];
     var stack = document.getElementById('memStack');
     var brk = document.getElementById('memBreak');
-    stack.innerHTML = '';
-    brk.innerHTML = '';
-    parts.forEach(function (p) {
-        var seg = document.createElement('i');
+    // 结构只搭一次（六段是固定的），之后每次只改宽度、颜色和数字
+    if (brk.children.length !== parts.length) {
+        stack.innerHTML = '';
+        brk.innerHTML = '';
+        parts.forEach(function (p) {
+            var seg = document.createElement('i');
+            stack.appendChild(seg);
+            var row = document.createElement('div');
+            row.className = 'info-row';
+            row.innerHTML = '<span class="info-label">' + p[0] + '</span><span class="info-value"></span>';
+            brk.appendChild(row);
+        });
+    }
+    parts.forEach(function (p, i) {
+        var seg = stack.children[i];
         seg.style.width = (p[1] / total * 100).toFixed(2) + '%';
         seg.style.background = p[2];
         seg.title = p[0] + ' ' + fmtBytes(p[1]);
-        stack.appendChild(seg);
-        var row = document.createElement('div');
-        row.className = 'info-row';
-        row.innerHTML = '<span class="info-label">' + p[0] + '</span><span class="info-value">' +
-                        fmtBytes(p[1]) + '（' + (p[1] / total * 100).toFixed(0) + '%）</span>';
-        brk.appendChild(row);
+        brk.children[i].querySelector('.info-value').textContent =
+            fmtBytes(p[1]) + '（' + (p[1] / total * 100).toFixed(0) + '%）';
     });
 
     document.getElementById('memSwap').textContent = m.swap_total
@@ -610,6 +629,15 @@ function renderDisks(list) {
     });
 }
 
+// 卡片级增量：每块卡片记住上次渲染过的数据，内容没变就整块跳过
+var _lastCard = {};
+function cardChanged(key, data) {
+    var s = JSON.stringify(data);
+    if (_lastCard[key] === s) return false;
+    _lastCard[key] = s;
+    return true;
+}
+
 function loadSystem() {
     fetch('/api/system', { credentials: 'same-origin' }).then(function (r) {
         if (!r.ok) throw new Error('bad');
@@ -624,11 +652,12 @@ function loadSystem() {
         document.getElementById('rowLoad').textContent = [s.load1, s.load5, s.load15].filter(Boolean).join(' / ') || '-';
         renderCpu(m.cpu || {});
         renderMemory(m.memory || {});
-        renderTemps(m.temperatures || []);
-        renderPower(m.power || {});
-        renderIo(m.io);
-        renderServices(d.services);
-        renderDisks(d.disks);
+        // 这几块的数据不常变：卡片级比对，没变就不碰 DOM（整块重建会让软件渲染重绘一遍）
+        if (cardChanged('temp', m.temperatures)) renderTemps(m.temperatures || []);
+        if (cardChanged('power', m.power)) renderPower(m.power || {});
+        if (cardChanged('io', m.io)) renderIo(m.io);
+        if (cardChanged('svc', d.services)) renderServices(d.services);
+        if (cardChanged('disk', d.disks)) renderDisks(d.disks);
     }).catch(function (e) {
         // 把真实原因显示出来：只写"读取失败"等于把问题藏起来，排查时只能靠猜
         var why = (e && (e.message || e)) || '未知错误';
@@ -638,10 +667,52 @@ function loadSystem() {
 }
 
 document.getElementById('wifiScanBtn').addEventListener('click', scanWifi);
+
+// 时区：列表从服务端取（zone.tab），选完 POST 给 timedatectl
+function loadTimezones() {
+    fetch('/api/system/timezones', { credentials: 'same-origin' }).then(function (r) {
+        return r.json();
+    }).then(function (d) {
+        var sel = document.getElementById('tzSelect');
+        if (!sel || !d || !d.timezones) return;
+        sel.innerHTML = '';
+        d.timezones.forEach(function (z) {
+            var o = document.createElement('option');
+            o.value = z;
+            o.textContent = z;
+            if (z === d.current) o.selected = true;
+            sel.appendChild(o);
+        });
+    }).catch(function () {});
+}
+
+document.getElementById('tzSelect').addEventListener('change', function () {
+    var sel = this;
+    var tz = sel.value;
+    sel.disabled = true;
+    fetch('/api/system/timezone', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timezone: tz })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d && d.ok) {
+            location.reload();          // 重新拉一遍，页面上的时间按新时区重画
+        } else {
+            alert((d && d.error) || '设置时区失败');
+            sel.disabled = false;
+        }
+    }).catch(function () {
+        alert('设置时区失败');
+        sel.disabled = false;
+    });
+});
+
+loadTimezones();
 loadSystem();
 loadWifiStatus();
 setInterval(function () { if (!document.hidden) loadSystem(); }, 1000);
-setInterval(function () { if (!document.hidden) loadWifiStatus(); }, 5000);
+setInterval(function () { if (!document.hidden) loadWifiStatus(); }, 1000);
 </script>
 <script src="/static/arrow.js"></script>
 </body>

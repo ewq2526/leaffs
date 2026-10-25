@@ -150,13 +150,15 @@ _ADMIN_ONLY_GET = frozenset((
 # 判据放在分派层，与 _ADMIN_ONLY_GET 同一处，处理函数里不再重复判。
 _SUPER_ADMIN_ONLY_GET = frozenset((
     '/api/system',
+    '/api/system/timezones',
     '/api/wifi/status',
     '/api/wifi/scan',
 ))
 
-# 改无线等于改设备配置，只给超级管理员（管理员不应该动设备）
+# 改无线等于改设备配置，只给超级管理员（管理员不应该动设备）；时区同属设备配置
 _SUPER_ADMIN_ONLY_POST = frozenset((
     '/api/wifi/connect',
+    '/api/system/timezone',
 ))
 
 # ---------- 统一拒绝口径（2026-09-15，用户拍板）----------
@@ -1044,9 +1046,11 @@ class HTTPHandler(BaseHTTPRequestHandler):
             parts = reqline.split()
             method = parts[0] if parts else (self.command or '')
             p = parts[1] if len(parts) > 1 else (self.path or '')
-            # 读日志的轮询接口不记：管理页每 5 秒拉一次 /api/logs 渲染预览，记下来
-            # 只会让日志自我膨胀（一天约 1.7 万条，全是"有人在读日志"）
-            if p.split('?', 1)[0] == '/api/logs':
+            # 轮询接口不记：它们是页面自己按固定间隔拉的，不是人做的事。
+            # 管理页每 5 秒拉 /api/logs，系统页每秒拉 /api/system、每 5 秒拉
+            # /api/wifi/status —— 记下来只会让日志自我膨胀（一天上万条），
+            # 而且每行都要写一次盘，机器空转也在写。
+            if p.split('?', 1)[0] in ('/api/logs', '/api/system', '/api/wifi/status'):
                 return
             # A-16 脱敏（敏感参数值 → ***）+ LF-12 控制字符剔除与超长截断
             # （请求行未解码，原始字节直发能把 \x1b 这类控制字节带进来）
@@ -1288,6 +1292,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             '/api/account/revoke-sessions': lambda: _ac_self.account_revoke_sessions(self),
             '/api/account/lang': lambda: _ac_self.account_set_lang(self),
             '/api/wifi/connect': lambda: _sys_api.wifi_connect(self),
+            '/api/system/timezone': lambda: _sys_api.set_timezone(self),
         }
         h = handlers.get(path)
         if h: h()
@@ -2152,6 +2157,10 @@ def _g_api_system(h, path, role):
     _sys_api.send_system(h, _sys_host.collect)
 
 
+def _g_api_timezones(h, path, role):
+    _sys_api.send_timezones(h)
+
+
 def _g_api_wifi_status(h, path, role):
     _sys_api.send_wifi_status(h)
 
@@ -2592,6 +2601,7 @@ GET_ROUTES = (
     (('=', '/api/auth/check'), _g_auth_check),
     (('=', '/api/account/me'), _g_account_me),
     (('=', '/api/system'), _g_api_system),
+    (('=', '/api/system/timezones'), _g_api_timezones),
     (('=', '/api/wifi/status'), _g_api_wifi_status),
     (('=', '/api/wifi/scan'), _g_api_wifi_scan),
     (('=', '/api/auth/logout'), _g_auth_logout_405),

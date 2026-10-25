@@ -22,7 +22,7 @@
 .sys-core { font-size: 10.5px; color: var(--text-light); }
 .sys-core .val { float: right; }
 .sys-bar { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 3px; }
-.sys-bar > i { display: block; height: 100%; background: var(--primary); border-radius: 3px; transition: width 0.4s var(--ease); }
+.sys-bar > i { display: block; height: 100%; background: var(--primary); border-radius: 3px; }
 .sys-bar > i.warn { background: var(--warn); }
 .sys-bar > i.danger { background: var(--danger); }
 .sys-head { display: flex; align-items: baseline; gap: 8px; }
@@ -87,6 +87,7 @@
                 <div class="info-row"><span class="info-label">Arch / CPU</span><span class="info-value" id="rowArch">-</span></div>
                 <div class="info-row"><span class="info-label">Uptime</span><span class="info-value" id="rowUptime">-</span></div>
                 <div class="info-row"><span class="info-label">Booted at</span><span class="info-value" id="rowBoot">-</span></div>
+        <div class="info-row"><span class="info-label">Time zone</span><span class="info-value"><select id="tzSelect" class="tz-select" aria-label="Time zone"></select></span></div>
                 <div class="info-row"><span class="info-label">Load (1 / 5 / 15 min)</span><span class="info-value" id="rowLoad">-</span></div>
             </section>
 
@@ -260,14 +261,26 @@ function renderCpu(cpu) {
     document.getElementById('cpuPeak').textContent = 'Peak ' + peak.toFixed(0) + '%';
     drawChart(document.getElementById('cpuChart'), hist.cpu, level(total, 75, 90));
 
+    // Reuse the per-core tiles: with the same core count only the numbers and bar
+    // widths change. Rebuilding the whole block every second is pure repaint.
+    var cores = cpu.cores || [];
     var box = document.getElementById('cpuCores');
-    box.innerHTML = '';
-    (cpu.cores || []).forEach(function (v, i) {
-        var d = document.createElement('div');
-        d.className = 'sys-core';
-        d.innerHTML = 'CPU' + i + '<span class="val">' + v.toFixed(0) + '%</span>' +
-                      '<div class="sys-bar"><i class="' + level(v, 75, 90) + '" style="width:' + v + '%"></i></div>';
-        box.appendChild(d);
+    if (box.children.length !== cores.length) {
+        box.innerHTML = '';
+        cores.forEach(function (v, i) {
+            var d = document.createElement('div');
+            d.className = 'sys-core';
+            d.innerHTML = 'CPU' + i + '<span class="val"></span>' +
+                          '<div class="sys-bar"><i></i></div>';
+            box.appendChild(d);
+        });
+    }
+    cores.forEach(function (v, i) {
+        var d = box.children[i];
+        d.querySelector('.val').textContent = v.toFixed(0) + '%';
+        var bar = d.querySelector('.sys-bar > i');
+        bar.className = level(v, 75, 90);
+        bar.style.width = v + '%';
     });
 }
 
@@ -289,19 +302,26 @@ function renderMemory(m) {
     ];
     var stack = document.getElementById('memStack');
     var brk = document.getElementById('memBreak');
-    stack.innerHTML = '';
-    brk.innerHTML = '';
-    parts.forEach(function (p) {
-        var seg = document.createElement('i');
+    // Build the six-part structure once; afterwards only widths, colours and numbers change
+    if (brk.children.length !== parts.length) {
+        stack.innerHTML = '';
+        brk.innerHTML = '';
+        parts.forEach(function (p) {
+            var seg = document.createElement('i');
+            stack.appendChild(seg);
+            var row = document.createElement('div');
+            row.className = 'info-row';
+            row.innerHTML = '<span class="info-label">' + p[0] + '</span><span class="info-value"></span>';
+            brk.appendChild(row);
+        });
+    }
+    parts.forEach(function (p, i) {
+        var seg = stack.children[i];
         seg.style.width = (p[1] / total * 100).toFixed(2) + '%';
         seg.style.background = p[2];
         seg.title = p[0] + ' ' + fmtBytes(p[1]);
-        stack.appendChild(seg);
-        var row = document.createElement('div');
-        row.className = 'info-row';
-        row.innerHTML = '<span class="info-label">' + p[0] + '</span><span class="info-value">' +
-                        fmtBytes(p[1]) + ' (' + (p[1] / total * 100).toFixed(0) + '%)</span>';
-        brk.appendChild(row);
+        brk.children[i].querySelector('.info-value').textContent =
+            fmtBytes(p[1]) + ' (' + (p[1] / total * 100).toFixed(0) + '%)';
     });
 
     document.getElementById('memSwap').textContent = m.swap_total
@@ -606,6 +626,16 @@ function renderDisks(list) {
     });
 }
 
+// Card-level diffing: each card remembers what it last rendered and skips the work
+// entirely when the payload is unchanged.
+var _lastCard = {};
+function cardChanged(key, data) {
+    var s = JSON.stringify(data);
+    if (_lastCard[key] === s) return false;
+    _lastCard[key] = s;
+    return true;
+}
+
 function loadSystem() {
     fetch('/api/system', { credentials: 'same-origin' }).then(function (r) {
         if (!r.ok) throw new Error('bad');
@@ -620,11 +650,12 @@ function loadSystem() {
         document.getElementById('rowLoad').textContent = [s.load1, s.load5, s.load15].filter(Boolean).join(' / ') || '-';
         renderCpu(m.cpu || {});
         renderMemory(m.memory || {});
-        renderTemps(m.temperatures || []);
-        renderPower(m.power || {});
-        renderIo(m.io);
-        renderServices(d.services);
-        renderDisks(d.disks);
+        // These cards rarely change: skip the DOM work when the payload is identical
+        if (cardChanged('temp', m.temperatures)) renderTemps(m.temperatures || []);
+        if (cardChanged('power', m.power)) renderPower(m.power || {});
+        if (cardChanged('io', m.io)) renderIo(m.io);
+        if (cardChanged('svc', d.services)) renderServices(d.services);
+        if (cardChanged('disk', d.disks)) renderDisks(d.disks);
     }).catch(function () {
         document.getElementById('svcList').innerHTML = '<div class="srow"><span class="srow-path c-danger-strong">Read failed</span></div>';
         document.getElementById('diskList').innerHTML = '<div class="srow"><span class="srow-path c-danger-strong">Read failed</span></div>';
@@ -632,10 +663,52 @@ function loadSystem() {
 }
 
 document.getElementById('wifiScanBtn').addEventListener('click', scanWifi);
+
+// Time zone: list comes from the server (zone.tab); the choice is POSTed to timedatectl
+function loadTimezones() {
+    fetch('/api/system/timezones', { credentials: 'same-origin' }).then(function (r) {
+        return r.json();
+    }).then(function (d) {
+        var sel = document.getElementById('tzSelect');
+        if (!sel || !d || !d.timezones) return;
+        sel.innerHTML = '';
+        d.timezones.forEach(function (z) {
+            var o = document.createElement('option');
+            o.value = z;
+            o.textContent = z;
+            if (z === d.current) o.selected = true;
+            sel.appendChild(o);
+        });
+    }).catch(function () {});
+}
+
+document.getElementById('tzSelect').addEventListener('change', function () {
+    var sel = this;
+    var tz = sel.value;
+    sel.disabled = true;
+    fetch('/api/system/timezone', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timezone: tz })
+    }).then(function (r) { return r.json(); }).then(function (d) {
+        if (d && d.ok) {
+            location.reload();
+        } else {
+            alert((d && d.error) || 'Failed to set the time zone');
+            sel.disabled = false;
+        }
+    }).catch(function () {
+        alert('Failed to set the time zone');
+        sel.disabled = false;
+    });
+});
+
+loadTimezones();
 loadSystem();
 loadWifiStatus();
 setInterval(function () { if (!document.hidden) loadSystem(); }, 1000);
-setInterval(function () { if (!document.hidden) loadWifiStatus(); }, 5000);
+setInterval(function () { if (!document.hidden) loadWifiStatus(); }, 1000);
 </script>
 <script src="/static/arrow.js"></script>
 </body>

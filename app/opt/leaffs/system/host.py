@@ -205,11 +205,55 @@ def summary():
         'cpu_count': os.cpu_count() or 0,
         'uptime': uptime,
         'boot_at': int(time.time()) - uptime,
+        'timezone': timezone(),
         'load1': load[0] if load else '',
         'load5': load[1] if len(load) > 1 else '',
         'load15': load[2] if len(load) > 2 else '',
         'now': int(time.time()),
     }
+
+
+def timezone():
+    """当前时区名（`Asia/Shanghai` 这种）。
+
+    /etc/localtime 通常是指向 /usr/share/zoneinfo/<名字> 的符号链接，读链接目标
+    比解析 TZif 简单；不是链接时退回 /etc/timezone（Debian 另存的一份）。
+    """
+    try:
+        target = os.path.realpath('/etc/localtime')
+        if 'zoneinfo/' in target:
+            return target.split('zoneinfo/', 1)[1]
+    except OSError:
+        pass
+    try:
+        with open('/etc/timezone', encoding='utf-8') as f:
+            return f.read().strip()
+    except OSError:
+        return ''
+
+
+_zones = None
+
+
+def timezones():
+    """可选时区列表，取自 /usr/share/zoneinfo/zone.tab 的第三列。"""
+    global _zones
+    if _zones is not None:
+        return _zones
+    out = []
+    try:
+        with open('/usr/share/zoneinfo/zone.tab', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith('#'):
+                    continue
+                cols = line.rstrip('\n').split('\t')
+                if len(cols) >= 3 and cols[2]:
+                    out.append(cols[2])
+    except OSError:
+        pass
+    out.sort()
+    _zones = out
+    return out
 
 
 # ---------- 利用率：/proc/stat 只有累计值，百分比必须两次采样相减 ----------
