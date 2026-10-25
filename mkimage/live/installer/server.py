@@ -494,6 +494,96 @@ def bind_mounts():
         subprocess.run(["mount", "--bind", efivars, dst], capture_output=True)
 
 
+def installed_live_packages():
+    """目标系统里处于「已安装」状态的 live-* 包名。
+
+    主镜像就是活体根文件系统：live-boot 与 live-config 是 lb config 自己写进
+    live.list.chroot 的（不在仓库的包清单里），解压时一并落到盘上。
+    """
+    p = subprocess.run(["chroot", TARGET, "dpkg-query", "-W",
+                        "-f=${Package}\t${db:Status-Abbrev}\n"],
+                       capture_output=True, text=True)
+    out = []
+    for line in (p.stdout or "").splitlines():
+        parts = line.split("\t")
+        if len(parts) != 2:
+            continue
+        name, status = parts
+        if name.startswith("live-") and status.startswith("ii"):
+            out.append(name)
+    return out
+
+
+def prune_dangling_wants():
+    """清掉目标系统里指向已不存在单元的 wants/requires 链接。
+
+    卸包只删软件包自己带的文件。`systemctl enable` 建的启用链接不在包里 ——
+    live-config 卸载后 /etc/systemd/system/multi-user.target.wants/live-config.service
+    会留成断链，每次开机 systemd 都为它报一条。
+    """
+    sysdir = os.path.join(TARGET, "etc/systemd/system")
+    libdir = os.path.join(TARGET, "usr/lib/systemd/system")
+    removed = []
+    try:
+        entries = os.listdir(sysdir)
+    except OSError:
+        return removed
+    for name in entries:
+        if not name.endswith((".wants", ".requires")):
+            continue
+        wantdir = os.path.join(sysdir, name)
+        try:
+            units = os.listdir(wantdir)
+        except OSError:
+            continue
+        for unit in units:
+            path = os.path.join(wantdir, unit)
+            if not os.path.islink(path):
+                continue
+            # 屏蔽用的链接（指向 /dev/null）算存在，别当成断链删掉
+            if os.path.lexists(os.path.join(sysdir, unit)):
+                continue
+            if os.path.lexists(os.path.join(libdir, unit)):
+                continue
+            try:
+                os.unlink(path)
+                removed.append(unit)
+            except OSError:
+                pass
+    return removed
+
+
+def purge_live_packages():
+    """卸掉盘上系统里的 live 组件，并重打 initrd。
+
+    live-config 的单元每次开机都被 boot=live 条件跳过，是纯空跑；带着分量的是
+    live-boot 的 initramfs 钩子 —— 装好系统的 initrd 是构建期打的，钩子被烤在
+    里面，每次启动都用不上。卸包不会自动把它从 initrd 里拿走，所以要再打一次。
+    """
+    pkgs = installed_live_packages()
+    if not pkgs:
+        add_line("系统里没有 live 组件")
+        return
+    add_line("卸掉 live 组件：%s" % " ".join(pkgs))
+    env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
+    p = subprocess.run(["chroot", TARGET, "dpkg", "--purge"] + pkgs,
+                       capture_output=True, text=True, env=env)
+    if p.returncode != 0:
+        tail = (p.stderr or p.stdout or "").strip().splitlines()
+        add_line("有包没卸干净：%s" % (tail[-1][:200] if tail else "原因不明"))
+    dangling = prune_dangling_wants()
+    if dangling:
+        add_line("清掉断链：%s" % " ".join(dangling))
+    add_line("重打 initrd（去掉 live-boot 的钩子）")
+    p = subprocess.run(["chroot", TARGET, "update-initramfs", "-u", "-k", "all"],
+                       capture_output=True, text=True, env=env)
+    if p.returncode != 0:
+        tail = (p.stderr or p.stdout or "").strip().splitlines()
+        add_line("initrd 没打成：%s" % (tail[-1][:200] if tail else "原因不明"))
+    else:
+        add_line("initrd 已重打")
+
+
 def install_removable_fallback():
     """在 ESP 的 EFI/BOOT/ 下再放一份 shim + grub。
 
@@ -640,6 +730,11 @@ def install_worker(device, rowid, username="", password=""):
                     add_line("用户创建完成：%s" % username)
         else:
             add_line("未提供用户名，系统中将没有可登录的账号")
+
+        # 盘上系统不该带着介质那一层的组件。放在装引导之前：这一步要重打 initrd，
+        # 慢十几秒，进度能先出现在页面上。
+        set_state(step="移除 live 组件")
+        purge_live_packages()
 
         if esp_dev:
             set_state(step="安装引导")
