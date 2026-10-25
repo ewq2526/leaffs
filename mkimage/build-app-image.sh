@@ -53,7 +53,6 @@ done < "$W/list.txt"
 
 # 2 应用核心
 rsync -a "$REPO/app/etc/" "$S/root/etc/"
-rsync -a "$REPO/app/usr/" "$S/root/usr/"
 rsync -a "$REPO/app/opt/" "$S/root/opt/"
 
 # 3 venv：--ignore-installed 是因为系统里也有 idna、certifi，
