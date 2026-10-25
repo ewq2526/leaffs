@@ -690,6 +690,16 @@ def install_worker(device, rowid, username="", password=""):
         if os.path.exists(stage1):
             os.remove(stage1)
             add_line("移除安装入口：首次启动时安装应用层")
+        # 入口删了，注册也要一起撤。单元还挂在 graphical.target.wants 里的话，装好的
+        # 系统每次开机都会去启动那个已经不存在的脚本，白多一条 failed。第二阶段删自己
+        # 时就是「先 disable 再删文件」；这里在 chroot 里没有 systemd，直接删链接和单元。
+        for rel in ("etc/systemd/system/graphical.target.wants/camphor-installer.service",
+                    "etc/systemd/system/multi-user.target.wants/camphor-installer.service",
+                    "etc/systemd/system/camphor-installer.service"):
+            p = os.path.join(TARGET, rel)
+            if os.path.islink(p) or os.path.exists(p):
+                os.remove(p)
+        add_line("移除安装器单元与启用链接")
     except Exception as e:  # noqa: BLE001 - 错误要显示在页面上
         add_line("失败：%s" % e)
         set_state(running=False, error=str(e), step="失败")
