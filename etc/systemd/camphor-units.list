@@ -6,6 +6,11 @@
 # 状态一律保持 enabled。应用层是在首次启动时才铺进来的，所以主镜像里
 # 这些链接指向的单元大多还不存在 —— 铺完由 camphor-firstboot.sh 按同一份
 # 清单重新启用并启动。
+#
+# 一次性入口不在这份清单里。这份清单同时是「首次启动要 start 的服务名单」，
+# 把入口写进来就会被当成服务启动 —— 其中 camphor-firstboot.service 正是正在
+# 跑这段脚本的那个单元，start 它会等自己结束，而它要等 start 返回。
+# 两个入口都由构建钩子按名字单独启用，见 0100-camphor.chroot。
 camphor-ssh.service                enabled
 ssh.service                        enabled
 camphor-wifi.service               enabled
@@ -18,7 +23,4 @@ camphor-netdiag.service            disabled
 camphor-filemgr.service            disabled
 camphor-zram-swap.service          enabled
 camphor-lowmem-notice.service      enabled
-camphor-installer.service          enabled
-# 首次启动：把介质上的应用层装进来，装完自删。之后这条路径不再走。
-camphor-firstboot.service          enabled
 systemd-networkd.service           enabled

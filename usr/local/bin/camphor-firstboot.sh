@@ -70,6 +70,9 @@ else
 fi
 
 # 3 服务：按清单启用并启动
+# 清单里只有常驻服务。两个一次性入口（安装器、这个单元自己）由构建钩子
+# 单独启用，不在名单里 —— 出现在名单里就会被下面这行 start，而 start 一个
+# 正在运行它的单元等于等自己结束。
 systemctl daemon-reload
 units=
 while read -r unit state; do

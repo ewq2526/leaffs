@@ -43,7 +43,8 @@
   → dpkg -i 应用依赖（postinst 建 avahi/sshd 这些系统用户）
   → rsync 应用文件
   → 把 ksmbd 与 filemgr 里按名字认人的两处换成安装时建的账号
-  → 按 /etc/systemd/camphor-units.list 启用并启动
+  → 按 /etc/systemd/camphor-units.list 一次 enable、一次 start（清单里只有常驻服务；
+    安装器与首次启动这两个一次性入口由 0100-camphor.chroot 单独启用，不进清单）
   → 删掉应用镜像、脚本与单元自己
 ```
 

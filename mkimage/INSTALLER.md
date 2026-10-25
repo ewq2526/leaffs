@@ -106,7 +106,7 @@ EFI 系统分区、BIOS boot、MSR、Windows 恢复、Windows 数据、LDM、Lin
 3  rsync -aHAX root/ /       应用文件、单元、venv
 4  账号回填                    ksmbd 的 force user/valid users 与 filemgr 的 User/Group
                               换成安装时建的账号（镜像里是 nobody 占位）
-5  按 /etc/systemd/camphor-units.list 逐个 enable + start
+5  按 /etc/systemd/camphor-units.list 一次 enable + 一次 start（清单里只有常驻服务）
 6  卸挂载、删应用镜像、disable 并删掉自己与单元
 ```
 

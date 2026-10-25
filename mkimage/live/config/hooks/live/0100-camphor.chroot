@@ -77,6 +77,14 @@ while read -r unit state; do
 	fi
 done < /etc/systemd/camphor-units.list
 
+# 两个一次性入口单独启用。它们不写进上面的清单：那份清单同时是
+# camphor-firstboot.sh 的启动名单，入口混在里面会被当成服务 start，
+# 而 camphor-firstboot.service 就是正在跑那个脚本的单元，start 它会等自己。
+for one in camphor-installer.service camphor-firstboot.service; do
+	[ -f "/etc/systemd/system/$one" ] || continue
+	systemctl enable "$one"
+done
+
 # 界面挂在 graphical.target 上，默认目标得跟着改，否则图形界面永远不启动
 systemctl set-default graphical.target
 
