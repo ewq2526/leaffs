@@ -55,6 +55,14 @@ done < "$W/list.txt"
 rsync -a "$REPO/app/etc/" "$S/root/etc/"
 rsync -a "$REPO/app/opt/" "$S/root/opt/"
 
+# 2.1 权限：源文件来自工作区，带进来的是 0777。systemd 每次启动都会为
+# world-writable 的单元发一句警告，而且谁都能改服务定义 —— 铺到盘上的东西
+# 必须只剩 root 可写。目录 755，文件去掉组/其他写位（保留原有的执行位），
+# unit 与 drop-in 一律 644：它们是配置，不该带执行位。
+find "$S/root" -type d -exec chmod 0755 {} +
+find "$S/root" -type f -exec chmod go-w {} +
+find "$S/root/etc/systemd" -type f -exec chmod 0644 {} + 2>/dev/null || true
+
 # 3 venv：--ignore-installed 是因为系统里也有 idna、certifi，
 #    不强制装进 venv 的话，出厂系统缺它们时 leaffs 一 import 就崩。
 V=$S/root/opt/leaffs/venv
