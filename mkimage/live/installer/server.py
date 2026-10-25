@@ -140,9 +140,6 @@ def list_disks():
             disk_json = json.loads(blob).get("disk", {}) if blob.strip() else {}
         except ValueError:
             disk_json = {}
-        if not disk_json:
-            # 真读不出来就别把这块盘列出来，让人看到的是"读不到"而不是错的布局
-            raise RuntimeError("parted 读不出 %s：%s" % (path, (p.stderr or p.stdout).strip()[:200]))
 
         def sectors(value):
             return int(str(value).rstrip("s") or 0)
@@ -150,6 +147,34 @@ def list_disks():
         def mib(value):
             return round(sectors(value) / 2048.0, 2)
 
+        if not disk_json:
+            raise RuntimeError("parted 读不出 %s：%s" % (path, (p.stderr or p.stdout).strip()[:200]))
+
+        # 没有分区表的盘：parted 会照常输出 disk（label 是 unknown），但没有 partitions，
+        # 界面上就成了"一块没有行的设备"，点什么都没反应。这里按整块盘给一行空闲区，
+        # 选中之后由 mkpart 去建 GPT 表。
+        if not disk_json.get("partitions") and disk_json.get("label", "unknown") in ("", "unknown", None):
+            total = sectors(disk_json.get("size", "0s"))
+            if total <= 4096 * 3:
+                raise RuntimeError("%s 太大或太小，读不出可用的容量（%d 扇区）" % (path, total))
+            rows = [{
+                "rowid": 1,
+                "index": None,
+                "start": 1.0,
+                "end": round((total - 2048) / 2048.0, 2),
+                "size": round((total - 4096) / 2048.0, 2),
+                "start_s": 2048,
+                "end_s": total - 2048,
+                "fstype": "",
+                "free": True,
+                "name": "",
+                "flags": "",
+                "used_pct": None,
+                "ptype": "",
+                "protected": False,
+            }]
+            disks.append({"device": path, "size": "%d MiB" % (total // 2048), "rows": rows})
+            continue
         size = "%d MiB" % int(sectors(disk_json.get("size", "0s")) / 2048)
         rowid = 0
         for part in disk_json.get("partitions", []):
@@ -207,7 +232,11 @@ def create_partition(device, start_s, end_s, name, fs_type=""):
     GPT 上 mkpart 的第一个参数是分区**名字**（不是 primary 那种分区类型），
     名字之后可跟文件系统类型，最后才是起止。名字写 "primary" 的记录里
     会真叫 primary，读起来像是没填。
+
+    没有分区表的盘先建 GPT：不然 parted 直接报 "unrecognised disk label"，
+    空盘上的第一次建分区（通常就是 ESP）会失败。
     """
+    ensure_label(device)
     argv = ["parted", "-s", "-a", "none", device, "unit", "s", "mkpart", name]
     if fs_type:
         argv.append(fs_type)
@@ -256,6 +285,54 @@ def mkpart(device, rowid, size_mib, name="camphor", fs_type="ext4"):
     run(["partprobe", device], check=False)
     time.sleep(1)
     return layout(device)
+
+
+def ensure_esp(device, preferred_rowid=None):
+    """确保盘上有一块能用的 ESP，返回它的设备名（建不出来就抛错）。
+
+    必须先于根分区调用：根分区会把整块空闲区吃掉，之后再切 ESP 就没地方了。
+
+    位置不是"硬盘最前面"：有现成的 ESP 就复用；没有就从**用户选中的那块
+    空闲区的起点**切 512 MiB；用户选的是已有分区时，才去别处找第一块够大的
+    空闲区（按扇区位置从低到高）。都不行就停下，不装作还能装。
+    """
+    rows = layout(device)["rows"]
+    for r in rows:
+        if not r["free"] and r["ptype"] == "esp":
+            add_line("使用已有 EFI 系统分区：%s" % partdev(device, r["index"]))
+            return partdev(device, r["index"])
+
+    free = [r for r in rows if r["free"]]
+    free.sort(key=lambda r: (r["rowid"] != preferred_rowid, r["start_s"]))
+    for spot in free:
+        start_s = max(2048, spot["start_s"])
+        if spot["end_s"] - start_s < 512 * 2048:
+            continue
+        end_s = start_s + 512 * 2048
+        set_state(step="新建 EFI 系统分区")
+        try:
+            create_partition(device, start_s, end_s, "EFI", "fat32")
+        except RuntimeError as exc:
+            raise RuntimeError("建 EFI 系统分区失败（%d–%d MiB）：%s"
+                               % (start_s // 2048, end_s // 2048, exc))
+        run(["partprobe", device], check=False)
+        time.sleep(2)
+        num = ""
+        for r in layout(device)["rows"]:
+            if not r["free"] and r["start_s"] == start_s:
+                num = str(r["index"])
+                break
+        if not num:
+            raise RuntimeError("EFI 系统分区建完却没有看到它")
+        esp_dev = partdev(device, num)
+        run(["parted", "-s", device, "set", num, "esp", "on"], check=False)
+        unmount_device(esp_dev)
+        run(["mkfs.vfat", "-F", "32", "-n", "CAMPHOR", esp_dev])
+        add_line("创建 EFI 系统分区：%s（512 MiB，fat32，%d MiB 起）"
+                 % (esp_dev, start_s // 2048))
+        return esp_dev
+
+    raise RuntimeError("这块盘上既没有 EFI 系统分区，也没有 512 MiB 的空闲空间放它")
 
 
 def rmpart(device, index):
@@ -450,11 +527,22 @@ def install_worker(device, rowid, username="", password=""):
             raise RuntimeError("这块只有 %d MiB，系统至少要 %d MiB" % (got, need))
 
         root_dev = ""
+        esp_dev = ""
         if row["free"]:
+            # 这块空闲区如果一直用到盘尾，就没有地方再放 ESP 了。
+            # 所以先切 ESP、再在剩下的空间里建根分区 —— 反过来做，
+            # 根分区会把整块空闲区吃掉，ESP 就没处可建，最后装不进去。
+            esp_dev = ensure_esp(device, row["rowid"])
+            rows_now = layout(device)["rows"]
+            region = None
+            for r in rows_now:
+                if r["free"] and (region is None or r["size"] > region["size"]):
+                    region = r
+            if region is None:
+                raise RuntimeError("切出 EFI 系统分区之后没有空间建根分区了")
             set_state(step="新建分区")
-            add_line("新建分区：%s（用掉这块空闲区）" % device)
-            # 大小给整块空闲区，mkpart 自己会截到它的末尾
-            after = mkpart(device, row["rowid"], row["size"])
+            add_line("新建分区：%s（用掉剩下的空闲区）" % device)
+            after = mkpart(device, region["rowid"], region["size"])
             nums = [r["index"] for r in after["rows"] if not r["free"] and r["index"]]
             if not nums:
                 raise RuntimeError("分区建完却没有看到新分区")
@@ -462,6 +550,7 @@ def install_worker(device, rowid, username="", password=""):
             add_line("根分区：%s" % root_dev)
         else:
             root_dev = partdev(device, row["index"])
+            esp_dev = ensure_esp(device, None)
 
         if not os.path.exists(root_dev):
             raise RuntimeError("分区设备 %s 不存在" % root_dev)
@@ -475,44 +564,12 @@ def install_worker(device, rowid, username="", password=""):
         os.makedirs(TARGET, exist_ok=True)
         run(["mount", "-t", "ext4", root_dev, TARGET])
 
-        # ESP：同一块盘上已有的复用，没有就新建
-        esp_dev = ""
-        for r in layout(device)["rows"]:
-            if not r["free"] and r["ptype"] == "esp":
-                esp_dev = partdev(device, r["index"])
-                add_line("使用已有 EFI 系统分区：%s" % esp_dev)
-                break
+        if esp_dev:
+            unmount_device(esp_dev)
+            os.makedirs(os.path.join(TARGET, "boot/efi"), exist_ok=True)
+            run(["mount", "-t", "vfat", esp_dev, os.path.join(TARGET, "boot/efi")])
+            add_line("挂载 EFI 系统分区：%s → /target/boot/efi" % esp_dev)
 
-        if not esp_dev:
-            set_state(step="新建 EFI 系统分区")
-            # 找一块放得下 512 MiB 的空闲区，用最靠前的那块。
-            # 边界同样用扇区值，理由与 mkpart 一样：MiB 值是被截断过的。
-            spot = None
-            for r in layout(device)["rows"]:
-                if r["free"] and (r["end_s"] - max(r["start_s"], 2048)) >= 512 * 2048:
-                    spot = r
-                    break
-            if spot:
-                start_s = max(2048, spot["start_s"])
-                end_s = start_s + 512 * 2048
-                run(["parted", "-s", "-a", "none", device, "unit", "s",
-                     "mkpart", "EFI", "fat32", "%ds" % start_s, "%ds" % end_s])
-                run(["partprobe", device], check=False)
-                time.sleep(2)
-                num = ""
-                for r in layout(device)["rows"]:
-                    if not r["free"] and r["start_s"] == start_s:
-                        num = str(r["index"])
-                        break
-                if not num:
-                    raise RuntimeError("EFI 系统分区建完却没有看到它")
-                esp_dev = partdev(device, num)
-                run(["parted", "-s", device, "set", num, "esp", "on"], check=False)
-                unmount_device(esp_dev)
-                run(["mkfs.vfat", "-F", "32", "-n", "CAMPHOR", esp_dev])
-                add_line("创建 EFI 系统分区：%s（512 MiB，fat32）" % esp_dev)
-            else:
-                add_line("没有可用空间创建 EFI 系统分区，UEFI 引导将不可用")
 
         squash = find_squashfs()
         if not squash:
@@ -598,7 +655,9 @@ def install_worker(device, rowid, username="", password=""):
                         # rootwait 是给 USB 上的根盘用的，console=tty0 让内核日志
                         # 落在 kiosk 那块屏上，panic=10 让崩溃后自己重启。
                         'GRUB_CMDLINE_LINUX="console=tty0 panic=10 rootwait"\n'
-                        'GRUB_CMDLINE_LINUX_DEFAULT="quiet loglevel=4 net.ifnames=0"\n'
+                        # 第二阶段要装 33 个包、铺文件，一两分钟内屏上必须有进度，
+                        # 否则看起来就是死机。所以不带 quiet，loglevel 放到 6。
+                        'GRUB_CMDLINE_LINUX_DEFAULT="loglevel=6 net.ifnames=0"\n'
                         "GRUB_DISABLE_OS_PROBER=false\n"
                         # 主题目录随母本落到 /boot/grub/themes/camphor；
                         # gfxterm 不显式打开，grub-mkconfig 就按文字终端生成，
