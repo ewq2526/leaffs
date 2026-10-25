@@ -371,6 +371,51 @@ def _open_app_window(url):
     return False
 
 
+PICK_SOCK = '/run/camphor-pick.sock'
+
+
+def _start_pick_socket(win):
+    """让服务进程能请这个窗口弹一次系统选择框。
+
+    kiosk 进程只开窗口、不起服务（LEAFFS_ATTACH=1），而 8080 上的 leaffs.service
+    没有 GTK 窗口 —— create_file_dialog 只能在窗口所在进程里调。所以由窗口进程开
+    一个 unix socket，服务进程把「弹一次选择框」的请求转过来，这里弹完把路径回过去。
+    """
+    def serve():
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            os.unlink(PICK_SOCK)
+        except OSError:
+            pass
+        srv.bind(PICK_SOCK)
+        os.chmod(PICK_SOCK, 0o600)
+        srv.listen(4)
+        while True:
+            try:
+                conn, _ = srv.accept()
+            except OSError:
+                time.sleep(0.2)
+                continue
+            with conn:
+                try:
+                    req = json.loads(
+                        conn.makefile('r', encoding='utf-8').readline() or '{}')
+                    import webview
+                    kind = webview.OPEN_DIALOG if req.get('file') else webview.FOLDER_DIALOG
+                    got = win.create_file_dialog(kind)
+                    if isinstance(got, (list, tuple)):
+                        got = got[0] if got else ''
+                    reply = {'path': str(got or '')}
+                except Exception as e:            # noqa: BLE001
+                    reply = {'error': '%s: %s' % (type(e).__name__, e)}
+                try:
+                    conn.sendall((json.dumps(reply, ensure_ascii=False) + '\n').encode('utf-8'))
+                except OSError:
+                    pass
+
+    threading.Thread(target=serve, name='pick-socket', daemon=True).start()
+
+
 def _start_webview_window():
     """pywebview 原生窗口（D4：URL 带一次性令牌 ?leaf=，本机自动登录走令牌而非无条件免密）
 
@@ -419,13 +464,17 @@ def _start_webview_window():
         # 注意 resizable 必须保持 True —— pywebview 对不可缩放的窗口会用 set_size_request
         # 把窗口钉死在创建尺寸，全屏后内容区还是 1200x800。
         _kiosk = os.environ.get('LEAFFS_KIOSK') == '1'
-        webview.create_window('LeafFS 文件传输', _local_url(),
-                              width=1200, height=800,
-                              resizable=True,
-                              fullscreen=_kiosk, frameless=_kiosk,
-                              # 与页面深色底一致：首帧绘制前不闪白
-                              background_color='#101014',
-                              js_api=_LocalBridge())
+        win = webview.create_window('LeafFS 文件传输', _local_url(),
+                                    width=1200, height=800,
+                                    resizable=True,
+                                    fullscreen=_kiosk, frameless=_kiosk,
+                                    # 与页面深色底一致：首帧绘制前不闪白
+                                    background_color='#101014',
+                                    js_api=_LocalBridge())
+        # 只开窗口的那一侧（LEAFFS_ATTACH=1）要替服务进程弹系统选择框，
+        # 见 _start_pick_socket 的说明。
+        if os.environ.get('LEAFFS_ATTACH') == '1':
+            _start_pick_socket(win)
 
         installed = threading.Event()
 

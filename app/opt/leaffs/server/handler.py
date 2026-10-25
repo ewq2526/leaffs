@@ -60,6 +60,29 @@ _DRAIN_LIMIT = 4 * 1024 * 1024
 _DRAIN_SECONDS = 3.0
 _DRAIN_POLL = 0.05
 
+# 窗口进程（kiosk）替服务进程弹系统选择框用的 socket，见 app._start_pick_socket。
+PICK_SOCK = '/run/camphor-pick.sock'
+
+
+def _pick_from_window(want_file):
+    """请窗口所在的 kiosk 进程弹一次系统选择框，返回选中的路径。
+
+    服务进程（leaffs.service）没有 GTK 窗口，create_file_dialog 在那里根本弹不出来；
+    窗口在另一个进程（LEAFFS_ATTACH=1），它开了这个 socket 专门代弹。
+    """
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(180)          # 人在屏幕上慢慢选，别中途断
+    try:
+        s.connect(PICK_SOCK)
+        s.sendall((json.dumps({'file': bool(want_file)}) + '\n').encode('utf-8'))
+        line = s.makefile('r', encoding='utf-8').readline()
+    finally:
+        s.close()
+    data = json.loads(line or '{}')
+    if data.get('error'):
+        raise RuntimeError(data['error'])
+    return data.get('path', '')
+
 
 class _CountingReader:
     """只读包装：记录**已经从 rfile 交给调用方**的字节数。
@@ -1468,7 +1491,14 @@ class HTTPHandler(BaseHTTPRequestHandler):
         except Exception:
             win = None
         if win is None:
-            self.send_json({'error': '当前没有桌面窗口'}, 404)
+            # 服务进程没有窗口：请 kiosk 进程代弹（它才是 GTK 窗口的宿主）
+            try:
+                picked = _pick_from_window(want_file)
+            except Exception as e:
+                add_log(f'系统选择框失败: {type(e).__name__}: {e}', 'warn')
+                self.send_json({'error': '系统选择框打开失败'}, 500)
+                return
+            self.send_json({'path': str(picked or '')})
             return
         try:
             # GTK 后端把这次调用经 glib.idle_add 调度回 UI 线程并用信号量等结果，
