@@ -85,6 +85,17 @@ for one in camphor-installer.service camphor-firstboot.service; do
 	systemctl enable "$one"
 done
 
+# 网络只留一套：systemd-networkd 拿地址，camphor-wifi 拉自己那个 wpa_supplicant。
+# ifupdown 的 networking.service 里没有任何 iface（/etc/network/interfaces 只有
+# source 一行），是空跑；系统自带的 wpa_supplicant.service 也是空跑，而且它的
+# 控制目录跟 camphor-wifi 抢同一个 /run/wpa_supplicant。
+systemctl disable networking.service wpa_supplicant.service >/dev/null 2>&1 || true
+
+# networkd 不写 /etc/resolv.conf —— 那是 systemd-resolved 的活。把这份文件指到
+# resolved 的 stub（127.0.0.53），DHCP 给的 DNS 才有地方落地。
+rm -f /etc/resolv.conf
+ln -s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+
 # 界面挂在 graphical.target 上，默认目标得跟着改，否则图形界面永远不启动
 systemctl set-default graphical.target
 

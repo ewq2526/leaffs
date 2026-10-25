@@ -23,4 +23,5 @@ camphor-netdiag.service            disabled
 camphor-filemgr.service            disabled
 camphor-zram-swap.service          enabled
 camphor-lowmem-notice.service      enabled
+systemd-resolved.service           enabled
 systemd-networkd.service           enabled

@@ -47,6 +47,13 @@ e2fsprogs
 dosfstools                 # ESP 与 U 盘
 rsync                      # 应用镜像铺进系统时用它
 
+# ── 网络 ───────────────────────────────────────────────────
+# systemd-networkd 负责拿地址（DHCP），但它不写 /etc/resolv.conf —— 那是
+# systemd-resolved 的活。以前没装 resolved，DHCP 给的 DNS 无处落地，
+# /etc/resolv.conf 是 0 字节：外网域名全部解析不了，timesyncd 连 NTP 服务器
+# 都找不到（时钟因此一直不同步）。
+systemd-resolved
+
 # ── 基础 ───────────────────────────────────────────────────
 locales
 console-setup
