@@ -1044,6 +1044,10 @@ class HTTPHandler(BaseHTTPRequestHandler):
             parts = reqline.split()
             method = parts[0] if parts else (self.command or '')
             p = parts[1] if len(parts) > 1 else (self.path or '')
+            # 读日志的轮询接口不记：管理页每 5 秒拉一次 /api/logs 渲染预览，记下来
+            # 只会让日志自我膨胀（一天约 1.7 万条，全是"有人在读日志"）
+            if p.split('?', 1)[0] == '/api/logs':
+                return
             # A-16 脱敏（敏感参数值 → ***）+ LF-12 控制字符剔除与超长截断
             # （请求行未解码，原始字节直发能把 \x1b 这类控制字节带进来）
             p = _ut_log.sanitize_log_text(_sanitize_path_for_log(p), max_len=200)
