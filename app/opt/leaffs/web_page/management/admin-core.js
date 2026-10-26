@@ -93,7 +93,7 @@ function renderServerLogs(logs) {
     var area = document.getElementById('logArea');
     if (!area) return;
     logs = logs || [];
-    if (!logs.length) { area.innerHTML = '<div style="color:var(--text-light);font-size:11px">' + (_UI_EN ? 'No logs' : '暂无日志') + '</div>'; return; }
+    if (!logs.length) { area.innerHTML = '<div style="color:var(--text-light);font-size:0.786rem">' + (_UI_EN ? 'No logs' : '暂无日志') + '</div>'; return; }
     var h = '';
     var start = Math.max(0, logs.length - LOG_PREVIEW_MAX);
     // 最新在前（logs 为时间正序，倒序输出后第一条即最新），并停在顶部让最新可见
@@ -285,21 +285,21 @@ function renderConnections(list) {
     list = list || [];
     var html = '';
     if (!list.length) {
-        html = '<div style="color:var(--text-light);font-size:11px;padding:10px 0">'
+        html = '<div style="color:var(--text-light);font-size:0.786rem;padding:0.714rem 0">'
             + (_UI_EN ? 'No connections' : '暂无连接') + '</div>';
     } else {
         // 表头
-        html += '<div style="display:flex;align-items:center;gap:12px;padding:5px 2px;font-size:11px;color:var(--text-light);border-bottom:1px solid var(--border);line-height:1.6">';
+        html += '<div style="display:flex;align-items:center;gap:0.857rem;padding:0.357rem 0.143rem;font-size:0.786rem;color:var(--text-light);border-bottom:var(--hair) solid var(--border);line-height:1.6">';
         if (_UI_EN) {
-            html += '<span style="min-width:80px;font-weight:600">Username</span>';
-            html += '<span style="min-width:80px;text-align:center;font-weight:600">Role</span>';
+            html += '<span style="min-width:5.714rem;font-weight:600">Username</span>';
+            html += '<span style="min-width:5.714rem;text-align:center;font-weight:600">Role</span>';
             html += '<span style="flex:1;text-align:center;font-weight:600">IP</span>';
-            html += '<span style="min-width:60px;text-align:right;font-weight:600">Last activity</span>';
+            html += '<span style="min-width:4.286rem;text-align:right;font-weight:600">Last activity</span>';
         } else {
-            html += '<span style="min-width:80px;font-weight:600">用户名</span>';
-            html += '<span style="min-width:80px;text-align:center;font-weight:600">身份</span>';
+            html += '<span style="min-width:5.714rem;font-weight:600">用户名</span>';
+            html += '<span style="min-width:5.714rem;text-align:center;font-weight:600">身份</span>';
             html += '<span style="flex:1;text-align:center;font-weight:600">IP</span>';
-            html += '<span style="min-width:60px;text-align:right;font-weight:600">最近一次活动</span>';
+            html += '<span style="min-width:4.286rem;text-align:right;font-weight:600">最近一次活动</span>';
         }
         html += '</div>';
         for (var i = 0; i < Math.min(list.length, 50); i++) {
@@ -318,11 +318,11 @@ function renderConnections(list) {
                 else rp = _roleZh(roleCode);
             }
             var roleLabel = rp[0], roleColor = rp[1];
-            html += '<div style="display:flex;align-items:center;gap:12px;padding:5px 2px;font-size:12px;border-bottom:1px solid var(--border);line-height:1.6">';
-            html += '<span style="font-weight:600;color:var(--text);white-space:nowrap;min-width:80px">' + esc(user) + '</span>';
-            html += '<span style="color:' + roleColor + ';font-weight:600;font-size:11px;min-width:80px;text-align:center">[' + roleLabel + ']</span>';
+            html += '<div style="display:flex;align-items:center;gap:0.857rem;padding:0.357rem 0.143rem;font-size:0.857rem;border-bottom:var(--hair) solid var(--border);line-height:1.6">';
+            html += '<span style="font-weight:600;color:var(--text);white-space:nowrap;min-width:5.714rem">' + esc(user) + '</span>';
+            html += '<span style="color:' + roleColor + ';font-weight:600;font-size:0.786rem;min-width:5.714rem;text-align:center">[' + roleLabel + ']</span>';
             html += '<span style="color:var(--text-light);flex:1;text-align:center;white-space:nowrap">' + esc(c.ip) + '</span>';
-            html += '<span style="color:var(--text-light);min-width:60px;text-align:right;white-space:nowrap">' + timeStr + '</span>';
+            html += '<span style="color:var(--text-light);min-width:4.286rem;text-align:right;white-space:nowrap">' + timeStr + '</span>';
             html += '</div>';
         }
     }

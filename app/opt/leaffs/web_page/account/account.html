@@ -295,7 +295,7 @@ function markAccent(cur) {
     var bs = box.querySelectorAll('button[data-a]');
     for (var i = 0; i < bs.length; i++) {
         var on = (bs[i].getAttribute('data-a') || '') === (cur || '');
-        bs[i].style.boxShadow = on ? '0 0 0 2px var(--card-bg), 0 0 0 4px var(--primary)' : '';
+        bs[i].style.boxShadow = on ? '0 0 0 0.143rem var(--card-bg), 0 0 0 0.286rem var(--primary)' : '';
     }
 }
 function setAccent(a) {

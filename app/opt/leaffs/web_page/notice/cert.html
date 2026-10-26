@@ -13,28 +13,28 @@ __CERT_STYLE__
 
 /* 本页专有部分：居中布局 + 编号说明列表。
    颜色一律走主站变量（--text/--primary/...），所以亮暗主题与主色自动跟随。 */
-body { display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
-.notice-wrap { width: 100%; max-width: 620px; margin: auto; }
-.notice-card { padding: 34px 26px 28px; }
-.notice-title { font-size: 20px; font-weight: 700; color: var(--text); text-align: center; margin-bottom: 8px; }
-.notice-lead { font-size: 13.5px; color: var(--text-secondary); text-align: center; margin-bottom: 20px; line-height: 1.7; }
-.notice-list { list-style: none; counter-reset: item; margin: 0 0 18px; padding: 0; text-align: left; }
+body { display: flex; align-items: center; justify-content: center; padding: 1.714rem 1.143rem; }
+.notice-wrap { width: 100%; max-width: 44.286rem; margin: auto; }
+.notice-card { padding: 2.429rem 1.857rem 2rem; }
+.notice-title { font-size: 1.429rem; font-weight: 700; color: var(--text); text-align: center; margin-bottom: 0.571rem; }
+.notice-lead { font-size: 0.964rem; color: var(--text-secondary); text-align: center; margin-bottom: 1.429rem; line-height: 1.7; }
+.notice-list { list-style: none; counter-reset: item; margin: 0 0 1.286rem; padding: 0; text-align: left; }
 .notice-list li {
     counter-increment: item; position: relative;
-    padding: 11px 13px 11px 46px; margin: 0 0 9px;
+    padding: 0.786rem 0.929rem 0.786rem 3.286rem; margin: 0 0 0.643rem;
     background: var(--tint-info, rgba(14, 165, 233, .08));
-    border: 1px solid var(--border);
+    border: var(--hair) solid var(--border);
     border-radius: var(--radius-sm);
-    font-size: 13px; color: var(--text); line-height: 1.75;
+    font-size: 0.929rem; color: var(--text); line-height: 1.75;
 }
 .notice-list li::before {
-    content: counter(item); position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
-    width: 24px; height: 24px; border-radius: 50%;
+    content: counter(item); position: absolute; left: 0.857rem; top: 50%; transform: translateY(-50%);
+    width: 1.714rem; height: 1.714rem; border-radius: 50%;
     background: var(--primary); color: #fff;
-    font-size: 12px; font-weight: 700;
+    font-size: 0.857rem; font-weight: 700;
     display: flex; align-items: center; justify-content: center;
 }
-.notice-en { font-size: 11.5px; color: var(--text-light); line-height: 1.75; margin: 0 0 20px; }
+.notice-en { font-size: 0.821rem; color: var(--text-light); line-height: 1.75; margin: 0 0 1.429rem; }
 </style>
 </head>
 <body>
