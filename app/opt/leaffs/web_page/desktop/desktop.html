@@ -51,21 +51,23 @@ window.__DESK_ROLE__='__DESK_ROLE_JSON__';</script>
     background: rgba(0, 0, 0, 0.42);
   }
 
-  /* ---------- 桌面：品牌 + 图标 ---------- */
-  .desk { position: absolute; inset: 0; z-index: 1; }
-
-  .brand {
-    position: absolute;
-    left: calc(24 * var(--u)); top: calc(13 * var(--u));
-    text-shadow: 0 calc(1.5 * var(--u)) calc(4 * var(--u)) rgba(0, 0, 0, 0.7);
+  /* ---------- 桌面：品牌 + 图标 ----------
+     品牌与图标在同一个纵向流里，图标的位置由"品牌有多高"决定，不靠手算的偏移。
+     以前图标写死 top: 80u，字体的行高度量一变（换字体、换渲染后端的行高），
+     副标题就压到图标上。 */
+  .desk {
+    position: absolute; inset: 0; z-index: 1;
+    display: flex; flex-direction: column; align-items: flex-start;
+    padding: calc(13 * var(--u)) calc(24 * var(--u));
+    gap: calc(16 * var(--u));
   }
+
+  .brand { text-shadow: 0 calc(1.5 * var(--u)) calc(4 * var(--u)) rgba(0, 0, 0, 0.7); }
   .brand h1 { font-size: calc(30 * var(--u)); font-weight: 600; letter-spacing: 0.5px; }
   .brand p { font-size: calc(13 * var(--u)); color: var(--dim); margin-top: calc(3 * var(--u)); }
 
-  /* 图标从左上角往下排，一格一个 —— 位置由 --u 算，不写死像素 */
+  /* 图标一列往下排，一格一个 */
   .desk-icon-row {
-    position: absolute;
-    left: calc(24 * var(--u)); top: calc(80 * var(--u));
     display: flex; flex-direction: column;
     gap: calc(10 * var(--u));
   }
