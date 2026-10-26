@@ -9,6 +9,12 @@
 /shared_files/
 /.cache/
 
+# 同上，但落在应用树的根下 —— 带 `PYTHONPATH=app/opt` 直接跑模块时就是这三个路径：
+# 只做一次 import 就会建出 config/ 与 .cache/，跑起来还会写 shared_files/
+/app/opt/config/
+/app/opt/shared_files/
+/app/opt/.cache/
+
 # Python
 __pycache__/
 *.py[cod]
