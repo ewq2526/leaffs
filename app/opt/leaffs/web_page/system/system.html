@@ -14,6 +14,8 @@
    不居中收窄。整块就是一个窗口的内容 —— 左边一列叠起来的资源，右边是
    选中那一项的曲线与数值表。
    版式与密度照任务管理器：1px 分隔线、28px 行高、12.5px 字号、数字等宽。
+   下面的长度写成 rem：1rem = 设计稿上的 1px（根字号按屏幕短边算，见 html 规则），
+   所以 28rem / 12.5rem 分别是 28 / 12.5 个设计像素，整页随屏幕等比缩放。
    ------------------------------------------------------------------ */
 :root {
     --tm-bg: #1b1b1b;
@@ -26,13 +28,17 @@
     --tm-mute: #8a8a8a;
 }
 * { box-sizing: border-box; }
+/* 1rem = 设计稿上的 1px：根字号 = 短边 / 920（参考尺寸 1894×920 时正好 1px）。
+   下面的长度直接写成 Nrem 就是原来的 N 个设计像素，整页随屏幕纯等比缩放 ——
+   不设上下限：封了顶就不是"等比"了，屏幕再大再小都该按同一个比例走。 */
+html { font-size: calc(100vmin / 920); }
 html, body { height: 100%; }
 body {
     margin: 0;
     background: var(--tm-bg);
     color: var(--tm-text);
     font-family: "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif;
-    font-size: 12.5px;
+    font-size: 12.5rem;
     overflow: hidden;
     /* 桌面上的窗口内容：不要文字选中，不要橡皮筋滚动 */
     user-select: none;
@@ -42,23 +48,23 @@ body {
     height: 100%;
     display: flex;
     flex-direction: column;
-    padding: 8px 10px 10px;
-    gap: 8px;
+    padding: 8rem 10rem 10rem;
+    gap: 8rem;
 }
 /* 顶部一条本机信息：任务管理器里这一行是标签栏，这里放机器身份 */
 .tm-bar {
     flex: 0 0 auto;
-    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
-    padding: 4px 4px 2px;
-    font-size: 12px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6rem 12rem;
+    padding: 4rem 4rem 2rem;
+    font-size: 12rem;
     color: var(--tm-mute);
 }
 .tm-bar b { color: var(--tm-text); font-weight: 600; font-variant-numeric: tabular-nums; }
 .tm-bar .sep { color: #4a4a4a; }
 .tm-bar select {
     background: var(--tm-panel); color: var(--tm-text);
-    border: 1px solid var(--tm-line); border-radius: 3px;
-    font: inherit; padding: 2px 4px; max-width: 200px;
+    border: 1rem solid var(--tm-line); border-radius: 3rem;
+    font: inherit; padding: 2rem 4rem; max-width: 200rem;
     /* 下拉列表是浏览器画的，不声明 color-scheme 时它按浅色画，字是浅色 → 白底白字 */
     color-scheme: dark;
 }
@@ -68,19 +74,19 @@ body {
 .tm-exit {
     margin-left: auto;
     color: var(--tm-dim); text-decoration: none;
-    border: 1px solid var(--tm-line); border-radius: 3px;
-    padding: 1px 10px; font-size: 12px;
+    border: 1rem solid var(--tm-line); border-radius: 3rem;
+    padding: 1rem 10rem; font-size: 12rem;
     white-space: nowrap;
 }
 .tm-exit:hover { color: var(--tm-text); border-color: #5a5a5a; background: #2a2a2a; }
 
-/* 主体：左列 + 右详情，中间 1px 线 */
+/* 主体：左列 + 右详情，中间 1rem 线 */
 .tm {
     flex: 1 1 auto;
     min-height: 0;
     display: grid;
-    grid-template-columns: minmax(200px, 24%) 1fr;
-    border: 1px solid var(--tm-line);
+    grid-template-columns: minmax(200rem, 24%) 1fr;
+    border: 1rem solid var(--tm-line);
     background: var(--tm-panel);
     overflow: hidden;
 }
@@ -88,16 +94,16 @@ body {
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
-    border-right: 1px solid var(--tm-line);
+    border-right: 1rem solid var(--tm-line);
     background: var(--tm-side);
 }
 .tm-item {
     position: relative;
     width: 100%;
-    height: 64px;
-    padding: 6px 10px 7px 12px;
+    height: 64rem;
+    padding: 6rem 10rem 7rem 12rem;
     border: 0;
-    border-bottom: 1px solid var(--tm-line-soft);
+    border-bottom: 1rem solid var(--tm-line-soft);
     background: none;
     color: inherit;
     font: inherit;
@@ -106,28 +112,28 @@ body {
     display: grid;
     grid-template-columns: 1fr auto;
     grid-template-rows: auto 1fr;
-    column-gap: 8px;
+    column-gap: 8rem;
 }
 .tm-item:hover { background: #2a2a2a; }
 .tm-item.on { background: #2e2e2e; }
 .tm-item.on::before {
     content: "";
-    position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    position: absolute; left: 0; top: 0; bottom: 0; width: 3rem;
     background: var(--primary, #34d399);
 }
 .tm-item .nm {
     grid-column: 1;
-    font-size: 12px; color: var(--tm-dim);
+    font-size: 12rem; color: var(--tm-dim);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .tm-item .pv {
     grid-column: 2;
-    font-size: 15px; font-weight: 600; color: var(--tm-text);
+    font-size: 15rem; font-weight: 600; color: var(--tm-text);
     font-variant-numeric: tabular-nums;
     min-width: 4.5ch; text-align: right; white-space: nowrap;
 }
-.tm-item .pv.small { font-size: 12px; font-weight: 500; }
-.tm-item .spark { grid-column: 1 / -1; width: 100%; height: 20px; display: block; margin-top: 2px; }
+.tm-item .pv.small { font-size: 12rem; font-weight: 500; }
+.tm-item .spark { grid-column: 1 / -1; width: 100%; height: 20rem; display: block; margin-top: 2rem; }
 /* 没有曲线的条目（无线 / 电池 / 服务）：一行字在整条里居中，否则字全挤在顶上，
    下面空出半条，看着像少画了什么。 */
 .tm-item.plain { grid-template-rows: auto; align-content: center; }
@@ -152,32 +158,32 @@ body {
     display: flex;
     flex-direction: column;
     min-height: 100%;
-    padding: 10px 14px 16px;
+    padding: 10rem 14rem 16rem;
 }
 
 .tm-hd {
-    display: flex; align-items: baseline; gap: 10px;
-    padding-bottom: 6px; margin-bottom: 8px;
-    border-bottom: 1px solid var(--tm-line);
+    display: flex; align-items: baseline; gap: 10rem;
+    padding-bottom: 6rem; margin-bottom: 8rem;
+    border-bottom: 1rem solid var(--tm-line);
 }
-.tm-hd h2 { margin: 0; font-size: 14px; font-weight: 600; }
-.tm-hd .sub { margin-left: auto; font-size: 11.5px; color: var(--tm-mute); }
+.tm-hd h2 { margin: 0; font-size: 14rem; font-weight: 600; }
+.tm-hd .sub { margin-left: auto; font-size: 11.5rem; color: var(--tm-mute); }
 /* 磁盘图的图例：读一条、写一条 */
 .tm-hd .dlegend {
-    display: flex; align-items: center; gap: 5px;
-    margin-left: 14px; font-size: 11px; color: var(--tm-mute);
+    display: flex; align-items: center; gap: 5rem;
+    margin-left: 14rem; font-size: 11rem; color: var(--tm-mute);
 }
-.tm-hd .dlegend i { width: 11px; height: 2px; display: inline-block; }
+.tm-hd .dlegend i { width: 11rem; height: 2rem; display: inline-block; }
 .tm-hd .dlegend i.c-rd { background: var(--primary, #34d399); }
 .tm-hd .dlegend i.c-wr { background: var(--warn, #f5b74e); }
 
-/* 大曲线吃掉标题与数值表之外的全部高度。试过封顶 40vh：表下面会空出 230~310px 的死区，
+/* 大曲线吃掉标题与数值表之外的全部高度。试过封顶 40vh：表下面会空出 230~310rem 的死区，
    比曲线偏大更难看，所以不封顶。flex-basis 必须是 0 —— SVG 带 viewBox，basis 为 auto 时
    会先按 100:40 算出固有高度，再被截一刀，白折腾。 */
-.tm-chart { width: 100%; flex: 1 1 0; min-height: 140px; display: block; }
-/* 刻度文字。大图按像素画（1 单位 = 1px），10px 就是屏幕上的 10px */
+.tm-chart { width: 100%; flex: 1 1 0; min-height: 140rem; display: block; }
+/* 刻度文字。大图按像素画（1 单位 = 1rem），10rem 就是屏幕上的 10rem */
 .tm-chart text {
-    font-size: 10px; fill: var(--tm-mute);
+    font-size: 10rem; fill: var(--tm-mute);
     font-variant-numeric: tabular-nums; user-select: none;
 }
 
@@ -185,9 +191,9 @@ body {
    左列定宽而不是 1fr：数值靠右对齐，列一宽，键和值就隔开半屏，读起来要来回找。 */
 .tm-cols {
     display: grid;
-    grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
-    gap: 16px 36px;
-    margin-top: 10px;
+    grid-template-columns: minmax(0, 420rem) minmax(0, 1fr);
+    gap: 16rem 36rem;
+    margin-top: 10rem;
     align-items: start;
 }
 .tm-cols.one { grid-template-columns: minmax(0, 1fr); }
@@ -197,9 +203,9 @@ body {
     display: grid;
     grid-template-columns: max-content minmax(0, 1fr);
     align-items: center;
-    min-height: 26px;
-    border-bottom: 1px solid var(--tm-line-soft);
-    font-size: 12px;
+    min-height: 26rem;
+    border-bottom: 1rem solid var(--tm-line-soft);
+    font-size: 12rem;
 }
 .tm-row:last-child { border-bottom: 0; }
 .tm-row .k { color: var(--tm-dim); }
@@ -210,33 +216,33 @@ body {
 }
 
 .tm-side h3 {
-    margin: 0 0 6px;
-    font-size: 11.5px; font-weight: 600; color: var(--tm-dim);
+    margin: 0 0 6rem;
+    font-size: 11.5rem; font-weight: 600; color: var(--tm-dim);
 }
 /* 逻辑处理器：一个核一个方框，框里是它自己的曲线，框左上角是名字、右上角是当前值 */
 .tm-cores {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-    gap: 8px; max-width: 900px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(190rem, 1fr));
+    gap: 8rem; max-width: 900rem;
 }
 .tm-core {
-    border: 1px solid var(--tm-line-soft);
+    border: 1rem solid var(--tm-line-soft);
     background: #1c1c1c;
-    padding: 5px 8px 4px;
-    height: 96px;
+    padding: 5rem 8rem 4rem;
+    height: 96rem;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: auto minmax(0, 1fr);
-    column-gap: 6px;
+    column-gap: 6rem;
 }
-.tm-core .n { font-size: 10.5px; color: var(--tm-mute); white-space: nowrap; }
+.tm-core .n { font-size: 10.5rem; color: var(--tm-mute); white-space: nowrap; }
 .tm-core .v {
-    font-size: 11.5px; color: var(--tm-dim); text-align: right;
+    font-size: 11.5rem; color: var(--tm-dim); text-align: right;
     font-variant-numeric: tabular-nums;
 }
 .tm-core .mini {
     grid-column: 1 / -1;
     width: 100%; height: 100%; min-height: 0;
-    display: block; margin-top: 3px;
+    display: block; margin-top: 3rem;
 }
 .tm-core .mini path.line { fill: none; stroke: var(--primary, #34d399); stroke-width: 1.1; }
 .tm-core .mini path.area { fill: var(--primary, #34d399); opacity: 0.13; stroke: none; }
@@ -247,27 +253,27 @@ body {
 
 /* 内存的组成条 + 图例。宽度跟左边的数值表对齐：图例是「名字 …… 数值」两列，
    拉到整幅宽之后名字在左头、数值在右头，中间隔着一米，读不了。 */
-.tm-stack-bar { display: flex; height: 10px; overflow: hidden; background: #3a3a3a; margin-bottom: 8px; max-width: 420px; }
-.tm-legend { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 8px; font-size: 11.5px; max-width: 420px; }
-.tm-legend .n { color: var(--tm-dim); display: flex; align-items: center; gap: 6px; }
-.tm-legend .n i { width: 9px; height: 9px; display: inline-block; }
+.tm-stack-bar { display: flex; height: 10rem; overflow: hidden; background: #3a3a3a; margin-bottom: 8rem; max-width: 420rem; }
+.tm-legend { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2rem 8rem; font-size: 11.5rem; max-width: 420rem; }
+.tm-legend .n { color: var(--tm-dim); display: flex; align-items: center; gap: 6rem; }
+.tm-legend .n i { width: 9rem; height: 9rem; display: inline-block; }
 .tm-legend .v { text-align: right; color: var(--tm-text); font-variant-numeric: tabular-nums; }
 
 /* 分区行：名字、文件系统与挂载、占用条、用量。列宽都定死 —— 用 1fr 让元信息吃掉
    全部空档时，条子和用量会被顶到行的最右头，跟名字脱节。 */
 .tm-part {
     display: grid;
-    grid-template-columns: max-content max-content 96px max-content;
-    align-items: center; gap: 10px;
-    padding: 5px 0;
-    border-bottom: 1px solid var(--tm-line-soft);
-    font-size: 11.5px;
-    max-width: 720px;
+    grid-template-columns: max-content max-content 96rem max-content;
+    align-items: center; gap: 10rem;
+    padding: 5rem 0;
+    border-bottom: 1rem solid var(--tm-line-soft);
+    font-size: 11.5rem;
+    max-width: 720rem;
 }
 .tm-part:last-child { border-bottom: 0; }
 .tm-part .pname { color: var(--tm-text); font-weight: 600; }
 .tm-part .pmeta { color: var(--tm-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tm-part .pbar { height: 4px; background: #3a3a3a; overflow: hidden; }
+.tm-part .pbar { height: 4rem; background: #3a3a3a; overflow: hidden; }
 .tm-part .pbar > i { display: block; height: 100%; background: var(--primary, #34d399); }
 .tm-part .pbar > i.danger { background: var(--danger, #ef6461); }
 .tm-part .puse { color: var(--tm-dim); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
@@ -276,34 +282,34 @@ body {
    名字在左头、状态在右头的时候，中间空出一米，读一行要横扫半个屏。 */
 .tm-svc {
     display: grid;
-    grid-template-columns: minmax(0, 1.5fr) 62px 84px 92px 62px;
-    align-items: center; gap: 10px;
-    padding: 5px 0; border-bottom: 1px solid var(--tm-line-soft); font-size: 12px;
-    max-width: 720px;
+    grid-template-columns: minmax(0, 1.5fr) 62rem 84rem 92rem 62rem;
+    align-items: center; gap: 10rem;
+    padding: 5rem 0; border-bottom: 1rem solid var(--tm-line-soft); font-size: 12rem;
+    max-width: 720rem;
 }
 .tm-svc:last-child { border-bottom: 0; }
 .tm-svc > span:not(.n):not(.tag) {
     text-align: right; font-variant-numeric: tabular-nums; color: var(--tm-dim);
 }
 .tm-svc .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tm-svc .tag { font-size: 11px; color: var(--tm-mute); }
+.tm-svc .tag { font-size: 11rem; color: var(--tm-mute); }
 .tm-svc .tag.tag-local { color: var(--primary, #34d399); }
 .tm-svc .tag.tag-gone { color: var(--danger, #ef6461); }
 .tm-svc .tag.tag-coded { color: var(--warn, #f5b74e); }
 /* 表头：与行同列，只用一条实线分开 */
-.tm-svc-hd { color: var(--tm-mute); font-size: 11px; border-bottom: 1px solid var(--tm-line); }
+.tm-svc-hd { color: var(--tm-mute); font-size: 11rem; border-bottom: 1rem solid var(--tm-line); }
 .tm-svc-hd > span { text-align: left; }
 .tm-svc-hd > span:not(:first-child) { text-align: right; }
 .tm-svc-hd > span:nth-child(2) { text-align: left; }
 
 /* 进程榜（内存详情右栏） */
-.tm-procs { max-width: 520px; }
+.tm-procs { max-width: 520rem; }
 .tm-proc {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 92px 62px;
-    gap: 10px; padding: 3px 0;
-    font-size: 11.5px;
-    border-bottom: 1px solid var(--tm-line-soft);
+    grid-template-columns: minmax(0, 1fr) 92rem 62rem;
+    gap: 10rem; padding: 3rem 0;
+    font-size: 11.5rem;
+    border-bottom: 1rem solid var(--tm-line-soft);
 }
 .tm-proc:last-child { border-bottom: 0; }
 .tm-proc .pn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -312,41 +318,41 @@ body {
 }
 .tm-proc .pp { color: var(--tm-mute); }
 .tm-proc-hd {
-    color: var(--tm-mute); font-size: 11px; max-width: 520px;
-    border-bottom: 1px solid var(--tm-line); padding-bottom: 3px;
+    color: var(--tm-mute); font-size: 11rem; max-width: 520rem;
+    border-bottom: 1rem solid var(--tm-line); padding-bottom: 3rem;
 }
 .tm-proc-hd span:not(:first-child) { text-align: right; }
-.tm-side h3.mt { margin-top: 14px; }
+.tm-side h3.mt { margin-top: 14rem; }
 
 /* 无线列表：站在深色底上，事件行样式跟着任务管理器的表走。
    封宽 640：名字在左头、强度在右头、中间空一米的话，一行读不完。 */
 .srow {
-    display: flex; align-items: center; gap: 8px;
-    padding: 5px 0; border-bottom: 1px solid var(--tm-line-soft);
-    font-size: 12px; color: var(--tm-text);
-    max-width: 640px;
+    display: flex; align-items: center; gap: 8rem;
+    padding: 5rem 0; border-bottom: 1rem solid var(--tm-line-soft);
+    font-size: 12rem; color: var(--tm-text);
+    max-width: 640rem;
 }
 .srow:last-child { border-bottom: 0; }
 .srow .srow-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.srow .srow-path { color: var(--tm-mute); font-size: 11.5px; white-space: nowrap; }
+.srow .srow-path { color: var(--tm-mute); font-size: 11.5rem; white-space: nowrap; }
 .srow.ph { color: var(--tm-mute); }
 .wifi-input {
     flex: 1 1 auto; min-width: 0;
     background: #1b1b1b; color: var(--tm-text);
-    border: 1px solid var(--tm-line); border-radius: 3px; padding: 3px 6px; font: inherit;
+    border: 1rem solid var(--tm-line); border-radius: 3rem; padding: 3rem 6rem; font: inherit;
 }
 .wifi-input:focus { outline: none; border-color: var(--primary, #34d399); }
 .btn {
     background: #2d2d2d; color: var(--tm-text);
-    border: 1px solid var(--tm-line); border-radius: 3px;
-    padding: 3px 10px; font: inherit; cursor: pointer;
+    border: 1rem solid var(--tm-line); border-radius: 3rem;
+    padding: 3rem 10rem; font: inherit; cursor: pointer;
 }
 .btn:hover { background: #383838; }
-.btn-sm { font-size: 11.5px; }
+.btn-sm { font-size: 11.5rem; }
 .btn-primary { background: #2f5d4a; border-color: #3f7a61; }
 .c-danger-strong { color: var(--danger, #ef6461); }
 .tm-item:focus-visible, .srow:focus-visible, .btn:focus-visible {
-    outline: 2px solid var(--primary, #34d399); outline-offset: -2px;
+    outline: 2rem solid var(--primary, #34d399); outline-offset: -2rem;
 }
 </style>
 </head>
@@ -455,9 +461,9 @@ body {
                     </div>
                     <div class="tm-side">
                         <h3>可用网络</h3>
-                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+                        <div style="display:flex;gap:8rem;align-items:center;margin-bottom:6rem">
                             <button class="btn btn-sm" id="wifiScanBtn" type="button">扫描</button>
-                            <span class="srow-path" id="wifiHint" style="font-size:11px"></span>
+                            <span class="srow-path" id="wifiHint" style="font-size:11rem"></span>
                         </div>
                         <div id="wifiList">
                             <div class="srow ph"><span class="srow-path">未扫描</span></div>
@@ -1265,7 +1271,7 @@ function wifiForm(row, net) {
     if (row.querySelector('.wifi-form')) return;
     var form = document.createElement('div');
     form.className = 'wifi-form';
-    form.style.cssText = 'display:flex;gap:6px;margin:6px 0 2px;align-items:center';
+    form.style.cssText = 'display:flex;gap:6rem;margin:6rem 0 2rem;align-items:center';
     var locked = net.security !== 'open';
     form.innerHTML = (locked ? '<input class="wifi-input" type="password" placeholder="密码（8~63 位）">' : '') +
         '<button class="btn btn-sm btn-primary" type="button">连接</button>' +
