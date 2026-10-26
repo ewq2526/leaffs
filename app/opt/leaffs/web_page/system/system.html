@@ -7,170 +7,466 @@
 <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png?v=3">
 <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon.png?v=3">
 <link rel="apple-touch-icon" href="/static/favicon.png?v=3">
-<link rel="stylesheet" href="/static/style.css">
 <script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;</script>
 <style>
-/* 系统页专用的几个小件：曲线、核格。只在本页生效，不往 style.css 里塞一次性样式。 */
-.sys-chart { width: 100%; height: 34px; display: block; }
-.sys-chart path.line { fill: none; stroke: var(--primary); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.sys-chart path.area { fill: var(--primary); opacity: 0.14; stroke: none; }
-.sys-chart path.line.warn { stroke: var(--warn); }
-.sys-chart path.area.warn { fill: var(--warn); }
-.sys-chart path.line.danger { stroke: var(--danger); }
-.sys-chart path.area.danger { fill: var(--danger); }
-.sys-cores { display: grid; grid-template-columns: repeat(auto-fit, minmax(64px, 1fr)); gap: 6px; }
-.sys-core { font-size: 10.5px; color: var(--text-light); }
-.sys-core .val { float: right; }
-.sys-bar { height: 5px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 3px; }
-.sys-bar > i { display: block; height: 100%; background: var(--primary); border-radius: 3px; }
-.sys-bar > i.warn { background: var(--warn); }
-.sys-bar > i.danger { background: var(--danger); }
-.sys-head { display: flex; align-items: baseline; gap: 8px; }
-.sys-head .big { font-size: 20px; font-weight: 600; color: var(--text); }
-.sys-head .unit { font-size: 11px; color: var(--text-light); }
-.sys-head .spacer { flex: 1; }
-/* 磁盘卡片：一块盘一张带框的卡，点标题展开详情 */
-.disk-card { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: var(--card-bg); }
-.disk-card:last-child { margin-bottom: 0; }
-.disk-head { display: flex; align-items: baseline; gap: 8px; cursor: pointer; flex-wrap: wrap; }
-/* 键盘焦点：这两类行是可点的，默认轮廓在深色底上几乎看不见 */
-.srow:focus-visible, .disk-head:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
-.disk-head .name { font-weight: 600; font-size: 13px; color: var(--text); }
-.disk-head .meta { font-size: 11px; color: var(--text-light); }
-.disk-head .io { margin-left: auto; font-size: 11.5px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
-.disk-head .io b { font-weight: 600; color: var(--text); }
-.disk-card .detail { display: none; margin-top: 8px; }
-.disk-card.open .detail { display: block; }
-.disk-chart-box { border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px; margin: 8px 0 6px; }
-.sys-chart path.grid { fill: none; stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
-.disk-part { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--border); font-size: 11.5px; }
-.disk-part:first-child { border-top: none; }
-.disk-part .pname { font-weight: 600; color: var(--text); min-width: 52px; }
-.disk-part .pmeta { color: var(--text-light); flex: 1 1 auto; word-break: break-all; }
-.disk-part .puse { color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.disk-part .dl-progress-bar { width: 64px; flex: 0 0 64px; }
-.wifi-input { flex: 1 1 auto; min-width: 0; background: var(--bg); color: var(--text);
-                   border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
-                   font-size: 12px; font-family: var(--font); }
-.wifi-input:focus { outline: none; border-color: var(--primary); }
-.sys-stack { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--border); margin-top: 6px; }
-.sys-stack > i { display: block; height: 100%; }
+/* ------------------------------------------------------------------
+   这一页是任务管理器，不是站里的一个普通页面：没有站点头部、没有标签栏、
+   不居中收窄。整块就是一个窗口的内容 —— 左边一列叠起来的资源，右边是
+   选中那一项的曲线与数值表。
+   版式与密度照任务管理器：1px 分隔线、28px 行高、12.5px 字号、数字等宽。
+   ------------------------------------------------------------------ */
+:root {
+    --tm-bg: #1b1b1b;
+    --tm-panel: #202020;
+    --tm-side: #232323;
+    --tm-line: #3a3a3a;
+    --tm-line-soft: #2f2f2f;
+    --tm-text: #f2f2f2;
+    --tm-dim: #b9b9b9;
+    --tm-mute: #8a8a8a;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+    margin: 0;
+    background: var(--tm-bg);
+    color: var(--tm-text);
+    font-family: "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 12.5px;
+    overflow: hidden;
+    /* 桌面上的窗口内容：不要文字选中，不要橡皮筋滚动 */
+    user-select: none;
+    -webkit-user-select: none;
+}
+.tm-shell {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 10px 10px;
+    gap: 8px;
+}
+/* 顶部一条本机信息：任务管理器里这一行是标签栏，这里放机器身份 */
+.tm-bar {
+    flex: 0 0 auto;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px;
+    padding: 4px 4px 2px;
+    font-size: 12px;
+    color: var(--tm-mute);
+}
+.tm-bar b { color: var(--tm-text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.tm-bar .sep { color: #4a4a4a; }
+.tm-bar select {
+    background: var(--tm-panel); color: var(--tm-text);
+    border: 1px solid var(--tm-line); border-radius: 3px;
+    font: inherit; padding: 2px 4px; max-width: 200px;
+}
+
+/* 主体：左列 + 右详情，中间 1px 线 */
+.tm {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(200px, 24%) 1fr;
+    border: 1px solid var(--tm-line);
+    background: var(--tm-panel);
+    overflow: hidden;
+}
+.tm-stack {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border-right: 1px solid var(--tm-line);
+    background: var(--tm-side);
+}
+.tm-item {
+    position: relative;
+    width: 100%;
+    height: 64px;
+    padding: 6px 10px 7px 12px;
+    border: 0;
+    border-bottom: 1px solid var(--tm-line-soft);
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto 1fr;
+    column-gap: 8px;
+}
+.tm-item:hover { background: #2a2a2a; }
+.tm-item.on { background: #2e2e2e; }
+.tm-item.on::before {
+    content: "";
+    position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--primary, #34d399);
+}
+.tm-item .nm {
+    grid-column: 1;
+    font-size: 12px; color: var(--tm-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tm-item .pv {
+    grid-column: 2;
+    font-size: 15px; font-weight: 600; color: var(--tm-text);
+    font-variant-numeric: tabular-nums;
+    min-width: 4.5ch; text-align: right; white-space: nowrap;
+}
+.tm-item .pv.small { font-size: 12px; font-weight: 500; }
+.tm-item .spark { grid-column: 1 / -1; width: 100%; height: 20px; display: block; margin-top: 2px; }
+/* 没有曲线的条目（无线 / 电池 / 服务）：一行字在整条里居中，否则字全挤在顶上，
+   下面空出半条，看着像少画了什么。 */
+.tm-item.plain { grid-template-rows: auto; align-content: center; }
+.tm-item .spark path.line, .tm-chart path.line {
+    fill: none; stroke: var(--primary, #34d399); stroke-width: 1.2; vector-effect: non-scaling-stroke;
+}
+.tm-item .spark path.area, .tm-chart path.area { fill: var(--primary, #34d399); opacity: 0.14; stroke: none; }
+.tm-item .spark path.line.warn, .tm-chart path.line.warn { stroke: var(--warn, #f5b74e); }
+.tm-item .spark path.area.warn, .tm-chart path.area.warn { fill: var(--warn, #f5b74e); }
+.tm-item .spark path.line.danger, .tm-chart path.line.danger { stroke: var(--danger, #ef6461); }
+.tm-item .spark path.area.danger, .tm-chart path.area.danger { fill: var(--danger, #ef6461); }
+/* 磁盘图有两条线：读=主题色，写=橙色 */
+.tm-chart path.line.w2 { stroke: var(--warn, #f5b74e); }
+.tm-chart path.area.w2 { fill: var(--warn, #f5b74e); }
+.tm-chart path.grid { fill: none; stroke: var(--tm-line); stroke-width: 1; stroke-dasharray: 2 3; vector-effect: non-scaling-stroke; }
+
+/* 右详情。内边距放在详情自己身上，容器留空：详情要按容器高度定 min-height，
+   容器带内边距的话 100% 会比可见区多出内边距那一截，白白多出一条滚动条。 */
+.tm-panes { min-height: 0; overflow-y: auto; }
+.tm-detail { display: none; }
+.tm-detail.on {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+    padding: 10px 14px 16px;
+}
+
+.tm-hd {
+    display: flex; align-items: baseline; gap: 10px;
+    padding-bottom: 6px; margin-bottom: 8px;
+    border-bottom: 1px solid var(--tm-line);
+}
+.tm-hd h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.tm-hd .sub { margin-left: auto; font-size: 11.5px; color: var(--tm-mute); }
+/* 磁盘图的图例：读一条、写一条 */
+.tm-hd .dlegend {
+    display: flex; align-items: center; gap: 5px;
+    margin-left: 14px; font-size: 11px; color: var(--tm-mute);
+}
+.tm-hd .dlegend i { width: 11px; height: 2px; display: inline-block; }
+.tm-hd .dlegend i.c-rd { background: var(--primary, #34d399); }
+.tm-hd .dlegend i.c-wr { background: var(--warn, #f5b74e); }
+
+/* 大曲线吃掉标题与数值表之外的全部高度。试过封顶 40vh：表下面会空出 230~310px 的死区，
+   比曲线偏大更难看，所以不封顶。flex-basis 必须是 0 —— SVG 带 viewBox，basis 为 auto 时
+   会先按 100:40 算出固有高度，再被截一刀，白折腾。 */
+.tm-chart { width: 100%; flex: 1 1 0; min-height: 140px; display: block; }
+/* 刻度文字。大图按像素画（1 单位 = 1px），10px 就是屏幕上的 10px */
+.tm-chart text {
+    font-size: 10px; fill: var(--tm-mute);
+    font-variant-numeric: tabular-nums; user-select: none;
+}
+
+/* 曲线下面：左边数值表，右边附属（每核 / 组成 / 分区 / 网络列表）。
+   左列定宽而不是 1fr：数值靠右对齐，列一宽，键和值就隔开半屏，读起来要来回找。 */
+.tm-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+    gap: 16px 36px;
+    margin-top: 10px;
+    align-items: start;
+}
+.tm-cols.one { grid-template-columns: minmax(0, 1fr); }
+
+.tm-table { min-width: 0; }
+.tm-row {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    align-items: center;
+    min-height: 26px;
+    border-bottom: 1px solid var(--tm-line-soft);
+    font-size: 12px;
+}
+.tm-row:last-child { border-bottom: 0; }
+.tm-row .k { color: var(--tm-dim); }
+.tm-row .v {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.tm-side h3 {
+    margin: 0 0 6px;
+    font-size: 11.5px; font-weight: 600; color: var(--tm-dim);
+}
+/* 逻辑处理器：一个核一个方框，框里是它自己的曲线，框左上角是名字、右上角是当前值 */
+.tm-cores {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 8px; max-width: 900px;
+}
+.tm-core {
+    border: 1px solid var(--tm-line-soft);
+    background: #1c1c1c;
+    padding: 5px 8px 4px;
+    height: 96px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr);
+    column-gap: 6px;
+}
+.tm-core .n { font-size: 10.5px; color: var(--tm-mute); white-space: nowrap; }
+.tm-core .v {
+    font-size: 11.5px; color: var(--tm-dim); text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.tm-core .mini {
+    grid-column: 1 / -1;
+    width: 100%; height: 100%; min-height: 0;
+    display: block; margin-top: 3px;
+}
+.tm-core .mini path.line { fill: none; stroke: var(--primary, #34d399); stroke-width: 1.1; }
+.tm-core .mini path.area { fill: var(--primary, #34d399); opacity: 0.13; stroke: none; }
+.tm-core .mini path.line.warn { stroke: var(--warn, #f5b74e); }
+.tm-core .mini path.area.warn { fill: var(--warn, #f5b74e); }
+.tm-core .mini path.line.danger { stroke: var(--danger, #ef6461); }
+.tm-core .mini path.area.danger { fill: var(--danger, #ef6461); }
+
+/* 内存的组成条 + 图例。宽度跟左边的数值表对齐：图例是「名字 …… 数值」两列，
+   拉到整幅宽之后名字在左头、数值在右头，中间隔着一米，读不了。 */
+.tm-stack-bar { display: flex; height: 10px; overflow: hidden; background: #3a3a3a; margin-bottom: 8px; max-width: 420px; }
+.tm-legend { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 8px; font-size: 11.5px; max-width: 420px; }
+.tm-legend .n { color: var(--tm-dim); display: flex; align-items: center; gap: 6px; }
+.tm-legend .n i { width: 9px; height: 9px; display: inline-block; }
+.tm-legend .v { text-align: right; color: var(--tm-text); font-variant-numeric: tabular-nums; }
+
+/* 分区行：名字、文件系统与挂载、占用条、用量。列宽都定死 —— 用 1fr 让元信息吃掉
+   全部空档时，条子和用量会被顶到行的最右头，跟名字脱节。 */
+.tm-part {
+    display: grid;
+    grid-template-columns: max-content max-content 96px max-content;
+    align-items: center; gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--tm-line-soft);
+    font-size: 11.5px;
+    max-width: 720px;
+}
+.tm-part:last-child { border-bottom: 0; }
+.tm-part .pname { color: var(--tm-text); font-weight: 600; }
+.tm-part .pmeta { color: var(--tm-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-part .pbar { height: 4px; background: #3a3a3a; overflow: hidden; }
+.tm-part .pbar > i { display: block; height: 100%; background: var(--primary, #34d399); }
+.tm-part .pbar > i.danger { background: var(--danger, #ef6461); }
+.tm-part .puse { color: var(--tm-dim); font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+
+/* 服务表：单元 | 状态 | 内存 | CPU 时间 | PID。列宽定死，行不能拉满整幅宽 ——
+   名字在左头、状态在右头的时候，中间空出一米，读一行要横扫半个屏。 */
+.tm-svc {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) 62px 84px 92px 62px;
+    align-items: center; gap: 10px;
+    padding: 5px 0; border-bottom: 1px solid var(--tm-line-soft); font-size: 12px;
+    max-width: 720px;
+}
+.tm-svc:last-child { border-bottom: 0; }
+.tm-svc > span:not(.n):not(.tag) {
+    text-align: right; font-variant-numeric: tabular-nums; color: var(--tm-dim);
+}
+.tm-svc .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-svc .tag { font-size: 11px; color: var(--tm-mute); }
+.tm-svc .tag.tag-local { color: var(--primary, #34d399); }
+.tm-svc .tag.tag-gone { color: var(--danger, #ef6461); }
+.tm-svc .tag.tag-coded { color: var(--warn, #f5b74e); }
+/* 表头：与行同列，只用一条实线分开 */
+.tm-svc-hd { color: var(--tm-mute); font-size: 11px; border-bottom: 1px solid var(--tm-line); }
+.tm-svc-hd > span { text-align: left; }
+.tm-svc-hd > span:not(:first-child) { text-align: right; }
+.tm-svc-hd > span:nth-child(2) { text-align: left; }
+
+/* 进程榜（内存详情右栏） */
+.tm-procs { max-width: 520px; }
+.tm-proc {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 92px 62px;
+    gap: 10px; padding: 3px 0;
+    font-size: 11.5px;
+    border-bottom: 1px solid var(--tm-line-soft);
+}
+.tm-proc:last-child { border-bottom: 0; }
+.tm-proc .pn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-proc .pm, .tm-proc .pp {
+    text-align: right; font-variant-numeric: tabular-nums; color: var(--tm-dim);
+}
+.tm-proc .pp { color: var(--tm-mute); }
+.tm-proc-hd {
+    color: var(--tm-mute); font-size: 11px; max-width: 520px;
+    border-bottom: 1px solid var(--tm-line); padding-bottom: 3px;
+}
+.tm-proc-hd span:not(:first-child) { text-align: right; }
+.tm-side h3.mt { margin-top: 14px; }
+
+/* 无线列表：站在深色底上，事件行样式跟着任务管理器的表走。
+   封宽 640：名字在左头、强度在右头、中间空一米的话，一行读不完。 */
+.srow {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 0; border-bottom: 1px solid var(--tm-line-soft);
+    font-size: 12px; color: var(--tm-text);
+    max-width: 640px;
+}
+.srow:last-child { border-bottom: 0; }
+.srow .srow-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow .srow-path { color: var(--tm-mute); font-size: 11.5px; white-space: nowrap; }
+.srow.ph { color: var(--tm-mute); }
+.wifi-input {
+    flex: 1 1 auto; min-width: 0;
+    background: #1b1b1b; color: var(--tm-text);
+    border: 1px solid var(--tm-line); border-radius: 3px; padding: 3px 6px; font: inherit;
+}
+.wifi-input:focus { outline: none; border-color: var(--primary, #34d399); }
+.btn {
+    background: #2d2d2d; color: var(--tm-text);
+    border: 1px solid var(--tm-line); border-radius: 3px;
+    padding: 3px 10px; font: inherit; cursor: pointer;
+}
+.btn:hover { background: #383838; }
+.btn-sm { font-size: 11.5px; }
+.btn-primary { background: #2f5d4a; border-color: #3f7a61; }
+.c-danger-strong { color: var(--danger, #ef6461); }
+.tm-item:focus-visible, .srow:focus-visible, .btn:focus-visible {
+    outline: 2px solid var(--primary, #34d399); outline-offset: -2px;
+}
 </style>
 </head>
 <body>
-<div class="app">
-    <header class="top">
-        <span class="top-logo"><img src="/static/logo.png" alt=""></span>
-        <div class="top-main">
-            <h1 class="top-title">系统</h1>
-        </div>
-        <div class="top-side"><!--THEME_TOGGLE--></div>
-    </header>
+<div class="tm-shell">
 
-    <nav class="tabs">
-        <a href="/browse/">浏览</a>
-        <a href="/gallery">预览</a>
-        <a href="/url-download" id="navDownloader">下载器</a>
-        <a href="/share">分享</a>
-        <a href="/admin" id="navAdmin">管理</a>
-        <a href="/me">我的</a>
-        <a href="/system" class="active">系统</a>
-    </nav>
+    <!-- 顶部：机器身份 + 时区 -->
+    <div class="tm-bar">
+        <b id="rowHost">-</b>
+        <span class="sep">|</span><span id="rowKernel">-</span>
+        <span class="sep">|</span><span id="rowArch">-</span>
+        <span class="sep">|</span><span>运行 <b id="rowUptime">-</b></span>
+        <span class="sep">|</span><span>负载 <b id="rowLoad">-</b></span>
+        <span class="sep">|</span><span>启动于 <b id="rowBoot">-</b></span>
+        <span class="sep">|</span>
+        <select id="tzSelect" aria-label="时区"></select>
+    </div>
 
-    <div class="acc-grid">
-        <div class="acc-col">
-            <section class="panel">
-                <h3>本机</h3>
-                <div class="info-row"><span class="info-label">主机名</span><span class="info-value" id="rowHost">-</span></div>
-                <div class="info-row"><span class="info-label">内核</span><span class="info-value" id="rowKernel">-</span></div>
-                <div class="info-row"><span class="info-label">架构 / CPU</span><span class="info-value" id="rowArch">-</span></div>
-                <div class="info-row"><span class="info-label">运行时长</span><span class="info-value" id="rowUptime">-</span></div>
-                <div class="info-row"><span class="info-label">启动于</span><span class="info-value" id="rowBoot">-</span></div>
-        <div class="info-row"><span class="info-label">时区</span><span class="info-value"><select id="tzSelect" class="tz-select" aria-label="时区"></select></span></div>
-                <div class="info-row"><span class="info-label">负载（1 / 5 / 15 分钟）</span><span class="info-value" id="rowLoad">-</span></div>
-            </section>
-
-            <section class="panel">
-                <h3>CPU</h3>
-                <div class="sys-head">
-                    <span class="big" id="cpuNow">-</span><span class="unit">%</span>
-                    <span class="spacer"></span>
-                    <span class="unit" id="cpuPeak">峰值 -</span>
-                </div>
-                <svg class="sys-chart" id="cpuChart" viewBox="0 0 100 30" preserveAspectRatio="none"></svg>
-                <div class="sys-cores" id="cpuCores" style="margin-top:8px"></div>
-            </section>
-
-            <section class="panel">
-                <h3>内存</h3>
-                <div class="sys-head">
-                    <span class="big" id="memNow">-</span><span class="unit" id="memTotal">/ -</span>
-                    <span class="spacer"></span>
-                    <span class="unit" id="memPct">-</span>
-                </div>
-                <svg class="sys-chart" id="memChart" viewBox="0 0 100 30" preserveAspectRatio="none"></svg>
-                <div class="sys-stack" id="memStack"></div>
-                <div id="memBreak" style="margin-top:6px"></div>
-                <div class="info-row"><span class="info-label">交换分区</span><span class="info-value" id="memSwap">-</span></div>
-            </section>
-
-            <section class="panel">
-                <h3>温度</h3>
-                <div class="sys-head">
-                    <span class="big" id="tempNow">-</span><span class="unit">°C</span>
-                    <span class="spacer"></span>
-                    <span class="unit" id="tempPeak">峰值 -</span>
-                </div>
-                <svg class="sys-chart" id="tempChart" viewBox="0 0 100 30" preserveAspectRatio="none"></svg>
-                <div id="tempList" style="margin-top:6px"></div>
-            </section>
-
-            <section class="panel">
-                <h3>电池</h3>
-                <div class="sys-head">
-                    <span class="big" id="batNow">-</span><span class="unit">%</span>
-                    <span class="spacer"></span>
-                    <span class="unit" id="batStatus">-</span>
-                </div>
-                <div class="sys-bar" style="height:8px"><i id="batBar" style="width:0"></i></div>
-                <div class="info-row" style="margin-top:8px"><span class="info-label">电源</span><span class="info-value" id="batAc">-</span></div>
-                <div class="info-row"><span class="info-label">剩余时间</span><span class="info-value" id="batEta">-</span></div>
-            </section>
+    <div class="tm">
+        <!-- 左：叠起来的资源条目；磁盘那组按盘数生成 -->
+        <div class="tm-stack" id="tmStack">
+            <button class="tm-item" type="button" data-tab="cpu" id="stkCPU">
+                <span class="nm">CPU</span><span class="pv" id="stkCpuPv">-</span>
+                <svg class="spark" id="stkCpuSpark" viewBox="0 0 100 22" preserveAspectRatio="none"></svg>
+            </button>
+            <button class="tm-item" type="button" data-tab="mem" id="stkMem">
+                <span class="nm">内存</span><span class="pv" id="stkMemPv">-</span>
+                <svg class="spark" id="stkMemSpark" viewBox="0 0 100 22" preserveAspectRatio="none"></svg>
+            </button>
+            <div id="stkDisks"></div>
+            <button class="tm-item plain" type="button" data-tab="net" id="stkNet">
+                <span class="nm">无线网络</span><span class="pv small" id="stkNetPv">-</span>
+            </button>
+            <button class="tm-item plain" type="button" data-tab="svc" id="stkSvc">
+                <span class="nm">服务</span><span class="pv small" id="stkSvcPv">-</span>
+            </button>
         </div>
 
-        <div class="acc-col">
-            <section class="panel">
-                <h3>磁盘</h3>
-                <div id="diskList"><div class="srow"><span class="srow-path">读取中…</span></div></div>
-            </section>
+        <!-- 右：选中项的详情 -->
+        <div class="tm-panes" id="tmDetail">
 
-            <section class="panel">
-                <h3>无线网络</h3>
-                <div class="info-row"><span class="info-label">当前</span><span class="info-value" id="wifiNow">-</span></div>
-                <div class="info-row"><span class="info-label">地址</span><span class="info-value" id="wifiIp">-</span></div>
-                <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-                    <button class="btn btn-sm" id="wifiScanBtn">扫描</button>
-                    <span class="srow-path" id="wifiHint" style="font-size:11px"></span>
+            <section class="tm-detail" data-tab="cpu" id="detCPU">
+                <div class="tm-hd"><h2>CPU</h2><span class="sub" id="cpuSub">-</span></div>
+                <svg class="tm-chart" id="cpuChartBig" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
+                <div class="tm-cols">
+                    <div class="tm-table">
+                        <div class="tm-row"><span class="k">利用率</span><span class="v" id="cpuUse">-</span></div>
+                        <div class="tm-row"><span class="k">峰值</span><span class="v" id="cpuPeak2">-</span></div>
+                        <div class="tm-row"><span class="k">逻辑处理器</span><span class="v" id="cpuCoresN">-</span></div>
+                        <div class="tm-row"><span class="k">负载（1 / 5 / 15 分钟）</span><span class="v" id="cpuLoad2">-</span></div>
+                        <div class="tm-row"><span class="k">运行时长</span><span class="v" id="cpuUptime2">-</span></div>
+                        <div id="tempRows"></div>
+                    </div>
+                    <div class="tm-side">
+                        <h3>逻辑处理器</h3>
+                        <div class="tm-cores" id="cpuCores"></div>
+                    </div>
                 </div>
-                <div id="wifiList" style="margin-top:8px"></div>
             </section>
 
-            <section class="panel">
-                <h3>服务</h3>
-                <div id="svcList"><div class="srow"><span class="srow-path">读取中…</span></div></div>
+            <section class="tm-detail" data-tab="mem" id="detMem">
+                <div class="tm-hd"><h2>内存</h2><span class="sub" id="memSub">-</span></div>
+                <svg class="tm-chart" id="memChartBig" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
+                <div class="tm-cols">
+                    <div class="tm-table">
+                        <div class="tm-row"><span class="k">使用中</span><span class="v" id="memUsed">-</span></div>
+                        <div class="tm-row"><span class="k">可用</span><span class="v" id="memAvail">-</span></div>
+                        <div class="tm-row"><span class="k">总计</span><span class="v" id="memTotal2">-</span></div>
+                        <div class="tm-row"><span class="k">使用率</span><span class="v" id="memPct2">-</span></div>
+                        <div class="tm-row"><span class="k">缓存（可回收）</span><span class="v" id="memCache">-</span></div>
+                        <div class="tm-row"><span class="k">内核</span><span class="v" id="memKernel">-</span></div>
+                        <div class="tm-row"><span class="k">共享内存</span><span class="v" id="memShmem">-</span></div>
+                        <div class="tm-row"><span class="k">交换分区</span><span class="v" id="memSwap">-</span></div>
+                    </div>
+                    <div class="tm-side">
+                        <h3>组成</h3>
+                        <div class="tm-stack-bar" id="memStack"></div>
+                        <div class="tm-legend" id="memLegend"></div>
+                        <h3 class="mt">进程（按内存）</h3>
+                        <div class="tm-proc tm-proc-hd">
+                            <span>进程</span><span>内存</span><span>PID</span>
+                        </div>
+                        <div class="tm-procs" id="procList">
+                            <div class="srow ph"><span class="srow-path">读取中…</span></div>
+                        </div>
+                    </div>
+                </div>
             </section>
+
+            <section class="tm-detail" data-tab="net" id="detNet">
+                <div class="tm-hd"><h2>无线网络</h2><span class="sub" id="netSub">-</span></div>
+                <div class="tm-cols">
+                    <div class="tm-table">
+                        <div class="tm-row"><span class="k">状态</span><span class="v" id="wifiNow">-</span></div>
+                        <div class="tm-row"><span class="k">IPv4 地址</span><span class="v" id="wifiIp">-</span></div>
+                        <div class="tm-row"><span class="k">接入点</span><span class="v" id="wifiBssid">-</span></div>
+                        <div class="tm-row"><span class="k">频率</span><span class="v" id="wifiFreq">-</span></div>
+                    </div>
+                    <div class="tm-side">
+                        <h3>可用网络</h3>
+                        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+                            <button class="btn btn-sm" id="wifiScanBtn" type="button">扫描</button>
+                            <span class="srow-path" id="wifiHint" style="font-size:11px"></span>
+                        </div>
+                        <div id="wifiList">
+                            <div class="srow ph"><span class="srow-path">未扫描</span></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="tm-detail" data-tab="svc" id="detSvc">
+                <div class="tm-hd"><h2>服务</h2><span class="sub" id="svcSub">-</span></div>
+                <div class="tm-svc tm-svc-hd">
+                    <span>单元</span><span>状态</span><span>内存</span>
+                    <span>CPU 时间</span><span>PID</span>
+                </div>
+                <div id="svcList">
+                    <div class="srow ph"><span class="srow-path">读取中…</span></div>
+                </div>
+            </section>
+
         </div>
     </div>
 </div>
 
-<script src="/static/app.js"></script>
 <script>
 // 页面自己保存最近两分钟的采样（每秒一个点，共 120 点）：曲线只画趋势，
 // 不把历史放到服务端 —— 服务端一旦存历史，重启就丢，页面还要处理缺口。
 var HISTORY = 120;
-var hist = { cpu: [], mem: [], temp: [] };
+var hist = { cpu: [], mem: [], cores: [] };
 var lastIo = {};
-var histIo = {};   // 每块盘的读写历史（MB/s 合计），只画在展开的详情里
+var histIo = {};
 
 function fmtBytes(n) {
     if (!n) return '0';
@@ -189,9 +485,54 @@ function fmtTime(ts) {
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 function level(v, warn, danger) { return v >= danger ? 'danger' : (v >= warn ? 'warn' : ''); }
+function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+}
 
-// 可点的行（无线网络、磁盘标题）原本只有 click：键盘 Tab 到不了，也按不动。
-// 统一套一层：能 Tab、Enter 或空格触发、有 role 与说明，屏幕阅读器也读得出。
+// 写前先比：值没变就不碰节点。整页所有写入都走这几个函数。
+var _wrote = {};
+function setText(id, s) {
+    if (_wrote[id] === s) return;
+    _wrote[id] = s;
+    var el = document.getElementById(id);
+    if (el) el.textContent = s;
+}
+function setNodeText(el, key, s) {
+    if (!el) return;
+    if (_wrote[key] === s) return;
+    _wrote[key] = s;
+    el.textContent = s;
+}
+function setNodeHtml(el, key, s) {
+    if (!el) return;
+    if (_wrote[key] === s) return;
+    _wrote[key] = s;
+    el.innerHTML = s;
+}
+function setChart(key, el, data, cls, fn) {
+    if (!el) return;
+    var sig = cls + '|' + data.join(',');
+    if (_wrote[key] === sig) return;
+    // 画不了（容器还没排版出来，隐藏的详情就是这种）就不要写签名 ——
+    // 否则切过去时签名没变，图一直空着。画布函数返回 false 表示这次没画成。
+    if (fn(el, data, cls) === false) return;
+    _wrote[key] = sig;
+}
+// 两条线：读写各一条，签名要把两条都算进去
+function setChart2(key, el, a, b, fn) {
+    if (!el) return;
+    var sig = a.join(',') + '|' + b.join(',');
+    if (_wrote[key] === sig) return;
+    if (fn(el, a, b) === false) return;
+    _wrote[key] = sig;
+}
+function forget(prefix) {
+    for (var k in _wrote) {
+        if (k.indexOf(prefix) === 0) delete _wrote[k];
+    }
+}
 function keyActivate(node, fn, label) {
     node.tabIndex = 0;
     node.setAttribute('role', 'button');
@@ -202,208 +543,400 @@ function keyActivate(node, fn, label) {
     return node;
 }
 
-// 折线：0~100 固定量程，避免曲线在低负载时把噪声放大成"满格"
-function drawChart(el, data, cls) {
-    var w = 100, h = 30, pad = 3, n = HISTORY;
+// 左列 20px 的迷你曲线：不画刻度。0~100 抽象坐标 + preserveAspectRatio="none" 拉伸到整宽；
+// 这里没有文字，横向拉伸不会变形。
+function drawLine(el, data, cls, h) {
+    var w = 100, pad = 3, n = HISTORY;
+    h = h || 30;
     if (!data.length) { el.innerHTML = ''; return; }
-    var step = w / (n - 1);
-    var pts = [];
+    var full = data.length >= n;
+    var step = w / (full ? (n - 1) : Math.max(data.length - 1, 1));
+    var pts = [], x0 = null;
     for (var i = 0; i < data.length; i++) {
-        var x = i * step;
+        var x = full ? (w - (data.length - 1 - i) * step) : (i * step);
+        if (x0 === null) x0 = x;
         var v = Math.max(0, Math.min(100, data[i])) / 100;
         var y = (h - pad) - v * (h - 2 * pad);
         pts.push(x.toFixed(2) + ' ' + y.toFixed(2));
     }
     if (pts.length === 1) pts.push(pts[0]);
     var line = 'M' + pts.join(' L');
-    var area = line + ' L' + ((data.length - 1) * step).toFixed(2) + ' ' + (h - pad) + ' L0 ' + (h - pad) + ' Z';
+    var area = line + ' L' + (full ? w : x0.toFixed(2)) + ' ' + (h - pad) +
+               ' L' + x0.toFixed(2) + ' ' + (h - pad) + ' Z';
     el.innerHTML = '<line class="grid" x1="0" y1="' + (h - pad) + '" x2="' + w + '" y2="' + (h - pad) + '"></line>' +
                    '<path class="area ' + cls + '" d="' + area + '"></path>' +
                    '<path class="line ' + cls + '" d="' + line + '"></path>';
 }
+function drawSpark(el, data, cls) { drawLine(el, data, cls, 22); }
 
-// I/O 曲线用动态量程：读写速率没有固定上限，按历史峰值缩放，峰值写在标题上
-// I/O 曲线用动态量程：读写速率没有固定上限，按历史峰值缩放。
-// 关键在留边距 —— 速率常常是 0，若把 0 映射到 y=h 就正好压在裁切边界上，看起来像没画。
-function drawChartMax(el, data, cls) {
-    var w = 100, h = 30, pad = 3, n = HISTORY;
-    if (!data.length) { el.innerHTML = ''; return 0; }
-    var peak = Math.max.apply(null, data);
-    if (!(peak > 0)) peak = 1;
-    var step = w / (n - 1);
-    var pts = [];
-    for (var i = 0; i < data.length; i++) {
-        var x = i * step;
-        var v = Math.max(0, data[i]) / peak;
-        var y = (h - pad) - v * (h - 2 * pad);
-        pts.push(x.toFixed(2) + ' ' + y.toFixed(2));
+// ---- 大图：按像素画，带刻度 ----
+// viewBox 铺成容器的实际像素尺寸，1 单位 = 1px。之前是 viewBox 0~100 再横向拉伸，
+// 那样刻度文字会被拉宽一倍（1400px 里 100 个单位，每单位 14px），所以字不能画在拉伸图里。
+// 纵轴：百分比固定 0~100 四等分；速率按峰值取整成 0 / 半程 / 峰值。
+// 横轴：120 个 1 秒位置，最新的样本永远贴右边，攒满之后整体左移。
+var CH_PAD_R = 44, CH_PAD_T = 8, CH_PAD_B = 16, CH_PAD_L = 2;
+
+function chSize(el) {
+    var r = el.getBoundingClientRect();
+    return { w: Math.round(r.width), h: Math.round(r.height) };
+}
+
+// 速率量程取整到 1 / 2 / 5 × 10^n，刻度才不会是「3.7 MB/s」这种读数
+function niceCeil(v) {
+    if (!(v > 0)) return 1;
+    var e = Math.pow(10, Math.floor(Math.log(v) / Math.LN10));
+    var m = v / e;
+    return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * e;
+}
+
+function drawChartPx(el, series, pct) {
+    var size = chSize(el);
+    if (size.w < 80 || size.h < 50) return false;   // 还没排版出来，等下一拍
+    var w = size.w, h = size.h, i, k;
+    var pw = w - CH_PAD_L - CH_PAD_R;
+    var ph = h - CH_PAD_T - CH_PAD_B;
+    var span = 100;
+    if (!pct) {
+        var peak = 0;
+        for (k = 0; k < series.length; k++) {
+            var arr = series[k].d;
+            for (i = 0; i < arr.length; i++) { if (arr[i] > peak) peak = arr[i]; }
+        }
+        span = niceCeil(peak);
     }
-    if (pts.length === 1) pts.push(pts[0]);
+    var out = [];
+    el.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    var ticks = pct ? [0, 25, 50, 75, 100] : [0, span / 2, span];
+    ticks.forEach(function (t) {
+        var y = CH_PAD_T + ph - (t / span) * ph;
+        out.push('<line class="grid" x1="' + CH_PAD_L + '" y1="' + y.toFixed(1) +
+                 '" x2="' + (CH_PAD_L + pw) + '" y2="' + y.toFixed(1) + '"></line>');
+        out.push('<text x="' + (w - 4) + '" y="' + (y + 3.5).toFixed(1) +
+                 '" text-anchor="end">' + (pct ? t.toFixed(0) + '%' : fmtRate(t)) + '</text>');
+    });
+    for (k = 0; k < series.length; k++) {
+        var data = series[k].d, cls = series[k].cls;
+        if (!data.length) continue;
+        var step = pw / (HISTORY - 1);
+        var pts = [], x0 = null, xl = null;
+        for (i = 0; i < data.length; i++) {
+            var x = CH_PAD_L + pw - (data.length - 1 - i) * step;
+            var v = pct ? Math.max(0, Math.min(100, data[i])) : Math.max(0, data[i]);
+            var yy = CH_PAD_T + ph - (v / span) * ph;
+            if (x0 === null) x0 = x;
+            xl = x;
+            pts.push(x.toFixed(1) + ' ' + yy.toFixed(1));
+        }
+        if (pts.length === 1) { pts.unshift(pts[0]); x0 = xl - 2; }
+        var line = 'M' + pts.join(' L');
+        var bottom = (CH_PAD_T + ph).toFixed(1);
+        // 多条线时不要填色：两片半透明叠在一起糊成一团，底下的线也看不见了
+        if (series[k].fill !== false) {
+            out.push('<path class="area ' + cls + '" d="' + line + ' L' + xl.toFixed(1) + ' ' +
+                     bottom + ' L' + x0.toFixed(1) + ' ' + bottom + ' Z"></path>');
+        }
+        out.push('<path class="line ' + cls + '" d="' + line + '"></path>');
+    }
+    out.push('<text x="' + CH_PAD_L + '" y="' + (h - 4) + '">2 分钟前</text>');
+    out.push('<text x="' + (CH_PAD_L + pw) + '" y="' + (h - 4) +
+             '" text-anchor="end">现在</text>');
+    el.innerHTML = out.join('');
+    return true;
+}
+
+function drawChart(el, data, cls) { return drawChartPx(el, [{ d: data, cls: cls }], true); }
+// 磁盘读写速率没有固定上限，量程跟着峰值走；读一条、写一条
+function drawChartMax(el, data, cls) { return drawChartPx(el, [{ d: data, cls: cls }], false); }
+function drawChartPair(el, rd, wr) {
+    return drawChartPx(el, [{ d: rd, cls: '', fill: false },
+                            { d: wr, cls: 'w2', fill: false }], false);
+}
+
+// 每核方框里的迷你曲线：按像素画，但没有刻度（框只有 50px 高）。
+function drawMini(el, data, cls) {
+    var size = chSize(el);
+    if (size.w < 20 || size.h < 10) return false;
+    var w = size.w, h = size.h, pad = 1.5;
+    el.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    if (!data.length) { el.innerHTML = ''; return true; }
+    var step = w / (HISTORY - 1);
+    var pts = [], x0 = null, xl = null;
+    for (var i = 0; i < data.length; i++) {
+        var x = w - (data.length - 1 - i) * step;
+        var v = Math.max(0, Math.min(100, data[i])) / 100;
+        var y = (h - pad) - v * (h - 2 * pad);
+        if (x0 === null) x0 = x;
+        xl = x;
+        pts.push(x.toFixed(1) + ' ' + y.toFixed(1));
+    }
+    if (pts.length === 1) { pts.unshift(pts[0]); x0 = xl - 2; }
     var line = 'M' + pts.join(' L');
-    var area = line + ' L' + ((data.length - 1) * step).toFixed(2) + ' ' + (h - pad) + ' L0 ' + (h - pad) + ' Z';
-    el.innerHTML = '<line class="grid" x1="0" y1="' + (h - pad) + '" x2="' + w + '" y2="' + (h - pad) + '"></line>' +
-                   '<path class="area ' + cls + '" d="' + area + '"></path>' +
+    var bottom = (h - pad).toFixed(1);
+    el.innerHTML = '<path class="area ' + cls + '" d="' + line + ' L' + xl.toFixed(1) + ' ' +
+                   bottom + ' L' + x0.toFixed(1) + ' ' + bottom + ' Z"></path>' +
                    '<path class="line ' + cls + '" d="' + line + '"></path>';
-    return peak;
+    return true;
 }
 
-function setBar(el, pct) {
-    el.style.width = Math.max(0, Math.min(100, pct)) + '%';
-    el.className = level(pct, 75, 90);
+// ---------- 条目切换：条目与详情按 data-tab 配对 ----------
+var curTab = 'cpu';
+
+function selectTab(name) {
+    curTab = name;
+    Array.prototype.forEach.call(document.querySelectorAll('.tm-item'), function (it) {
+        it.classList.toggle('on', it.dataset.tab === name);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.tm-detail'), function (d) {
+        d.classList.toggle('on', d.dataset.tab === name);
+    });
+    if (name === 'cpu') setChart('cpuBig', document.getElementById('cpuChartBig'), hist.cpu, '', drawChart);
+    if (name === 'mem') setChart('memBig', document.getElementById('memChartBig'), hist.mem, '', drawChart);
+    if (name.indexOf('disk:') === 0) {
+        var dn = name.slice(5);
+        setChart2('diskBig' + dn, document.getElementById('diskChart-' + dn),
+                  (histIo[dn] || { rd: [] }).rd, (histIo[dn] || { wr: [] }).wr, drawChartPair);
+    }
 }
 
+Array.prototype.forEach.call(document.querySelectorAll('.tm-item[data-tab]'), function (b) {
+    b.addEventListener('click', function () { selectTab(b.dataset.tab); });
+});
+
+// ---------- CPU ----------
 function renderCpu(cpu) {
     var total = cpu.total || 0;
-    document.getElementById('cpuNow').textContent = total.toFixed(1);
     hist.cpu.push(total);
     if (hist.cpu.length > HISTORY) hist.cpu.shift();
     var peak = Math.max.apply(null, hist.cpu);
-    document.getElementById('cpuPeak').textContent = '峰值 ' + peak.toFixed(0) + '%';
-    drawChart(document.getElementById('cpuChart'), hist.cpu, level(total, 75, 90));
+    var lv = level(total, 75, 90);
 
-    // 每核格子按结构复用：核数不变就只改数字与条宽，不再每秒把这一块拆了重建
+    setText('stkCpuPv', total.toFixed(0) + '%');
+    setChart('cpuSpark', document.getElementById('stkCpuSpark'), hist.cpu, lv, drawSpark);
+    setText('cpuUse', total.toFixed(1) + ' %');
+    setText('cpuPeak2', peak.toFixed(0) + ' %');
+    setChart('cpuBig', document.getElementById('cpuChartBig'), hist.cpu, lv, drawChart);
+
     var cores = cpu.cores || [];
     var box = document.getElementById('cpuCores');
     if (box.children.length !== cores.length) {
         box.innerHTML = '';
+        hist.cores = [];
         cores.forEach(function (v, i) {
             var d = document.createElement('div');
-            d.className = 'sys-core';
-            d.innerHTML = 'CPU' + i + '<span class="val"></span>' +
-                          '<div class="sys-bar"><i></i></div>';
+            d.className = 'tm-core';
+            d.innerHTML = '<span class="n">CPU ' + i + '</span><span class="v"></span>' +
+                          '<svg class="mini" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>';
             box.appendChild(d);
+            hist.cores.push([]);
         });
+        forget('coretxt');
+        forget('coremini');
     }
     cores.forEach(function (v, i) {
         var d = box.children[i];
-        d.querySelector('.val').textContent = v.toFixed(0) + '%';
-        var bar = d.querySelector('.sys-bar > i');
-        bar.className = level(v, 75, 90);
-        bar.style.width = v + '%';
+        if (!d) return;
+        var h = hist.cores[i] || (hist.cores[i] = []);
+        h.push(v);
+        if (h.length > HISTORY) h.shift();
+        setNodeText(d.querySelector('.v'), 'coretxt' + i, v.toFixed(0) + '%');
+        setChart('coremini' + i, d.querySelector('.mini'), h, level(v, 75, 90), drawMini);
     });
 }
+
+// ---------- 内存 ----------
+var MEM_PARTS = [
+    ['进程', 'anon', 'var(--primary, #34d399)'],
+    ['共享内存', 'shmem', 'var(--success, #34d399)'],
+    ['缓存', 'cache', 'var(--warn, #f5b74e)'],
+    ['内核', 'kernel', 'var(--danger, #ef6461)'],
+    ['其他', 'other', 'var(--text-light, #9aa4b2)'],
+    ['空闲', 'free', '#3a3a3a']
+];
 
 function renderMemory(m) {
-    document.getElementById('memNow').textContent = fmtBytes(m.used);
-    document.getElementById('memTotal').textContent = '/ ' + fmtBytes(m.total);
-    document.getElementById('memPct').textContent = m.percent + '%';
-
-    // 总量拆成四块（进程 / 缓存 / 内核 / 空闲）。只看"已用 1.9 GB"看不出结构 ——
-    // 里面近三分之一是内核 slab。每块都给出数值，堆叠条只负责比例。
     var total = m.total || 1;
-    var parts = [
-        ['进程', m.anon || 0, 'var(--primary)'],
-        ['共享内存', m.shmem || 0, 'var(--success)'],
-        ['缓存', m.cache || 0, 'var(--warn)'],
-        ['内核', m.kernel || 0, 'var(--danger)'],
-        ['其他', m.other || 0, 'var(--text-light)'],
-        ['空闲', m.free || 0, 'var(--border)']
-    ];
-    var stack = document.getElementById('memStack');
-    var brk = document.getElementById('memBreak');
-    // 结构只搭一次（六段是固定的），之后每次只改宽度、颜色和数字
-    if (brk.children.length !== parts.length) {
-        stack.innerHTML = '';
-        brk.innerHTML = '';
-        parts.forEach(function (p) {
-            var seg = document.createElement('i');
-            stack.appendChild(seg);
-            var row = document.createElement('div');
-            row.className = 'info-row';
-            row.innerHTML = '<span class="info-label">' + p[0] + '</span><span class="info-value"></span>';
-            brk.appendChild(row);
-        });
-    }
-    parts.forEach(function (p, i) {
-        var seg = stack.children[i];
-        seg.style.width = (p[1] / total * 100).toFixed(2) + '%';
-        seg.style.background = p[2];
-        seg.title = p[0] + ' ' + fmtBytes(p[1]);
-        brk.children[i].querySelector('.info-value').textContent =
-            fmtBytes(p[1]) + '（' + (p[1] / total * 100).toFixed(0) + '%）';
-    });
-
-    document.getElementById('memSwap').textContent = m.swap_total
-        ? fmtBytes(m.swap_used) + ' / ' + fmtBytes(m.swap_total)
-        : '未启用';
     hist.mem.push(m.percent || 0);
     if (hist.mem.length > HISTORY) hist.mem.shift();
-    drawChart(document.getElementById('memChart'), hist.mem, level(m.percent, 80, 92));
-}
 
-function renderTemps(list) {
-    var box = document.getElementById('tempList');
-    box.innerHTML = '';
-    var max = 0;
-    (list || []).forEach(function (t) {
-        max = Math.max(max, t.celsius);
-        var row = document.createElement('div');
-        row.className = 'info-row';
-        row.innerHTML = '<span class="info-label">' + esc(t.label) + '</span><span class="info-value">' +
-                        t.celsius.toFixed(1) + ' °C</span>';
-        box.appendChild(row);
-    });
-    document.getElementById('tempNow').textContent = max ? max.toFixed(1) : '-';
-    hist.temp.push(max ? Math.min(100, max) : 0);      // 0~100 映射到 0~100°C，够用
-    if (hist.temp.length > HISTORY) hist.temp.shift();
-    drawChart(document.getElementById('tempChart'), hist.temp, level(max, 75, 90));
-    var peak = Math.max.apply(null, hist.temp);
-    document.getElementById('tempPeak').textContent = peak ? '峰值 ' + peak.toFixed(0) + '°C' : '峰值 -';
-    if (!list || !list.length) box.innerHTML = '<div class="info-row"><span class="info-label">没有可读的温度传感器</span><span class="info-value">-</span></div>';
-}
+    setText('stkMemPv', (m.percent || 0) + '%');
+    setChart('memSpark', document.getElementById('stkMemSpark'), hist.mem, level(m.percent, 80, 92), drawSpark);
+    setChart('memBig', document.getElementById('memChartBig'), hist.mem, level(m.percent, 80, 92), drawChart);
 
-function renderPower(p) {
-    var b = (p && p.battery) || {};
-    var panel = document.getElementById('batNow').closest('section');
-    if (!b.present) { panel.style.display = 'none'; return; }
-    panel.style.display = '';
-    document.getElementById('batNow').textContent = b.capacity;
-    setBar(document.getElementById('batBar'), b.capacity);
+    setText('memUsed', fmtBytes(m.used));
+    setText('memAvail', fmtBytes(m.available));
+    setText('memTotal2', fmtBytes(m.total));
+    setText('memPct2', (m.percent || 0) + ' %');
+    setText('memCache', fmtBytes(m.cache));
+    setText('memKernel', fmtBytes(m.kernel));
+    setText('memShmem', fmtBytes(m.shmem));
+    setText('memSwap', m.swap_total
+        ? fmtBytes(m.swap_used) + ' / ' + fmtBytes(m.swap_total)
+        : '未启用');
+    setText('memSub', fmtBytes(m.total) + ' 总计');
 
-    // 方向以"适配器是否接通"为准，不信 BAT0 的 status：部分机器的 EC 拔掉电源后仍报
-    // Charging、充满插着时又报 Not charging，只看 status 会把充放电说反。
-    var known = (p.ac_online === true || p.ac_online === false);
-    var st;
-    if (known) {
-        if (!p.ac_online) {
-            st = '放电中';
-        } else if (b.capacity >= 100 || b.status === 'Full') {
-            st = '已充满';
-        } else if (b.status === 'Charging') {
-            st = '充电中';
-        } else {
-            st = '已接通，未充电';
+    // 组成条的分母用各块之和，而不是 MemTotal：六块本来就该加满整条，
+    // 后端口径一变（多一块、少一块）也不会在条子末端留一截底色。
+    var sum = 0;
+    MEM_PARTS.forEach(function (p) { sum += m[p[1]] || 0; });
+
+    var stack = document.getElementById('memStack');
+    var legend = document.getElementById('memLegend');
+    if (stack.children.length !== MEM_PARTS.length) {
+        stack.innerHTML = '';
+        legend.innerHTML = '';
+        MEM_PARTS.forEach(function (p) {
+            stack.appendChild(document.createElement('i'));
+            var row = document.createElement('div');
+            row.className = 'n';
+            row.innerHTML = '<i></i><span></span>';
+            legend.appendChild(row);
+            var vRow = document.createElement('div');
+            vRow.className = 'v';
+            legend.appendChild(vRow);
+        });
+        forget('memseg');
+        forget('memleg');
+    }
+    MEM_PARTS.forEach(function (p, i) {
+        var val = m[p[1]] || 0;
+        var pct = sum > 0 ? val / sum * 100 : 0;
+        var sig = p[2] + '|' + pct.toFixed(2);
+        if (_wrote['memseg' + i] !== sig) {
+            _wrote['memseg' + i] = sig;
+            var seg = stack.children[i];
+            seg.style.width = pct.toFixed(2) + '%';
+            seg.style.background = p[2];
+            seg.title = p[0] + ' ' + fmtBytes(val);
         }
-    } else {
-        st = { Charging: '充电中', Discharging: '放电中', Full: '已充满', 'Not charging': '未充电' }[b.status] || b.status || '-';
-    }
-    document.getElementById('batStatus').textContent = st;
-    document.getElementById('batAc').textContent = known ? (p.ac_online ? '已接通' : '未接通') : '-';
-
-    var eta = '-';
-    var watts = b.power_now ? (b.power_now / 1e6) : 0;
-    if (known && !p.ac_online && watts > 0 && b.energy_now) {
-        eta = fmtUptime(Math.round(b.energy_now / b.power_now * 3600)) + ' 后耗尽（' + watts.toFixed(1) + ' W）';
-    } else if (known && p.ac_online && b.capacity >= 100) {
-        eta = '已满';
-    } else if (watts > 0) {
-        eta = watts.toFixed(1) + ' W';
-    }
-    document.getElementById('batEta').textContent = eta;
+        var row = legend.children[i * 2];
+        if (row) {
+            row.querySelector('i').style.background = p[2];
+            setNodeText(row.querySelector('span'), 'memlegn' + i, p[0]);
+        }
+        var vRow = legend.children[i * 2 + 1];
+        if (vRow) setNodeText(vRow, 'memlegv' + i, fmtBytes(val) + '（' + pct.toFixed(0) + '%）');
+    });
 }
 
-var SVC_CLASS = { active: 'tag tag-local', failed: 'tag tag-gone', inactive: 'tag', activating: 'tag tag-coded' };
-function renderServices(list) {
-    var box = document.getElementById('svcList');
-    box.innerHTML = '';
-    (list || []).forEach(function (s) {
-        var row = document.createElement('div');
-        row.className = 'srow';
-        row.innerHTML = '<span class="srow-name">' + esc(s.name) + '</span>' +
-                        '<span class="' + (SVC_CLASS[s.state] || 'tag tag-coded') + '">' + esc(s.state) + '</span>';
-        box.appendChild(row);
+// ---------- 温度：做成 CPU 表里的若干行 ----------
+function renderTemps(list) {
+    var box = document.getElementById('tempRows');
+    list = list || [];
+    var names = list.map(function (t) { return t.label; }).join('|');
+    if (_wrote.tempNames !== names) {
+        _wrote.tempNames = names;
+        box.innerHTML = '';
+        if (!list.length) {
+            box.innerHTML = '<div class="tm-row"><span class="k">温度</span><span class="v">无传感器</span></div>';
+        } else {
+            list.forEach(function (t) {
+                var row = document.createElement('div');
+                row.className = 'tm-row';
+                row.innerHTML = '<span class="k">温度 · ' + esc(t.label) + '</span><span class="v"></span>';
+                box.appendChild(row);
+            });
+        }
+        forget('tempv');
+    }
+    list.forEach(function (t, i) {
+        var row = box.children[i];
+        if (row) setNodeText(row.querySelector('.v'), 'tempv' + i, t.celsius.toFixed(1) + ' °C');
     });
-    if (!list || !list.length) box.innerHTML = '<div class="srow"><span class="srow-path">没有可显示的服务</span></div>';
+}
+
+// ---------- 服务 ----------
+var SVC_CLASS = { active: 'tag tag-local', failed: 'tag tag-gone', inactive: 'tag', activating: 'tag tag-coded' };
+var _svc = {}, _svcPlaceholder = false;
+
+// 累计 CPU 时间（纳秒）→ 人读的时长。这是单元从启动到现在烧掉的 CPU，
+// 不是瞬时占比：占比要按拍差分，而慢档 30 秒一档的差分说明不了谁在占 CPU。
+function fmtCpuNs(ns) {
+    if (!ns) return '-';
+    var s = ns / 1e9;
+    if (s < 60) return s.toFixed(1) + ' s';
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + ' 分 ' + Math.round(s % 60) + ' 秒';
+    return Math.floor(m / 60) + ' 时 ' + (m % 60) + ' 分';
+}
+
+function syncServices(list) {
+    var box = document.getElementById('svcList');
+    list = list || [];
+    if (list.length && box.querySelector('.ph')) { box.innerHTML = ''; _svcPlaceholder = false; }
+    if (!list.length) {
+        if (!_svcPlaceholder) {
+            box.innerHTML = '<div class="srow ph"><span class="srow-path">没有可显示的服务</span></div>';
+            _svcPlaceholder = true;
+        }
+        setText('stkSvcPv', '-');
+        return;
+    }
+    var seen = {}, running = 0;
+    list.forEach(function (s) {
+        seen[s.name] = true;
+        if (s.state === 'active') running++;
+        var n = _svc[s.name];
+        if (!n) {
+            var row = document.createElement('div');
+            row.className = 'tm-svc';
+            row.innerHTML = '<span class="n"></span><span class="tag"></span>' +
+                            '<span class="m"></span><span class="c"></span><span class="p"></span>';
+            box.appendChild(row);
+            n = _svc[s.name] = {
+                row: row, name: row.querySelector('.n'), tag: row.querySelector('.tag'),
+                mem: row.querySelector('.m'), cpu: row.querySelector('.c'),
+                pid: row.querySelector('.p')
+            };
+        }
+        setNodeText(n.name, 'svcn' + s.name, s.name);
+        var cls = SVC_CLASS[s.state] || 'tag tag-coded';
+        if (_wrote['svcc' + s.name] !== cls) { _wrote['svcc' + s.name] = cls; n.tag.className = cls; }
+        setNodeText(n.tag, 'svct' + s.name, s.state);
+        setNodeText(n.mem, 'svcm' + s.name, s.memory ? fmtBytes(s.memory) : '-');
+        setNodeText(n.cpu, 'svcu' + s.name, fmtCpuNs(s.cpu_ns));
+        setNodeText(n.pid, 'svcp' + s.name, s.pid ? String(s.pid) : '-');
+    });
+    Object.keys(_svc).forEach(function (name) {
+        if (seen[name]) return;
+        _svc[name].row.remove();
+        delete _svc[name];
+    });
+    setText('stkSvcPv', running + ' / ' + list.length + ' 运行');
+    setText('svcSub', running + ' / ' + list.length + ' 正在运行');
+}
+
+// ---------- 进程榜（内存详情右栏） ----------
+var _proc = {}, _procSig = '';
+
+function renderProcs(list) {
+    var box = document.getElementById('procList');
+    if (!box) return;
+    list = list || [];
+    var sig = list.map(function (p) { return p.pid + ':' + p.name; }).join('|');
+    if (_procSig !== sig) {
+        _procSig = sig;
+        _proc = {};
+        box.innerHTML = '';
+        if (!list.length) {
+            box.innerHTML = '<div class="srow ph"><span class="srow-path">读不到进程</span></div>';
+            return;
+        }
+        list.forEach(function (p) {
+            var r = document.createElement('div');
+            r.className = 'tm-proc';
+            r.innerHTML = '<span class="pn"></span><span class="pm"></span><span class="pp"></span>';
+            box.appendChild(r);
+            _proc[p.pid] = r;
+        });
+        forget('p-');
+    }
+    list.forEach(function (p) {
+        var r = _proc[p.pid];
+        if (!r) return;
+        setNodeText(r.querySelector('.pn'), 'p-n-' + p.pid, p.name);
+        setNodeText(r.querySelector('.pm'), 'p-m-' + p.pid, fmtBytes(p.rss));
+        setNodeText(r.querySelector('.pp'), 'p-p-' + p.pid, String(p.pid));
+    });
 }
 
 function fmtRate(bps) {
@@ -413,51 +946,216 @@ function fmtRate(bps) {
     return (bps >= 100 ? bps.toFixed(0) : bps.toFixed(1)) + ' ' + u[i];
 }
 
-function diskOf(dev) {
-    // /dev/sda2 → sda；/dev/nvme0n1p1 → nvme0n1（分区计数要归到整盘）
-    var name = (dev || '').replace(/^\/dev\//, '');
-    var m = name.match(/^(nvme\d+n\d+|mmcblk\d+)/);
-    if (m) return m[1];
-    return name.replace(/\d+$/, '');
+// ---------- 磁盘：一块盘一个条目 + 一份详情 ----------
+var _disks = {}, _diskPlaceholder = false;
+
+function diskItem(name, label) {
+    var b = document.createElement('button');
+    b.className = 'tm-item';
+    b.type = 'button';
+    b.dataset.tab = 'disk:' + name;
+    b.dataset.disk = name;
+    b.innerHTML = '<span class="nm"></span><span class="pv">-</span>' +
+                  '<svg class="spark" viewBox="0 0 100 22" preserveAspectRatio="none"></svg>';
+    b.querySelector('.nm').textContent = label;
+    b.addEventListener('click', function () { selectTab('disk:' + name); });
+    return b;
 }
 
+function diskDetail(name, label) {
+    var s = document.createElement('section');
+    s.className = 'tm-detail';
+    s.dataset.disk = name;
+    s.dataset.tab = 'disk:' + name;
+    s.innerHTML =
+        '<div class="tm-hd"><h2></h2>' +
+        '<span class="dlegend"><i class="c-rd"></i>读<i class="c-wr"></i>写</span>' +
+        '<span class="sub"></span></div>' +
+        '<svg class="tm-chart" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>' +
+        '<div class="tm-cols">' +
+        '  <div class="tm-table">' +
+        '    <div class="tm-row"><span class="k">型号</span><span class="v mdl">-</span></div>' +
+        '    <div class="tm-row"><span class="k">容量</span><span class="v cap">-</span></div>' +
+        '    <div class="tm-row"><span class="k">类型</span><span class="v kind">-</span></div>' +
+        '    <div class="tm-row"><span class="k">繁忙</span><span class="v busy">-</span></div>' +
+        '    <div class="tm-row"><span class="k">读取</span><span class="v rd">-</span></div>' +
+        '    <div class="tm-row"><span class="k">写入</span><span class="v wr">-</span></div>' +
+        '    <div class="tm-row"><span class="k">IOPS（读 / 写）</span><span class="v iops">-</span></div>' +
+        '  </div>' +
+        '  <div class="tm-side"><h3>分区</h3><div class="parts"></div></div>' +
+        '</div>';
+    s.querySelector('h2').textContent = label;
+    s.querySelector('.sub').textContent = name;
+    s.querySelector('svg').id = 'diskChart-' + name;
+    document.getElementById('tmDetail').appendChild(s);
+    return {
+        sec: s,
+        chart: s.querySelector('svg'),
+        mdl: s.querySelector('.mdl'), cap: s.querySelector('.cap'),
+        kind: s.querySelector('.kind'), busy: s.querySelector('.busy'),
+        rd: s.querySelector('.rd'), wr: s.querySelector('.wr'),
+        iops: s.querySelector('.iops'),
+        parts: s.querySelector('.parts'),
+        rows: {}
+    };
+}
+
+function diskPartRow(box, pname) {
+    var row = document.createElement('div');
+    row.className = 'tm-part';
+    row.innerHTML = '<span class="pname"></span><span class="pmeta"></span>' +
+                    '<span class="pbar"><i></i></span><span class="puse"></span>';
+    box.appendChild(row);
+    return {
+        row: row,
+        pname: row.querySelector('.pname'),
+        pmeta: row.querySelector('.pmeta'),
+        fill: row.querySelector('.pbar > i'),
+        puse: row.querySelector('.puse')
+    };
+}
+
+function syncDisks(list) {
+    var stackBox = document.getElementById('stkDisks');
+    list = list || [];
+    if (list.length && stackBox.querySelector('.ph')) { stackBox.innerHTML = ''; _diskPlaceholder = false; }
+    if (!list.length) {
+        if (!_diskPlaceholder) {
+            stackBox.innerHTML = '<div class="srow ph"><span class="srow-path">没有检测到磁盘</span></div>';
+            _diskPlaceholder = true;
+        }
+        return;
+    }
+
+    var seen = {};
+    list.forEach(function (d, idx) {
+        seen[d.name] = true;
+        var label = '磁盘 ' + idx + '（' + d.name + '）';
+        var n = _disks[d.name];
+        if (!n) {
+            var item = diskItem(d.name, label);
+            stackBox.appendChild(item);
+            n = _disks[d.name] = { item: item, pv: item.querySelector('.pv'),
+                                   spark: item.querySelector('.spark') };
+            n.detail = diskDetail(d.name, label);
+        }
+        n.item.querySelector('.nm').textContent = label;
+
+        var parts = d.partitions || [];
+        setNodeText(n.detail.mdl, 'dmdl' + d.name, d.model || '-');
+        setNodeText(n.detail.cap, 'dcap' + d.name, fmtBytes(d.size));
+        setNodeText(n.detail.kind, 'dkind' + d.name, d.rotational ? '机械盘' : '固态盘');
+
+        var pseen = {};
+        parts.forEach(function (p) {
+            pseen[p.name] = true;
+            var r = n.detail.rows[p.name] || (n.detail.rows[p.name] = diskPartRow(n.detail.parts, p.name));
+            setNodeText(r.pname, 'dp-name-' + p.name, p.name);
+            setNodeText(r.pmeta, 'dp-meta-' + p.name, (p.fstype || '—') +
+                        (p.mount ? ' → ' + p.mount : '') + (p.readonly ? ' · 只读' : ''));
+            if (p.total) {
+                var pct = Math.min(100, p.percent);
+                var sig = pct + '|' + p.percent;
+                if (_wrote['dpbar-' + p.name] !== sig) {
+                    _wrote['dpbar-' + p.name] = sig;
+                    r.fill.style.width = pct + '%';
+                    r.fill.className = p.percent >= 90 ? 'danger' : '';
+                }
+                setNodeText(r.puse, 'dp-use-' + p.name,
+                            fmtBytes(p.used) + ' / ' + fmtBytes(p.total) + '（' + p.percent + '%）');
+            } else {
+                setNodeText(r.puse, 'dp-use-' + p.name,
+                            p.mount ? '容量未知' : (p.fstype ? '未挂载' : '无文件系统'));
+            }
+        });
+        Object.keys(n.detail.rows).forEach(function (pname) {
+            if (pseen[pname]) return;
+            n.detail.rows[pname].row.remove();
+            delete n.detail.rows[pname];
+        });
+
+        if (curTab === 'disk:' + d.name) {
+            var hh = histIo[d.name] || { rd: [], wr: [] };
+            setChart2('diskBig' + d.name, n.detail.chart, hh.rd, hh.wr, drawChartPair);
+        }
+    });
+
+    Object.keys(_disks).forEach(function (name) {
+        if (seen[name]) return;
+        _disks[name].item.remove();
+        _disks[name].detail.sec.remove();
+        delete _disks[name];
+        if (curTab === 'disk:' + name) selectTab('cpu');
+    });
+}
+
+// io 每来一拍推一个样本。以前把"刷新磁盘文字"也塞在这里，于是每次慢档刷新
+// （含首帧、含分区变动）都会往历史里多塞一个同值样本，磁盘曲线的时间轴被撑长。
+// 现在分成两个：renderIo 收数据，renderIoLists 只管把 lastIo 画到页面上。
 function renderIo(io) {
     lastIo = io || {};
-    // 每块盘各存一条历史，曲线画在各自卡片的详情里（常显占地方，也不好看）
     Object.keys(lastIo).forEach(function (k) {
-        var v = (lastIo[k].read_bps + lastIo[k].write_bps) / 1048576;
-        if (!histIo[k]) histIo[k] = [];
-        histIo[k].push(v);
-        if (histIo[k].length > HISTORY) histIo[k].shift();
+        var x = lastIo[k];
+        var h = histIo[k] || (histIo[k] = { rd: [], wr: [] });
+        h.rd.push(x.read_bps || 0);
+        h.wr.push(x.write_bps || 0);
+        if (h.rd.length > HISTORY) h.rd.shift();
+        if (h.wr.length > HISTORY) h.wr.shift();
+    });
+    renderIoLists();
+}
+
+function renderIoLists() {
+    Object.keys(_disks).forEach(function (name) {
+        var n = _disks[name], x = lastIo[name];
+        var busy = x ? (x.busy || 0) : 0;
+        setNodeText(n.pv, 'diskPv' + name, Math.round(busy) + '%');
+
+        var h = histIo[name] || { rd: [], wr: [] };
+        var total = h.rd.map(function (v, i) { return v + (h.wr[i] || 0); });
+        var peak = Math.max.apply(null, total.concat([1]));
+        var scaled = total.map(function (v) { return Math.min(100, v / peak * 100); });
+        setChart('diskSpark' + name, n.spark, scaled, '', drawSpark);
+
+        setNodeText(n.detail.busy, 'diskb' + name, x ? (x.busy || 0).toFixed(0) + ' %' : '-');
+        setNodeText(n.detail.rd, 'diskr' + name, x ? fmtRate(x.read_bps) : '-');
+        setNodeText(n.detail.wr, 'diskw' + name, x ? fmtRate(x.write_bps) : '-');
+        setNodeText(n.detail.iops, 'diski' + name, x
+            ? (x.read_iops || 0).toFixed(0) + ' / ' + (x.write_iops || 0).toFixed(0) : '-');
+        if (curTab === 'disk:' + name) {
+            setChart2('diskBig' + name, n.detail.chart, h.rd, h.wr, drawChartPair);
+        }
     });
 }
 
 // ---------- 无线网络 ----------
-// 状态每 5 秒刷一次，列表只在"扫描"时重建 —— 列表里可能有正在输入的密码框，
-// 跟着 1 秒的刷新重建会把输入清掉。
 var wifiNets = [];
+var WIFI_STATE = {
+    COMPLETED: '已连接', SCANNING: '扫描中', ASSOCIATING: '关联中', ASSOCIATED: '已关联',
+    AUTHENTICATING: '认证中', AUTHENTICATED: '已认证', DISCONNECTED: '未连接',
+    INACTIVE: '未连接', INTERFACE_DISABLED: '接口关闭'
+};
+
+function renderWifi(s) {
+    s = s || {};
+    if (s.error) {
+        setText('stkNetPv', '读取失败');
+        setText('wifiNow', '读取失败');
+        setText('wifiIp', s.error);
+        return;
+    }
+    var state = WIFI_STATE[s.state] || s.state || '-';
+    var connected = (s.state === 'COMPLETED') || !!s.ip;
+    setText('stkNetPv', connected ? (s.ssid || '已连接') : state);
+    setText('wifiNow', connected ? ('已连接 · ' + (s.ssid || '')) : state);
+    setText('wifiIp', s.ip || '-');
+    setText('wifiBssid', s.bssid || '-');
+    setText('wifiFreq', s.freq ? s.freq + ' MHz' : '-');
+    setText('netSub', s.interface || '');
+}
 
 function wifiSecurityLabel(sec) {
     return { open: '开放', wep: 'WEP', wpa: 'WPA', wpa2: 'WPA2', wpa3: 'WPA3' }[sec] || sec || '未知';
-}
-
-function loadWifiStatus() {
-    fetch('/api/wifi/status', { credentials: 'same-origin' }).then(function (r) {
-        if (!r.ok) throw new Error('bad');
-        return r.json();
-    }).then(function (s) {
-        var state = {
-            COMPLETED: '已连接', SCANNING: '扫描中', ASSOCIATING: '关联中', ASSOCIATED: '已关联',
-            AUTHENTICATING: '认证中', AUTHENTICATED: '已认证', DISCONNECTED: '未连接',
-            INACTIVE: '未连接', INTERFACE_DISABLED: '接口关闭'
-        }[s.state] || s.state || '-';
-        document.getElementById('wifiNow').textContent =
-            (s.ssid || '未连接') + ' · ' + state + (s.freq ? ' · ' + s.freq + ' MHz' : '');
-        document.getElementById('wifiIp').textContent = s.ip || '-';
-    }).catch(function () {
-        document.getElementById('wifiNow').textContent = '读取失败';
-        document.getElementById('wifiIp').textContent = '-';
-    });
 }
 
 function renderWifiList() {
@@ -475,7 +1173,7 @@ function renderWifiList() {
         row.innerHTML = '<span class="srow-name">' + esc(n.ssid) + '</span>' +
             '<span class="srow-path">' + esc(wifiSecurityLabel(n.security)) +
             (n.saved ? ' · 已保存' : '') + '</span>' +
-            '<span class="srow-path" style="flex:0 0 auto">' + bars + ' ' + n.signal + ' dBm</span>';
+            '<span class="srow-path">' + bars + ' ' + n.signal + '</span>';
         row.addEventListener('click', function () { wifiForm(row, n); });
         keyActivate(row, function () { wifiForm(row, n); }, '连接 ' + n.ssid);
         box.appendChild(row);
@@ -486,10 +1184,11 @@ function wifiForm(row, net) {
     if (row.querySelector('.wifi-form')) return;
     var form = document.createElement('div');
     form.className = 'wifi-form';
-    form.style.cssText = 'display:flex;gap:6px;margin:6px 0 2px;padding-left:20px;align-items:center';
+    form.style.cssText = 'display:flex;gap:6px;margin:6px 0 2px;align-items:center';
     var locked = net.security !== 'open';
     form.innerHTML = (locked ? '<input class="wifi-input" type="password" placeholder="密码（8~63 位）">' : '') +
-        '<button class="btn btn-sm btn-primary">连接</button><button class="btn btn-sm">取消</button>';
+        '<button class="btn btn-sm btn-primary" type="button">连接</button>' +
+        '<button class="btn btn-sm" type="button">取消</button>';
     var input = form.querySelector('input');
     var btns = form.querySelectorAll('button');
     btns[0].addEventListener('click', function () {
@@ -502,17 +1201,17 @@ function wifiForm(row, net) {
         }).then(function (r) {
             return r.json().then(function (d) { return { ok: r.ok, d: d }; });
         }).then(function (res) {
-            if (res.ok) { toast('已连接到 ' + net.ssid, 'success'); form.remove(); row.style.cursor = 'pointer'; row.focus(); }
-            else { toast(res.d.error || '连接失败', 'error'); }
-            loadWifiStatus();
-        }).catch(function () { toast('连接失败', 'error'); })
-        .then(function () { btns[0].disabled = false; btns[0].textContent = '连接'; });
+            if (res.ok) { form.remove(); row.style.cursor = 'pointer'; row.focus(); }
+            // 慢档不会立刻变：重订阅一次，服务端会马上回一帧全量
+            resubscribe();
+        }).catch(function () {}).then(function () {
+            btns[0].disabled = false;
+            btns[0].textContent = '连接';
+        });
     });
     btns[1].addEventListener('click', function () { form.remove(); row.style.cursor = 'pointer'; row.focus(); });
     row.appendChild(form);
     row.style.cursor = 'default';
-    // 键盘：输密码直接回车就连，Esc 收起；表单关掉之后焦点回到那一行，
-    // 不然焦点随表单一起消失，Tab 得从头走。
     if (input) {
         input.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') { e.preventDefault(); btns[0].click(); }
@@ -528,176 +1227,80 @@ function scanWifi() {
     var hint = document.getElementById('wifiHint');
     var btn = document.getElementById('wifiScanBtn');
     btn.disabled = true;
-    hint.textContent = '扫描中…（约 4 秒，此时网络负载会短暂升高）';
+    hint.textContent = '扫描中…（约 4 秒）';
     fetch('/api/wifi/scan', { credentials: 'same-origin' }).then(function (r) {
         if (!r.ok) throw new Error('bad');
         return r.json();
     }).then(function (d) {
         wifiNets = d.networks || [];
         renderWifiList();
-        hint.textContent = wifiNets.length ? ('找到 ' + wifiNets.length + ' 个网络') : '没有扫到网络';
+        hint.textContent = wifiNets.length ? ('找到 ' + wifiNets.length + ' 个') : '没有扫到';
     }).catch(function () {
         hint.textContent = '扫描失败';
-        toast('扫描失败', 'error');
     }).then(function () { btn.disabled = false; });
 }
-
-function renderDisks(list) {
-    var box = document.getElementById('diskList');
-    var open = {};
-    Array.prototype.forEach.call(box.querySelectorAll('.disk-card.open'), function (c) {
-        open[c.dataset.disk] = true;
-    });
-    box.innerHTML = '';
-    if (!list || !list.length) {
-        box.innerHTML = '<div class="srow"><span class="srow-path">没有检测到磁盘</span></div>';
-        return;
-    }
-    list.forEach(function (d) {
-        var io = lastIo[d.name];
-        var card = document.createElement('div');
-        card.className = 'disk-card' + (open[d.name] ? ' open' : '');
-        card.dataset.disk = d.name;
-
-        var head = document.createElement('div');
-        head.className = 'disk-head';
-        head.innerHTML =
-            '<span class="name">' + esc(d.name) + '</span>' +
-            '<span class="meta">' + esc(d.model || '-') + ' · ' + fmtBytes(d.size) +
-            (d.rotational ? ' · 机械盘' : ' · 固态') + ' · ' + (d.partitions || []).length + ' 个分区</span>' +
-            '<span class="io">' + (io
-                ? '繁忙 <b>' + (io.busy || 0).toFixed(0) + '%</b>　读 <b>' + fmtRate(io.read_bps) +
-                  '</b>　写 <b>' + fmtRate(io.write_bps) + '</b>'
-                : '繁忙 <b>-</b>') + '</span>';
-        head.addEventListener('click', function () {
-            card.classList.toggle('open');
-            head.setAttribute('aria-expanded', card.classList.contains('open') ? 'true' : 'false');
-            if (card.classList.contains('open')) {
-                drawChartMax(chart, histIo[d.name] || [], '');
-            }
-        });
-        head.setAttribute('aria-expanded', card.classList.contains('open') ? 'true' : 'false');
-        keyActivate(head, function () { head.click(); }, '展开 ' + d.name + ' 的详情');
-        card.appendChild(head);
-
-        var detail = document.createElement('div');
-        detail.className = 'detail';
-
-        // 这块盘自己的读写曲线：只在展开时出现，常显太吵
-        // SVGElement 的 className 是只读的（SVGAnimatedString），必须走 setAttribute
-        var chart = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        chart.setAttribute('class', 'sys-chart');
-        chart.setAttribute('viewBox', '0 0 100 30');
-        chart.setAttribute('preserveAspectRatio', 'none');
-        var chartBox = document.createElement('div');
-        chartBox.className = 'disk-chart-box';
-        chartBox.appendChild(chart);
-        detail.appendChild(chartBox);
-
-        var kw = document.createElement('div');
-        kw.className = 'info-row';
-        kw.innerHTML = '<span class="info-label">IOPS</span><span class="info-value">' +
-            (io ? io.read_iops.toFixed(0) + ' 读 / ' + io.write_iops.toFixed(0) + ' 写' : '-') +
-            '</span>';
-        detail.appendChild(kw);
-
-        (d.partitions || []).forEach(function (p) {
-            var usage = p.total
-                ? fmtBytes(p.used) + ' / ' + fmtBytes(p.total) + '（' + p.percent + '%）'
-                : (p.mount ? '容量未知' : (p.fstype ? '未挂载' : '无文件系统'));
-            var bar = p.total
-                ? '<span class="dl-progress-bar"><span class="fill" style="display:block;height:100%;width:' +
-                  Math.min(100, p.percent) + '%;background:' + (p.percent >= 90 ? 'var(--danger)' : 'var(--primary)') +
-                  '"></span></span>'
-                : '';
-            var row = document.createElement('div');
-            row.className = 'disk-part';
-            row.innerHTML =
-                '<span class="pname">' + esc(p.name) + '</span>' +
-                '<span class="pmeta">' + esc((p.fstype || '—') + (p.mount ? ' → ' + p.mount : '') +
-                (p.readonly ? ' · 只读' : '')) + '</span>' + bar +
-                '<span class="puse">' + esc(usage) + '</span>';
-            detail.appendChild(row);
-        });
-        card.appendChild(detail);
-        box.appendChild(card);
-
-        // 曲线在元素进 DOM 之后再画：drawChartMax 是直接写 innerHTML
-        if (card.classList.contains('open')) {
-            drawChartMax(chart, histIo[d.name] || [], '');
-        }
-    });
-}
-
-// 卡片级增量：每块卡片记住上次渲染过的数据，内容没变就整块跳过
-var _lastCard = {};
-function cardChanged(key, data) {
-    var s = JSON.stringify(data);
-    if (_lastCard[key] === s) return false;
-    _lastCard[key] = s;
-    return true;
-}
-
-function loadSystem() {
-    fetch('/api/system', { credentials: 'same-origin' }).then(function (r) {
-        if (!r.ok) throw new Error('bad');
-        return r.json();
-    }).then(function (d) {
-        var s = d.summary || {}, m = d.metrics || {};
-        document.getElementById('rowHost').textContent = s.hostname || '-';
-        document.getElementById('rowKernel').textContent = s.kernel || '-';
-        document.getElementById('rowArch').textContent = (s.arch || '-') + ' / ' + (s.cpu_count || 0) + ' 核';
-        document.getElementById('rowUptime').textContent = s.uptime ? fmtUptime(s.uptime) : '-';
-        document.getElementById('rowBoot').textContent = s.boot_at ? fmtTime(s.boot_at) : '-';
-        document.getElementById('rowLoad').textContent = [s.load1, s.load5, s.load15].filter(Boolean).join(' / ') || '-';
-        renderCpu(m.cpu || {});
-        renderMemory(m.memory || {});
-        // 这几块的数据不常变：卡片级比对，没变就不碰 DOM（整块重建会让软件渲染重绘一遍）
-        if (cardChanged('temp', m.temperatures)) renderTemps(m.temperatures || []);
-        if (cardChanged('power', m.power)) renderPower(m.power || {});
-        if (cardChanged('io', m.io)) renderIo(m.io);
-        if (cardChanged('svc', d.services)) renderServices(d.services);
-        if (cardChanged('disk', d.disks)) renderDisks(d.disks);
-    }).catch(function (e) {
-        // 把真实原因显示出来：只写"读取失败"等于把问题藏起来，排查时只能靠猜
-        var why = (e && (e.message || e)) || '未知错误';
-        document.getElementById('svcList').innerHTML = '<div class="srow"><span class="srow-path c-danger-strong">读取失败: ' + esc(String(why)) + '</span></div>';
-        document.getElementById('diskList').innerHTML = '<div class="srow"><span class="srow-path c-danger-strong">读取失败: ' + esc(String(why)) + '</span></div>';
-    });
-}
-
 document.getElementById('wifiScanBtn').addEventListener('click', scanWifi);
 
-// 时区：列表从服务端取（zone.tab），选完 POST 给 timedatectl
+// ---------- 时区 ----------
+var TZ_CN = {
+    'Asia/Shanghai': '中国 · 北京（Asia/Shanghai）',
+    'Asia/Urumqi': '中国 · 乌鲁木齐（Asia/Urumqi）',
+    'Asia/Chongqing': '中国 · 重庆（Asia/Chongqing）',
+    'Asia/Harbin': '中国 · 哈尔滨（Asia/Harbin）',
+    'Asia/Kashgar': '中国 · 喀什（Asia/Kashgar）',
+    'Asia/Hong_Kong': '中国香港（Asia/Hong_Kong）',
+    'Asia/Macau': '中国澳门（Asia/Macau）',
+    'Asia/Taipei': '中国台湾（Asia/Taipei）',
+    'Asia/Singapore': '新加坡（Asia/Singapore）',
+    'UTC': '协调世界时（UTC）'
+};
+
 function loadTimezones() {
     fetch('/api/system/timezones', { credentials: 'same-origin' }).then(function (r) {
         return r.json();
     }).then(function (d) {
         var sel = document.getElementById('tzSelect');
         if (!sel || !d || !d.timezones) return;
+        var all = d.timezones.slice();
+        if (d.current && all.indexOf(d.current) < 0) all.unshift(d.current);
         sel.innerHTML = '';
-        d.timezones.forEach(function (z) {
+        var common = document.createElement('optgroup');
+        common.label = '常用';
+        Object.keys(TZ_CN).forEach(function (z) {
+            if (all.indexOf(z) >= 0) {
+                var o = document.createElement('option');
+                o.value = z;
+                o.textContent = TZ_CN[z];
+                if (z === d.current) o.selected = true;
+                common.appendChild(o);
+            }
+        });
+        sel.appendChild(common);
+        var rest = document.createElement('optgroup');
+        rest.label = '全部时区';
+        all.forEach(function (z) {
+            if (TZ_CN[z]) return;
             var o = document.createElement('option');
             o.value = z;
             o.textContent = z;
             if (z === d.current) o.selected = true;
-            sel.appendChild(o);
+            rest.appendChild(o);
         });
+        sel.appendChild(rest);
     }).catch(function () {});
 }
 
 document.getElementById('tzSelect').addEventListener('change', function () {
     var sel = this;
-    var tz = sel.value;
     sel.disabled = true;
     fetch('/api/system/timezone', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ timezone: tz })
+        body: JSON.stringify({ timezone: sel.value })
     }).then(function (r) { return r.json(); }).then(function (d) {
         if (d && d.ok) {
-            location.reload();          // 重新拉一遍，页面上的时间按新时区重画
+            location.reload();
         } else {
             alert((d && d.error) || '设置时区失败');
             sel.disabled = false;
@@ -708,12 +1311,155 @@ document.getElementById('tzSelect').addEventListener('change', function () {
     });
 });
 
+// ---------- 数据通道：进页面取一次全量，之后靠推送 ----------
+var WS_PORT = window.__WS_PORT__ || 8081;
+var bootAt = 0;
+var sock = null, retryMs = 0, pollTimer = 0;
+
+function wsUrl() {
+    var proto = (location.protocol === 'https:') ? 'wss:' : 'ws:';
+    return proto + '//' + location.hostname + ':' + WS_PORT + '/';
+}
+
+function refreshSummary(host, load) {
+    host = host || {};
+    if (host.name !== undefined) setText('rowHost', host.name || '-');
+    if (host.kernel !== undefined) setText('rowKernel', host.kernel || '-');
+    if (host.arch !== undefined || host.cores !== undefined) {
+        setText('rowArch', (host.arch || '-') + ' / ' + (host.cores || 0) + ' 核');
+        setText('cpuCoresN', String(host.cores || 0));
+        setText('cpuSub', (host.arch || '') + ' · ' + (host.cores || 0) + ' 个逻辑处理器');
+    }
+    if (load) {
+        var s = [load.l1, load.l5, load.l15].filter(Boolean).join(' / ') || '-';
+        setText('rowLoad', s);
+        setText('cpuLoad2', s);
+    }
+    if (bootAt) {
+        setText('rowBoot', fmtTime(bootAt));
+        var up = fmtUptime(Math.max(0, Math.floor(Date.now() / 1000) - bootAt));
+        setText('rowUptime', up);
+        setText('cpuUptime2', up);
+    }
+}
+
+var WRITERS = {
+    host: function (h) { refreshSummary(h, null); },
+    load: function (l) { refreshSummary(null, l); },
+    cpu: renderCpu,
+    mem: renderMemory,
+    temp: renderTemps,
+    io: renderIo,
+    disks: function (list) { syncDisks(list); renderIoLists(); },
+    services: syncServices,
+    procs: renderProcs,
+    wifi: renderWifi
+};
+
+function applyFrame(d) {
+    d = d || {};
+    if (typeof d.boot_at === 'number' && d.boot_at) bootAt = d.boot_at;
+    Object.keys(WRITERS).forEach(function (k) {
+        if (d[k] === undefined) return;
+        WRITERS[k](d[k]);
+    });
+    if (bootAt) refreshSummary(null, null);
+}
+
+function applyDelta(set) {
+    if (!set) return;
+    Object.keys(set).forEach(function (k) {
+        var fn = WRITERS[k];
+        if (fn) fn(set[k]);
+    });
+}
+
+function showReadError(why) {
+    var s = '读取失败: ' + esc(String(why || '未知错误'));
+    setNodeHtml(document.getElementById('svcList'), 'errSvc',
+                '<div class="srow ph"><span class="srow-path c-danger-strong">' + s + '</span></div>');
+    _svcPlaceholder = true;
+    Object.keys(_svc).forEach(function (k) { delete _svc[k]; });
+}
+
+function fetchSnapshot() {
+    fetch('/api/system', { credentials: 'same-origin' }).then(function (r) {
+        if (!r.ok) throw new Error(r.status === 404 ? '没有权限读取本机状态' : ('HTTP ' + r.status));
+        return r.json();
+    }).then(applyFrame).catch(function (e) {
+        showReadError(e && (e.message || e));
+    });
+}
+
+function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(function () {
+        if (document.hidden) return;
+        fetch('/api/system?scope=fast', { credentials: 'same-origin' })
+            .then(function (r) { if (!r.ok) throw new Error('bad'); return r.json(); })
+            .then(applyFrame)
+            .catch(function () {});
+    }, 1000);
+}
+
+function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = 0; }
+}
+
+function subscribe() {
+    if (!sock || sock.readyState !== 1) return;
+    sock.send(JSON.stringify({ type: 'system-sub' }));
+}
+
+function resubscribe() {
+    if (!sock || sock.readyState !== 1) return;
+    try {
+        sock.send(JSON.stringify({ type: 'system-unsub' }));
+        sock.send(JSON.stringify({ type: 'system-sub' }));
+    } catch (e) { /* 断了就交给 onclose */ }
+}
+
+function connect() {
+    try { sock = new WebSocket(wsUrl()); } catch (e) { return retryConnect(); }
+    sock.onopen = function () {
+        retryMs = 0;
+        stopPolling();
+        subscribe();
+    };
+    sock.onmessage = function (ev) {
+        var m;
+        try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.type === 'system_snap') applyFrame(m.data);
+        else if (m.type === 'system_delta') applyDelta(m.set);
+    };
+    sock.onclose = function () {
+        sock = null;
+        startPolling();
+        retryConnect();
+    };
+    sock.onerror = function () { try { sock.close(); } catch (e) {} };
+}
+
+function retryConnect() {
+    retryMs = Math.min(retryMs + 1, 10);
+    setTimeout(connect, 1000 * retryMs);
+}
+
+// ---------- 启动 ----------
+// 大图按像素画，容器一变尺寸就得重画（窗口拖动、最大化、桌面窗口改大小）。
+var _rsTimer = 0;
+window.addEventListener('resize', function () {
+    clearTimeout(_rsTimer);
+    _rsTimer = setTimeout(function () {
+        forget('cpuBig'); forget('memBig'); forget('diskBig');
+        selectTab(curTab);
+    }, 200);
+});
+
+selectTab('cpu');
 loadTimezones();
-loadSystem();
-loadWifiStatus();
-setInterval(function () { if (!document.hidden) loadSystem(); }, 1000);
-setInterval(function () { if (!document.hidden) loadWifiStatus(); }, 1000);
+fetchSnapshot();
+connect();
 </script>
-<script src="/static/arrow.js"></script>
 </body>
 </html>

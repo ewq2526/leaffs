@@ -17,6 +17,7 @@ import leaffs.auth.core as _ac
 import leaffs.config.core as _cfg
 import leaffs.files.api as _fs_api
 import leaffs.files.core as _fs
+import leaffs.system.host as _sys_host
 import leaffs.utils.log as _ut_log
 
 # ========== 订阅集合 ==========
@@ -32,6 +33,14 @@ _qr_waiters_lock = threading.Lock()
 
 _gallery_subscribers = set()   # 预览页订阅：文件树变化通知
 _gallery_lock = threading.Lock()
+
+_system_subscribers = set()    # 系统页订阅：本机状态增量
+_system_lock = threading.Lock()
+
+# 慢档（分区/服务/无线/温度/电池）不会一秒一变：兜底周期 30 秒，
+# 事件（udev / systemd / wpa_supplicant）到来时用 `_slow_dirty` 提前这一次。
+_SLOW_INTERVAL = 30.0
+_slow_dirty = threading.Event()
 
 _main_loop = None
 _main_loop_lock = threading.Lock()
@@ -105,6 +114,34 @@ def gallery_sub_add(ws):
 def gallery_sub_remove(ws):
     with _gallery_lock:
         _gallery_subscribers.discard(ws)
+
+
+# ---------- 本机状态订阅（系统页；每秒增量代替页面自己轮询 HTTP） ----------
+
+def system_sub_add(ws):
+    with _system_lock:
+        was_empty = not _system_subscribers
+        _system_subscribers.add(ws)
+    if was_empty:
+        # 没有订阅者时循环不采样（这是有意的），于是 cpu/io 的累计值基线会断档。
+        # 重新有人订阅先重建基线，否则第一拍算出来的是"停了多久的平均值"。
+        try:
+            _sys_host.reseed()
+        except Exception:
+            pass
+
+
+def system_sub_remove(ws):
+    with _system_lock:
+        _system_subscribers.discard(ws)
+
+
+def system_nudge():
+    """慢档可能有变化时叫醒推送循环（udev / systemd / wpa_supplicant 事件的入口）。
+
+    事件源接上之前，慢档只靠 `_SLOW_INTERVAL` 那个兜底周期。
+    """
+    _slow_dirty.set()
 
 
 # ========== 广播 ==========
@@ -207,6 +244,69 @@ def admin_push_loop():
         except Exception:
             pass
         time.sleep(1)
+
+
+def system_snapshot_payload():
+    """订阅成功后立刻回的一帧全量（等价 `GET /api/system`）。
+
+    `back` 是这一帧采集本身花的毫秒数：它要是两位数，说明读取又膨了。
+    """
+    t0 = time.perf_counter()
+    data = _sys_host.snapshot('full')
+    return {'type': 'system_snap', 'data': data, 't': time.time(),
+            'back': int((time.perf_counter() - t0) * 1000)}
+
+
+def _delta(sent, data):
+    """这一拍的采集结果压成「只含变化键」的一份；`sent` 就地更新为最新值。
+
+    比的是**上一次发出去的值**，不是时钟：值没变就不进帧，页面也就不会去写 DOM。
+    """
+    changed = {k: v for k, v in data.items() if sent.get(k) != v}
+    sent.update(changed)
+    return changed
+
+
+def system_push_loop():
+    """每秒一帧增量；慢档按 30 秒或事件。
+
+    三条硬约束，都是这条通道低占用的来源：
+
+    * 没有订阅者时**什么都不采**，循环体只剩一次 sleep；
+    * 比值不比时钟：`sent` 存上一次发出去的值，一个键都没变就整帧不发；
+    * 帧里只出现变过的一级键，键内的值是整块（不做深合并），页面据此整块替换。
+    """
+    sent = {}
+    last_slow = 0.0
+    while True:
+        try:
+            with _system_lock:
+                targets = list(_system_subscribers)
+            if not targets:
+                # 没人看就不采。`sent` 保留：新订阅者由那一帧 snap 拿全量，
+                # 这里继续拿旧值比，没变的键自然还是不发。
+                _slow_dirty.clear()
+                time.sleep(1.0)
+                continue
+            t0 = time.perf_counter()
+            data = _sys_host.fast()
+            now = time.monotonic()
+            if now - last_slow >= _SLOW_INTERVAL or _slow_dirty.is_set():
+                _slow_dirty.clear()
+                last_slow = now
+                data.update(_sys_host.slow())
+            back = int((time.perf_counter() - t0) * 1000)
+            set_ = _delta(sent, data)
+            if set_:
+                text = json.dumps({'type': 'system_delta', 'set': set_,
+                                   't': time.time(), 'back': back})
+                for ws in targets:
+                    if not _schedule_send(ws, text):
+                        with _system_lock:
+                            _system_subscribers.discard(ws)
+        except Exception:
+            pass
+        time.sleep(1.0)
 
 
 def broadcast_download_daemon_status():

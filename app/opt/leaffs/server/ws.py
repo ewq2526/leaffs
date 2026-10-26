@@ -163,7 +163,7 @@ async def _ws_proto_error(websocket, why):
 # WS 敏感消息类型：会话被撤销/过期后这些操作必须逐条实时复查（见 ws_handler），
 # 仅凭 cookie 会话的连接已在每条消息的“获取会话”段实时复查，无需重复。
 # 2026-09-21：去掉 'upload' —— 与 'auth' 同样没有发送方（前端全部 WS 消息类型已逐一核对）。
-_WS_REVALIDATE_TYPES = ('admin-sub', 'gallery-sub', 'list', 'delete', 'mkdir', 'sub-download')
+_WS_REVALIDATE_TYPES = ('admin-sub', 'gallery-sub', 'system-sub', 'list', 'delete', 'mkdir', 'sub-download')
 
 # A-17：未认证（ws_role 为空）连接仅放行的最小消息集
 # 2026-09-16：去掉 'auth' —— 那条消息分支是**死代码**（全仓无发送方），已整体删除；
@@ -341,6 +341,7 @@ def _ws_dl_allowed(ws_role):
 async def ws_handler(websocket):
     sub = False
     admin_sub = False
+    system_sub = False
     ip = ''
     try:
         ip = _ws_ip(websocket)
@@ -553,6 +554,25 @@ async def ws_handler(websocket):
                     admin_sub = False
                     continue
 
+                if t == 'system-sub':
+                    # 系统页订阅本机状态增量。门禁与 HTTP 同口径、不许更宽：
+                    # /api/system 在 _SUPER_ADMIN_ONLY_GET 里，所以这里也只认 super_admin。
+                    if ws_role != 'super_admin':
+                        try:
+                            add_log(f'WS system-sub 拒绝: ip={ip or "?"} role={ws_role or "空"}', 'warn')
+                        except Exception:
+                            pass
+                        await websocket.send(json.dumps({'type': 'error', 'msg': '无权限'})); continue
+                    _push.system_sub_add(websocket)
+                    system_sub = True
+                    # 订阅后立刻回一帧全量，页面不用等下一个推送周期
+                    await websocket.send(json.dumps(_push.system_snapshot_payload()))
+                    continue
+                if t == 'system-unsub':
+                    _push.system_sub_remove(websocket)
+                    system_sub = False
+                    continue
+
                 if t == 'gallery-sub':
                     # 预览页订阅「文件树变化」：只推一个信号、不带列表，列表由页面按自身
                     # 权限自己拉（游客只看公共目录），所以订阅本身没有数据泄漏面。
@@ -749,6 +769,8 @@ async def ws_handler(websocket):
             _push.dl_sub_remove(websocket)
         if admin_sub:
             _push.admin_sub_remove(websocket)
+        if system_sub:
+            _push.system_sub_remove(websocket)
         if getattr(websocket, '_qr_subscribed', False):
             _push.qr_cleanup_ws(websocket)
         # 文件树订阅的摘除是幂等的（没订阅过就是空操作），不必额外记标志位

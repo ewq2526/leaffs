@@ -191,28 +191,6 @@ def services():
     return [{'name': n, 'state': _service_state(n)} for n in SERVICES]
 
 
-def summary():
-    up = _read('/proc/uptime', '0').split()
-    try:
-        uptime = int(float(up[0]))
-    except (IndexError, ValueError):
-        uptime = 0
-    load = _read('/proc/loadavg', '').split()
-    return {
-        'hostname': _read('/proc/sys/kernel/hostname'),
-        'kernel': os.uname().release,
-        'arch': os.uname().machine,
-        'cpu_count': os.cpu_count() or 0,
-        'uptime': uptime,
-        'boot_at': int(time.time()) - uptime,
-        'timezone': timezone(),
-        'load1': load[0] if load else '',
-        'load5': load[1] if len(load) > 1 else '',
-        'load15': load[2] if len(load) > 2 else '',
-        'now': int(time.time()),
-    }
-
-
 def timezone():
     """当前时区名（`Asia/Shanghai` 这种）。
 
@@ -456,16 +434,84 @@ def io():
     return out
 
 
-def collect():
+# ---------- 三档：每秒档 / 状态档 / 静态档 ----------
+# 分档的判据不是"界面多久刷一次"，而是**值会不会变**：
+#   fast   —— /proc 里四个小文件，一秒一变，读一次几毫秒，零 fork；
+#   slow   —— 分区、服务、无线、温度、电池：一人一秒内不可能变，由事件（或兜底周期）触发；
+#   static —— 机器标识与时区：连接期间不变。
+# 以前是 `collect()` 把三档捆在一起按最快的节奏跑，于是每秒 fork 一次 systemctl、
+# 每秒遍历 /sys、每秒 statvfs 一遍，而其中没有一样是每秒会变的。
+
+_boot_at = None
+
+
+def statics():
+    """连接期间不变的东西。`boot_at` 只在进程内算一次：重启会重开进程。"""
+    global _boot_at
+    if _boot_at is None:
+        up = _read('/proc/uptime', '0').split()
+        try:
+            _boot_at = int(time.time()) - int(float(up[0]))
+        except (IndexError, ValueError):
+            _boot_at = 0
     return {
-        'summary': summary(),
-        'metrics': {
-            'cpu': cpu(),
-            'memory': memory(),
-            'temperatures': temperatures(),
-            'power': power(),
-            'io': io(),
+        'host': {
+            'name': _read('/proc/sys/kernel/hostname'),
+            'kernel': os.uname().release,
+            'arch': os.uname().machine,
+            'cores': os.cpu_count() or 0,
+            'tz': timezone(),
         },
+        'boot_at': _boot_at,
+    }
+
+
+def fast():
+    """每秒档：/proc/stat、/proc/meminfo、/proc/diskstats、/proc/loadavg。"""
+    load = _read('/proc/loadavg', '').split()
+    return {
+        'load': {
+            'l1': load[0] if len(load) > 0 else '',
+            'l5': load[1] if len(load) > 1 else '',
+            'l15': load[2] if len(load) > 2 else '',
+        },
+        'cpu': cpu(),
+        'mem': memory(),
+        'io': io(),
+    }
+
+
+def slow():
+    """状态档：分区与挂载、服务、无线、温度、电池。"""
+    import leaffs.system.wifi as _wifi
+    return {
+        'temp': temperatures(),
+        'power': power(),
         'disks': disks(),
         'services': services(),
+        'wifi': _wifi.status(),
     }
+
+
+def reseed():
+    """断档后重建基线。
+
+    cpu 与 io 都是累计值相减，采样停了以后再算会把整段间隔平均进去；没订阅者时
+    循环不采样（这是有意的），所以重新有人订阅时要先把基线清掉、取一个新样本，
+    让接下来那一拍是真正的「一秒之差」。
+    """
+    with _cpu_lock:
+        _last_cpu.clear()
+    with _io_lock:
+        _last_io.clear()
+    cpu()
+    io()
+
+
+def snapshot(scope='full'):
+    """一整份。`scope='fast'` 只给每秒档 —— 断线兜底轮询用，慢档一个字段都不采。"""
+    data = dict(statics())
+    data.update(fast())
+    if scope != 'fast':
+        data.update(slow())
+    return data

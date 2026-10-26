@@ -31,7 +31,6 @@ import leaffs.server.tls as _tls
 import leaffs.share.mappings as _mapping
 import leaffs.share.access as _sacc
 import leaffs.system.api as _sys_api
-import leaffs.system.host as _sys_host
 from leaffs.paths import BASE_DIR
 import leaffs.utils.core as _ut
 import leaffs.utils.log as _ut_log
@@ -2153,8 +2152,11 @@ def _g_system(h, path, role):
 
 
 def _g_api_system(h, path, role):
-    # 权限由分派层的 _SUPER_ADMIN_ONLY_GET 统一判，这里只负责输出
-    _sys_api.send_system(h, _sys_host.collect)
+    # 权限由分派层的 _SUPER_ADMIN_ONLY_GET 统一判，这里只负责输出。
+    # scope=fast 只出现在 WS 断开后的兜底轮询里：只要每秒档，慢档连采都不采。
+    _q = urllib.parse.parse_qs(urllib.parse.urlparse(h.path).query)
+    _scope = 'fast' if (_q.get('scope') or [''])[0] == 'fast' else 'full'
+    _sys_api.send_system(h, _scope)
 
 
 def _g_api_timezones(h, path, role):

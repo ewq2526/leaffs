@@ -56,6 +56,31 @@
 .wifi-input:focus { outline: none; border-color: var(--primary); }
 .sys-stack { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: var(--border); margin-top: 6px; }
 .sys-stack > i { display: block; height: 100%; }
+
+/* Data cells: the box is sized by CSS, the value only swaps glyphs. Otherwise one number
+   growing (7.0 -> 12.4) changes the row height -> the card height -> both columns relayout
+   -> the whole page relayouts. */
+.acc-grid .info-row {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    min-height: 34px;
+    align-items: center;
+}
+.acc-grid .info-value {
+    word-break: normal;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.sys-head .big { min-width: 5ch; font-variant-numeric: tabular-nums; }
+.sys-core .val { display: inline-block; min-width: 4ch; text-align: right; font-variant-numeric: tabular-nums; }
+.disk-head { flex-wrap: nowrap; }
+.disk-part .puse { min-width: 15ch; text-align: right; font-variant-numeric: tabular-nums; }
+/* Nothing inside a card can affect anything outside it; no paint containment, so the
+   card shadow is not clipped */
+.panel, .disk-card { contain: layout; }
 </style>
 </head>
 <body>
@@ -191,6 +216,48 @@ function fmtTime(ts) {
 }
 function level(v, warn, danger) { return v >= danger ? 'danger' : (v >= warn ? 'warn' : ''); }
 
+// Compare before writing: unchanged data does not touch the node. Every write on the page
+// goes through these, not through a hand-picked list of "static" cells — whatever the
+// poll brought back unchanged is simply not written, so the renderer has nothing to repaint.
+var _wrote = {};
+function setText(id, s) {
+    if (_wrote[id] === s) return;
+    _wrote[id] = s;
+    document.getElementById(id).textContent = s;
+}
+function setNodeText(el, key, s) {
+    if (_wrote[key] === s) return;
+    _wrote[key] = s;
+    el.textContent = s;
+}
+function setNodeHtml(el, key, s) {
+    if (_wrote[key] === s) return;
+    _wrote[key] = s;
+    el.innerHTML = s;
+}
+function setBarWidth(el, key, pct, cls) {
+    pct = Math.max(0, Math.min(100, pct));
+    var sig = pct.toFixed(1) + '|' + cls;
+    if (_wrote[key] === sig) return;
+    _wrote[key] = sig;
+    el.style.width = pct + '%';
+    el.className = cls;
+}
+// Charts: an identical series means the block is skipped (the window can slide while every
+// value stays the same, and that really does not need a repaint)
+function setChart(key, el, data, cls, fn) {
+    var sig = cls + '|' + data.join(',');
+    if (_wrote[key] === sig) return;
+    _wrote[key] = sig;
+    fn(el, data, cls);
+}
+// After a structural rebuild the recorded values no longer apply to the new nodes
+function forget(prefix) {
+    for (var k in _wrote) {
+        if (k.indexOf(prefix) === 0) delete _wrote[k];
+    }
+}
+
 // 可点的行（无线网络、磁盘标题）原本只有 click：键盘 Tab 到不了，也按不动。
 // 统一套一层：能 Tab、Enter 或空格触发、有 role 与说明，屏幕阅读器也读得出。
 function keyActivate(node, fn, label) {
@@ -203,21 +270,23 @@ function keyActivate(node, fn, label) {
     return node;
 }
 
-// 折线：0~100 固定量程，避免曲线在低负载时把噪声放大成"满格"
+// Fixed 0-100 scale so a nearly idle CPU does not get its noise blown up to a full chart
 function drawChart(el, data, cls) {
-    var w = 100, h = 30, n = HISTORY;
+    var w = 100, h = 30, pad = 3, n = HISTORY;
     if (!data.length) { el.innerHTML = ''; return; }
     var step = w / (n - 1);
     var pts = [];
     for (var i = 0; i < data.length; i++) {
         var x = i * step;
-        var y = h - Math.max(0, Math.min(100, data[i])) / 100 * h;
+        var v = Math.max(0, Math.min(100, data[i])) / 100;
+        var y = (h - pad) - v * (h - 2 * pad);
         pts.push(x.toFixed(2) + ' ' + y.toFixed(2));
     }
     if (pts.length === 1) pts.push(pts[0]);
     var line = 'M' + pts.join(' L');
-    var area = line + ' L' + ((data.length - 1) * step).toFixed(2) + ' ' + h + ' L0 ' + h + ' Z';
-    '<path class="area ' + cls + '" d="' + area + '"></path>' +
+    var area = line + ' L' + ((data.length - 1) * step).toFixed(2) + ' ' + (h - pad) + ' L0 ' + (h - pad) + ' Z';
+    el.innerHTML = '<line class="grid" x1="0" y1="' + (h - pad) + '" x2="' + w + '" y2="' + (h - pad) + '"></line>' +
+                   '<path class="area ' + cls + '" d="' + area + '"></path>' +
                    '<path class="line ' + cls + '" d="' + line + '"></path>';
 }
 
@@ -247,19 +316,18 @@ function drawChartMax(el, data, cls) {
     return peak;
 }
 
-function setBar(el, pct) {
-    el.style.width = Math.max(0, Math.min(100, pct)) + '%';
-    el.className = level(pct, 75, 90);
+function setBar(el, key, pct) {
+    setBarWidth(el, key, pct, level(pct, 75, 90));
 }
 
 function renderCpu(cpu) {
     var total = cpu.total || 0;
-    document.getElementById('cpuNow').textContent = total.toFixed(1);
+    setText('cpuNow', total.toFixed(1));
     hist.cpu.push(total);
     if (hist.cpu.length > HISTORY) hist.cpu.shift();
     var peak = Math.max.apply(null, hist.cpu);
-    document.getElementById('cpuPeak').textContent = 'Peak ' + peak.toFixed(0) + '%';
-    drawChart(document.getElementById('cpuChart'), hist.cpu, level(total, 75, 90));
+    setText('cpuPeak', 'Peak ' + peak.toFixed(0) + '%');
+    setChart('cpu', document.getElementById('cpuChart'), hist.cpu, level(total, 75, 90), drawChart);
 
     // Reuse the per-core tiles: with the same core count only the numbers and bar
     // widths change. Rebuilding the whole block every second is pure repaint.
@@ -274,20 +342,19 @@ function renderCpu(cpu) {
                           '<div class="sys-bar"><i></i></div>';
             box.appendChild(d);
         });
+        forget('core');
     }
     cores.forEach(function (v, i) {
         var d = box.children[i];
-        d.querySelector('.val').textContent = v.toFixed(0) + '%';
-        var bar = d.querySelector('.sys-bar > i');
-        bar.className = level(v, 75, 90);
-        bar.style.width = v + '%';
+        setNodeText(d.querySelector('.val'), 'coretxt' + i, v.toFixed(0) + '%');
+        setBarWidth(d.querySelector('.sys-bar > i'), 'corebar' + i, v, level(v, 75, 90));
     });
 }
 
 function renderMemory(m) {
-    document.getElementById('memNow').textContent = fmtBytes(m.used);
-    document.getElementById('memTotal').textContent = '/ ' + fmtBytes(m.total);
-    document.getElementById('memPct').textContent = m.percent + '%';
+    setText('memNow', fmtBytes(m.used));
+    setText('memTotal', '/ ' + fmtBytes(m.total));
+    setText('memPct', m.percent + '%');
 
     // Split the total into processes / cache / kernel / free. A single "used" figure hides
     // the structure: nearly a third of it is kernel slab. Numbers per part, bar for ratio.
@@ -314,52 +381,74 @@ function renderMemory(m) {
             row.innerHTML = '<span class="info-label">' + p[0] + '</span><span class="info-value"></span>';
             brk.appendChild(row);
         });
+        forget('mem');
     }
     parts.forEach(function (p, i) {
+        var pct = p[1] / total * 100;
+        // Colour, width and the number decide it: all three unchanged means skip the part
+        var sig = p[2] + '|' + pct.toFixed(2) + '|' + p[1];
+        if (_wrote['memseg' + i] === sig) return;
+        _wrote['memseg' + i] = sig;
         var seg = stack.children[i];
-        seg.style.width = (p[1] / total * 100).toFixed(2) + '%';
+        seg.style.width = pct.toFixed(2) + '%';
         seg.style.background = p[2];
         seg.title = p[0] + ' ' + fmtBytes(p[1]);
-        brk.children[i].querySelector('.info-value').textContent =
-            fmtBytes(p[1]) + ' (' + (p[1] / total * 100).toFixed(0) + '%)';
+        setNodeText(brk.children[i].querySelector('.info-value'), 'membreak' + i,
+                    fmtBytes(p[1]) + ' (' + pct.toFixed(0) + '%)');
     });
 
-    document.getElementById('memSwap').textContent = m.swap_total
+    setText('memSwap', m.swap_total
         ? fmtBytes(m.swap_used) + ' / ' + fmtBytes(m.swap_total)
-        : 'not configured';
+        : 'not configured');
     hist.mem.push(m.percent || 0);
     if (hist.mem.length > HISTORY) hist.mem.shift();
-    drawChart(document.getElementById('memChart'), hist.mem, level(m.percent, 80, 92));
+    setChart('mem', document.getElementById('memChart'), hist.mem, level(m.percent, 80, 92), drawChart);
 }
 
 function renderTemps(list) {
     var box = document.getElementById('tempList');
-    box.innerHTML = '';
+    list = list || [];
+    // Rebuild the rows only when the sensor set changes; otherwise just the numbers
+    var names = list.map(function (t) { return t.label; }).join('|');
+    if (_wrote.tempNames !== names) {
+        _wrote.tempNames = names;
+        box.innerHTML = '';
+        if (!list.length) {
+            box.innerHTML = '<div class="info-row"><span class="info-label">No readable temperature sensor</span><span class="info-value">-</span></div>';
+        } else {
+            list.forEach(function (t) {
+                var row = document.createElement('div');
+                row.className = 'info-row';
+                row.innerHTML = '<span class="info-label">' + esc(t.label) + '</span><span class="info-value"></span>';
+                box.appendChild(row);
+            });
+        }
+        forget('tempv');
+    }
     var max = 0;
-    (list || []).forEach(function (t) {
+    list.forEach(function (t, i) {
         max = Math.max(max, t.celsius);
-        var row = document.createElement('div');
-        row.className = 'info-row';
-        row.innerHTML = '<span class="info-label">' + esc(t.label) + '</span><span class="info-value">' +
-                        t.celsius.toFixed(1) + ' °C</span>';
-        box.appendChild(row);
+        var row = box.children[i];
+        if (row) setNodeText(row.querySelector('.info-value'), 'tempv' + i, t.celsius.toFixed(1) + ' °C');
     });
-    document.getElementById('tempNow').textContent = max ? max.toFixed(1) : '-';
-    hist.temp.push(max ? Math.min(100, max) : 0);      // 0~100 映射到 0~100°C，够用
+    setText('tempNow', max ? max.toFixed(1) : '-');
+    hist.temp.push(max ? Math.min(100, max) : 0);      // 0~100 maps 0~100 C, plenty
     if (hist.temp.length > HISTORY) hist.temp.shift();
-    drawChart(document.getElementById('tempChart'), hist.temp, level(max, 75, 90));
+    setChart('temp', document.getElementById('tempChart'), hist.temp, level(max, 75, 90), drawChart);
     var peak = Math.max.apply(null, hist.temp);
-    document.getElementById('tempPeak').textContent = peak ? 'Peak ' + peak.toFixed(0) + '°C' : 'Peak -';
-    if (!list || !list.length) box.innerHTML = '<div class="info-row"><span class="info-label">No readable temperature sensor</span><span class="info-value">-</span></div>';
+    setText('tempPeak', peak ? 'Peak ' + peak.toFixed(0) + '°C' : 'Peak -');
 }
 
 function renderPower(p) {
     var b = (p && p.battery) || {};
     var panel = document.getElementById('batNow').closest('section');
-    if (!b.present) { panel.style.display = 'none'; return; }
-    panel.style.display = '';
-    document.getElementById('batNow').textContent = b.capacity;
-    setBar(document.getElementById('batBar'), b.capacity);
+    if (!b.present) {
+        if (_wrote.batShown !== 'none') { _wrote.batShown = 'none'; panel.style.display = 'none'; }
+        return;
+    }
+    if (_wrote.batShown !== 'block') { _wrote.batShown = 'block'; panel.style.display = ''; }
+    setText('batNow', b.capacity);
+    setBar(document.getElementById('batBar'), 'batBar', b.capacity);
     // Direction comes from the AC adapter, not from BAT0's status: this machine's EC keeps
     // reporting Charging after the cable is pulled, and Not charging while full and plugged,
     // so trusting status alone reports charge/discharge backwards.
@@ -378,8 +467,8 @@ function renderPower(p) {
     } else {
         st = { Charging: 'Charging', Discharging: 'Discharging', Full: 'Full', 'Not charging': 'Not charging' }[b.status] || b.status || '-';
     }
-    document.getElementById('batStatus').textContent = st;
-    document.getElementById('batAc').textContent = known ? (p.ac_online ? 'connected' : 'disconnected') : '-';
+    setText('batStatus', st);
+    setText('batAc', known ? (p.ac_online ? 'connected' : 'disconnected') : '-');
 
     var eta = '-';
     var watts = b.power_now ? (b.power_now / 1e6) : 0;
@@ -390,7 +479,7 @@ function renderPower(p) {
     } else if (watts > 0) {
         eta = watts.toFixed(1) + ' W';
     }
-    document.getElementById('batEta').textContent = eta;
+    setText('batEta', eta);
 }
 
 var SVC_CLASS = { active: 'tag tag-local', failed: 'tag tag-gone', inactive: 'tag', activating: 'tag tag-coded' };
@@ -420,6 +509,34 @@ function diskOf(dev) {
     var m = name.match(/^(nvme\d+n\d+|mmcblk\d+)/);
     if (m) return m[1];
     return name.replace(/\d+$/, '');
+}
+
+// Charts advance every tick; skipped entirely when the series is identical
+function redrawOpenDiskCharts() {
+    Array.prototype.forEach.call(document.querySelectorAll('.disk-card.open'), function (c) {
+        var svg = c.querySelector('svg.sys-chart');
+        if (svg && c.dataset.disk) setChart('diskchart' + c.dataset.disk, svg, histIo[c.dataset.disk] || [], '', drawChartMax);
+    });
+}
+
+// The busy / read / write numbers in the card head change every second, while the card
+// itself is only rebuilt on structural changes — so refresh just those numbers.
+function updateDiskHeads(io) {
+    io = io || {};
+    Array.prototype.forEach.call(document.querySelectorAll('.disk-card'), function (c) {
+        var x = io[c.dataset.disk];
+        var head = c.querySelector('.disk-head .io');
+        if (head) setNodeHtml(head, 'diskh' + c.dataset.disk, x
+            ? 'busy <b>' + (x.busy || 0).toFixed(0) + '%</b>　read <b>' + fmtRate(x.read_bps) +
+              '</b>　write <b>' + fmtRate(x.write_bps) + '</b>'
+            : 'busy <b>-</b>');
+        // IOPS changes every second too, but it lives inside the card details; the card is
+        // only rebuilt on structural changes, so refresh it here like the head line.
+        var iops = c.querySelector('.iops-line .info-value');
+        if (iops) setNodeText(iops, 'iops' + c.dataset.disk, x
+            ? (x.read_iops || 0).toFixed(0) + ' read / ' + (x.write_iops || 0).toFixed(0) + ' write'
+            : '-');
+    });
 }
 
 function renderIo(io) {
@@ -452,12 +569,12 @@ function loadWifiStatus() {
             ASSOCIATED: 'associated', AUTHENTICATING: 'authenticating', AUTHENTICATED: 'authenticated',
             DISCONNECTED: 'disconnected', INACTIVE: 'disconnected', INTERFACE_DISABLED: 'interface down'
         }[s.state] || s.state || '-';
-        document.getElementById('wifiNow').textContent =
-            (s.ssid || 'not connected') + ' · ' + state + (s.freq ? ' · ' + s.freq + ' MHz' : '');
-        document.getElementById('wifiIp').textContent = s.ip || '-';
+        setText('wifiNow',
+            (s.ssid || 'not connected') + ' · ' + state + (s.freq ? ' · ' + s.freq + ' MHz' : ''));
+        setText('wifiIp', s.ip || '-');
     }).catch(function () {
-        document.getElementById('wifiNow').textContent = 'read failed';
-        document.getElementById('wifiIp').textContent = '-';
+        setText('wifiNow', 'read failed');
+        setText('wifiIp', '-');
     });
 }
 
@@ -548,6 +665,7 @@ function renderDisks(list) {
         open[c.dataset.disk] = true;
     });
     box.innerHTML = '';
+    forget('diskh');            // cards were rebuilt, the head cache no longer applies
     if (!list || !list.length) {
         box.innerHTML = '<div class="srow"><span class="srow-path">No disks detected</span></div>';
         return;
@@ -584,10 +702,8 @@ function renderDisks(list) {
         detail.appendChild(chartBox);
 
         var kw = document.createElement('div');
-        kw.className = 'info-row';
-        kw.innerHTML = '<span class="info-label">IOPS</span><span class="info-value">' +
-            (io ? io.read_iops.toFixed(0) + ' read / ' + io.write_iops.toFixed(0) + ' write' : '-') +
-            '</span>';
+        kw.className = 'info-row iops-line';
+        kw.innerHTML = '<span class="info-label">IOPS</span><span class="info-value">-</span>';
         detail.appendChild(kw);
 
         (d.partitions || []).forEach(function (p) {
@@ -642,12 +758,12 @@ function loadSystem() {
         return r.json();
     }).then(function (d) {
         var s = d.summary || {}, m = d.metrics || {};
-        document.getElementById('rowHost').textContent = s.hostname || '-';
-        document.getElementById('rowKernel').textContent = s.kernel || '-';
-        document.getElementById('rowArch').textContent = (s.arch || '-') + ' / ' + (s.cpu_count || 0) + ' cores';
-        document.getElementById('rowUptime').textContent = s.uptime ? fmtUptime(s.uptime) : '-';
-        document.getElementById('rowBoot').textContent = s.boot_at ? fmtTime(s.boot_at) : '-';
-        document.getElementById('rowLoad').textContent = [s.load1, s.load5, s.load15].filter(Boolean).join(' / ') || '-';
+        setText('rowHost', s.hostname || '-');
+        setText('rowKernel', s.kernel || '-');
+        setText('rowArch', (s.arch || '-') + ' / ' + (s.cpu_count || 0) + ' cores');
+        setText('rowUptime', s.uptime ? fmtUptime(s.uptime) : '-');
+        setText('rowBoot', s.boot_at ? fmtTime(s.boot_at) : '-');
+        setText('rowLoad', [s.load1, s.load5, s.load15].filter(Boolean).join(' / ') || '-');
         renderCpu(m.cpu || {});
         renderMemory(m.memory || {});
         // These cards rarely change: skip the DOM work when the payload is identical
@@ -655,7 +771,14 @@ function loadSystem() {
         if (cardChanged('power', m.power)) renderPower(m.power || {});
         if (cardChanged('io', m.io)) renderIo(m.io);
         if (cardChanged('svc', d.services)) renderServices(d.services);
-        if (cardChanged('disk', d.disks)) renderDisks(d.disks);
+        var diskSig = (d.disks || []).map(function (x) {
+            return x.name + ':' + (x.partitions || []).map(function (p) {
+                return p.name + '|' + (p.mount || '') + '|' + p.percent + '|' + p.fstype;
+            }).join(',');
+        }).join(';');
+        if (cardChanged('disk', diskSig)) renderDisks(d.disks);
+        redrawOpenDiskCharts();
+        updateDiskHeads(m.io);
     }).catch(function () {
         document.getElementById('svcList').innerHTML = '<div class="srow"><span class="srow-path c-danger-strong">Read failed</span></div>';
         document.getElementById('diskList').innerHTML = '<div class="srow"><span class="srow-path c-danger-strong">Read failed</span></div>';
@@ -664,21 +787,55 @@ function loadSystem() {
 
 document.getElementById('wifiScanBtn').addEventListener('click', scanWifi);
 
-// Time zone: list comes from the server (zone.tab); the choice is POSTed to timedatectl
+// Time zone: list comes from the server (zone.tab); the choice is POSTed to timedatectl.
+// The list is raw IANA names, so the common ones go in their own group with readable labels.
+var TZ_CN = {
+    'Asia/Shanghai': 'China · Beijing (Asia/Shanghai)',
+    'Asia/Urumqi': 'China · Urumqi (Asia/Urumqi)',
+    'Asia/Chongqing': 'China · Chongqing (Asia/Chongqing)',
+    'Asia/Harbin': 'China · Harbin (Asia/Harbin)',
+    'Asia/Kashgar': 'China · Kashgar (Asia/Kashgar)',
+    'Asia/Hong_Kong': 'China · Hong Kong (Asia/Hong_Kong)',
+    'Asia/Macau': 'China · Macau (Asia/Macau)',
+    'Asia/Taipei': 'China · Taipei (Asia/Taipei)',
+    'Asia/Singapore': 'Singapore (Asia/Singapore)',
+    'UTC': 'Coordinated Universal Time (UTC)'
+};
+
 function loadTimezones() {
     fetch('/api/system/timezones', { credentials: 'same-origin' }).then(function (r) {
         return r.json();
     }).then(function (d) {
         var sel = document.getElementById('tzSelect');
         if (!sel || !d || !d.timezones) return;
+        var all = d.timezones.slice();
+        // The current zone may not be in zone.tab (Etc/UTC and friends); add it back,
+        // otherwise the closed select silently shows the first entry.
+        if (d.current && all.indexOf(d.current) < 0) all.unshift(d.current);
         sel.innerHTML = '';
-        d.timezones.forEach(function (z) {
+        var common = document.createElement('optgroup');
+        common.label = 'Common';
+        Object.keys(TZ_CN).forEach(function (z) {
+            if (all.indexOf(z) >= 0) {
+                var o = document.createElement('option');
+                o.value = z;
+                o.textContent = TZ_CN[z];
+                if (z === d.current) o.selected = true;
+                common.appendChild(o);
+            }
+        });
+        sel.appendChild(common);
+        var rest = document.createElement('optgroup');
+        rest.label = 'All time zones';
+        all.forEach(function (z) {
+            if (TZ_CN[z]) return;
             var o = document.createElement('option');
             o.value = z;
             o.textContent = z;
             if (z === d.current) o.selected = true;
-            sel.appendChild(o);
+            rest.appendChild(o);
         });
+        sel.appendChild(rest);
     }).catch(function () {});
 }
 

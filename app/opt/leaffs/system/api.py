@@ -1,41 +1,28 @@
-"""本机状态接口：把 host.collect() 的结果交给网页。
+"""本机状态接口：把 host 的分档采集结果交给网页。
 
 只读为主，写操作只有无线网络连接这一处（`/api/wifi/connect`）。鉴权不在这里做 ——
 分派层用 `_SUPER_ADMIN_ONLY_GET` / `_SUPER_ADMIN_ONLY_POST` 统一判，新增接口时
 必须同时把路径加进那两个集合，否则就是开了个没门禁的入口。
+
+数据通道见 `.work/PROTOCOL-2026-10-26-system-ws.md`：HTTP 只在打开页面时取一次全量，
+之后由 WebSocket 推变化；HTTP 的 `scope=fast` 只给每秒档，供断线兜底轮询。
 """
 
 import subprocess
-import threading
-import time
 
 import leaffs.system.host as host
 import leaffs.system.wifi as wifi
 
-# 采集节拍固定 1 秒：页面每秒取一次并重绘，后端每秒采一次，两边同拍。
-# 缓存只用来吸收同一秒内的多余请求（多开窗口、浏览器的并发），
-# 不会让任何一份数据变旧超过 1 秒。
-_TTL = 1.0
-_lock = threading.Lock()
-_cache = {'at': 0.0, 'data': None}
 
+def send_system(handler, scope='full'):
+    """一次请求取一份。`scope='fast'` 时慢档字段不采集也不出现。
 
-def _snapshot(collect):
-    now = time.monotonic()
-    with _lock:
-        data = _cache['data']
-        if data is not None and (now - _cache['at']) < _TTL:
-            return data
-    data = collect()
-    with _lock:
-        _cache['data'] = data
-        _cache['at'] = time.monotonic()
-    return data
-
-
-def send_system(handler, collect):
+    这里不再挂缓存：采集已经分档，每秒档就是四个 /proc 文件，缓存省下的那点
+    读取还不够做一次时间比较；而以前那两个「disks/services 各 5 秒」的槽从来没
+    生效过 —— 1 秒那份 payload 已经把两者算进去了。
+    """
     try:
-        data = _snapshot(collect)
+        data = host.snapshot(scope)
     except Exception as e:                     # 采集失败要说清楚，不能给半张表
         handler.send_json({'error': '系统状态读取失败: %s' % e}, 500)
         return
