@@ -172,23 +172,102 @@ def _service_state(name):
     return state
 
 
-def services():
-    """七个单元一次问完。
+def _num_or_none(value):
+    """systemd 的数值属性：没开账目时是 `[not set]`，未知时是 UINT64_MAX。
 
-    `systemctl is-active` 接受多个单元、按同样顺序每行一个状态，所以一次子进程就够；
-    逐个问是七个进程，实测单次 collect 的 58 ms 里 43 ms 都花在建进程上。
+    这两种都不该显示成 1844 亿 GB，当"没有"处理。
+    """
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if 0 <= n < (1 << 62) else None
+
+
+def _parse_show(text):
+    """`systemctl show` 多单元输出 → {Id: {属性: 值}}。块之间以空行分隔。"""
+    out, cur = {}, {}
+    for line in text.splitlines():
+        if not line.strip():
+            if cur.get('Id'):
+                out[cur['Id']] = cur
+            cur = {}
+            continue
+        key, _, value = line.partition('=')
+        cur[key.strip()] = value.strip()
+    if cur.get('Id'):
+        out[cur['Id']] = cur
+    return out
+
+
+def _service_row(name, props):
+    props = props or {}
+    return {
+        'name': name,
+        'state': props.get('ActiveState') or 'unknown',
+        'pid': _num_or_none(props.get('MainPID')) or 0,
+        'memory': _num_or_none(props.get('MemoryCurrent')),
+        'cpu_ns': _num_or_none(props.get('CPUUsageNSec')),
+        'desc': props.get('Description') or '',
+    }
+
+
+def services():
+    """七个单元一次问完，顺带回占用。
+
+    `systemctl is-active` 只给状态，内存与累计 CPU 时间还得再问一次；`systemctl show`
+    一次就能接受多个单元、按单元分块输出，所以加上占用仍然只有一次子进程 ——
+    与原来 is-active 那一趟同价。
     """
     exe = shutil.which('systemctl') or '/usr/bin/systemctl'
+    props = 'Id,ActiveState,MainPID,MemoryCurrent,CPUUsageNSec,Description'
     try:
-        r = subprocess.run([exe, 'is-active', *SERVICES], capture_output=True,
-                           text=True, timeout=5)
-        states = (r.stdout or '').split()
-        if len(states) == len(SERVICES):
-            return [{'name': n, 'state': s} for n, s in zip(SERVICES, states)]
+        r = subprocess.run([exe, 'show', '-p', props, *SERVICES],
+                           capture_output=True, text=True, timeout=5)
+        got = _parse_show(r.stdout or '')
     except (OSError, subprocess.SubprocessError):
-        pass
+        got = {}
+    if len(got) == len(SERVICES):
+        return [_service_row(n, got.get(n + '.service') or got.get(n)) for n in SERVICES]
     # 输出对不上（某个单元名被改过等）才退回逐个问，结果宁可慢也不能给半张表
     return [{'name': n, 'state': _service_state(n)} for n in SERVICES]
+
+
+def processes(limit=8):
+    """内存占用前 N 的进程。跟服务一起走慢档，30 秒一次。
+
+    statm 的第二列是常驻页数，comm 是进程名 —— 都是小文件，不开 fork。
+    CPU 时间不在这里给：逐进程差分要留着上一拍的累计值，而 30 秒一档的差分
+    对"谁在占 CPU"几乎没有解释力，不如只按内存排。
+    """
+    try:
+        page = os.sysconf('SC_PAGE_SIZE')
+    except (ValueError, OSError):
+        page = 4096
+    try:
+        entries = os.listdir('/proc')
+    except OSError:
+        return []
+    out = []
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open('/proc/' + entry + '/statm', 'rb') as f:
+                fields = f.read().split()
+            rss = int(fields[1]) * page
+        except (OSError, IndexError, ValueError):
+            continue
+        if rss <= 0:
+            continue
+        try:
+            with open('/proc/' + entry + '/comm', encoding='utf-8', errors='replace') as f:
+                comm = f.read().strip()
+        except OSError:
+            continue
+        out.append({'pid': int(entry), 'name': comm or entry, 'rss': rss})
+    out.sort(key=lambda p: (-p['rss'], p['pid']))
+    return out[:limit]
 
 
 def timezone():
@@ -482,13 +561,14 @@ def fast():
 
 
 def slow():
-    """状态档：分区与挂载、服务、无线、温度、电池。"""
+    """状态档：分区与挂载、服务、无线、温度、电池、进程榜。"""
     import leaffs.system.wifi as _wifi
     return {
         'temp': temperatures(),
         'power': power(),
         'disks': disks(),
         'services': services(),
+        'procs': processes(),
         'wifi': _wifi.status(),
     }
 
