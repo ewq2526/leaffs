@@ -682,11 +682,21 @@ function reclampWindows() {
 
 window.addEventListener('resize', reclampWindows);
 
-/* ---------- 拖动：移动时只改 transform，松手才写 left/top ---------- */
+/* ---------- 拖动：移动时只改 transform，松手才写 left/top ----------
+   指针事件挂在 document 上，不靠 setPointerCapture：窗口层是 pointer-events:none
+   （不然桌面图标点不动），在它上面做指针捕获在 WebKitGTK 里不生效，一拖就丢。
+   拖动期间给窗口层加 busy：那一层的 iframe 不再吃指针，鼠标划过窗口内容也不会断。 */
 var drag = null;
 
+// 点在标题栏上的按钮（最大化 / 关闭）时不要开始拖动，也不要 preventDefault ——
+// 那会把按钮自己的 click 掐掉，表现就是"关不掉、放不了全屏"。
+function onButton(e) {
+  var t = e.target;
+  return !!(t && t.closest && t.closest('button'));
+}
+
 function onBarDown(e) {
-  if (e.button !== 0) return;
+  if (e.button !== 0 || onButton(e)) return;
   var el = e.currentTarget.parentNode.parentNode;
   var id = el.dataset.app;
   focusWindow(id);
@@ -708,7 +718,6 @@ function onBarDown(e) {
   };
   el.classList.add('busy');
   winsEl.classList.add('busy');
-  capturePointer(e.pointerId);
   e.preventDefault();
 }
 
@@ -741,20 +750,16 @@ function onGripDown(e) {
   };
   el.classList.add('busy');
   winsEl.classList.add('busy');
-  capturePointer(e.pointerId);
   e.preventDefault();
   e.stopPropagation();
 }
 
-/* 指针捕获只是为了让移动事件不丢；指针已经抬起时 setPointerCapture 会抛，
-   这不是错误，忽略即可 —— 让它把整次拖动打断才是错的。 */
-function capturePointer(pid) {
-  try { winsEl.setPointerCapture(pid); } catch (err) { /* 指针已失效 */ }
-}
-
 var pendingFrame = 0;
 
-winsEl.addEventListener('pointermove', function (e) {
+/* 移动与松手挂在 document 上：窗口层是 pointer-events:none，在它身上做指针捕获
+   在 WebKitGTK 里收不到后续事件，拖动会卡在第一帧。document 上的监听不依赖命中测试，
+   划过窗口里的 iframe 也不断（拖动期间那一层的 iframe 已被 busy 关掉指针）。 */
+document.addEventListener('pointermove', function (e) {
   if (!drag || e.pointerId !== drag.pid) return;
   var dx = e.clientX - drag.sx;
   var dy = e.clientY - drag.sy;
@@ -815,13 +820,13 @@ function endDrag(e) {
   drag = null;
 }
 
-winsEl.addEventListener('pointerup', endDrag);
-winsEl.addEventListener('pointercancel', endDrag);
+document.addEventListener('pointerup', endDrag);
+document.addEventListener('pointercancel', endDrag);
+// 指针移出浏览器窗口时收不到 pointerup，拖动会僵在那儿 —— 失焦就当松手
+window.addEventListener('blur', function () { endDrag(null); });
 
-/* ---------- 桌面图标 ---------- */
-document.querySelectorAll('.desk-icon').forEach(function (btn) {
-  btn.addEventListener('click', function () { openApp(btn.dataset.app); });
-});
+/* ---------- 桌面图标 ----------
+   图标是启动时按角色生成的（buildIcons），事件挂在那里；这里不再重复绑定。 */
 
 /* ====================================================================
    托盘
