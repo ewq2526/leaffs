@@ -24,11 +24,11 @@ Environment=PYTHONUNBUFFERED=1
 # XDG_DATA_HOME 不动：localStorage 与 IndexedDB 在它下面，主题与偏好要跨重启保留。
 RuntimeDirectory=camphor-cache
 Environment=XDG_CACHE_HOME=/run/camphor-cache
-# 部分核显上 WebKit 的加速合成会画出灰白一片（窗口在、内容不出现）。
-# 关掉合成走软件绘制：这一屏就是一页网页，软件绘制完全够用。
-Environment=WEBKIT_DISABLE_COMPOSITING_MODE=1
 # launch.sh 先等 /dev/dri/card0 出现再 exec 成 xinit：显卡没就绪时不启动 X，
 # 避免一次注定 no screens found 的失败和随之而来的黑屏
+# 以前这里还有一条 WEBKIT_DISABLE_COMPOSITING_MODE=1，说是为了避开"部分核显上加速
+# 合成会画出灰白一片"。那个灰白是应用侧的问题，不是合成器的问题；拿全局关合成去绕，
+# 代价是整屏走软件绘制，每次刷新都更贵。不要再加回来。
 # WebKit 的 Cookie 存盘（跨重启不用重新登录），但它的 HSTS 库每轮询一次就可能提交
 # 一次写；启动前用 tmpfs 盖住那一个子目录，写盘归零。
 ExecStartPre=/usr/local/bin/camphor-kiosk-cache.sh
