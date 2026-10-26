@@ -841,6 +841,23 @@ def install_worker(device, rowid, username="", password=""):
         else:
             add_line("介质上没有 sources.list，装好的系统需要手动补软件源")
 
+        # 时区：默认北京时间。镜像里不带时区数据的话就沿用默认值，并在日志里写明。
+        # 写法照 Debian：/etc/timezone 是名字，/etc/localtime 是指向 zoneinfo 的链接。
+        zone = os.path.join(TARGET, "usr/share/zoneinfo/Asia/Shanghai")
+        if os.path.exists(zone):
+            os.makedirs(os.path.join(TARGET, "etc"), exist_ok=True)
+            with open(os.path.join(TARGET, "etc/timezone"), "w", encoding="utf-8") as f:
+                f.write("Asia/Shanghai\n")
+            link = os.path.join(TARGET, "etc/localtime")
+            try:
+                os.unlink(link)
+            except OSError:
+                pass
+            os.symlink("/usr/share/zoneinfo/Asia/Shanghai", link)
+            add_line("时区：Asia/Shanghai（默认北京时间）")
+        else:
+            add_line("镜像里没有 Asia/Shanghai 时区数据，时区沿用镜像默认值")
+
         # 账号：镜像出厂状态里没有任何可登录的用户（root 是锁定的），
         # 不在这里建一个，装完就没人能进系统。用户名与口令由安装界面填。
         set_state(step="创建账号")

@@ -59,7 +59,10 @@ body {
     background: var(--tm-panel); color: var(--tm-text);
     border: 1px solid var(--tm-line); border-radius: 3px;
     font: inherit; padding: 2px 4px; max-width: 200px;
+    /* 下拉列表是浏览器画的，不声明 color-scheme 时它按浅色画，字是浅色 → 白底白字 */
+    color-scheme: dark;
 }
+.tm-bar select option { background: var(--tm-panel); color: var(--tm-text); }
 /* 退出：这一页在 kiosk 里是整屏窗口，没有浏览器地址栏与后退键，
    不给一个出口就只能在 tty2 上敲命令。 */
 .tm-exit {
@@ -1330,8 +1333,11 @@ function loadTimezones() {
     }).then(function (d) {
         var sel = document.getElementById('tzSelect');
         if (!sel || !d || !d.timezones) return;
+        // 读不到当前时区（镜像里没写、或 statics 还没到）时按北京时间选 ——
+        // 这一页的使用场景就是国内设备，落到 UTC 上等于让人以为时间错了。
+        var current = d.current || 'Asia/Shanghai';
         var all = d.timezones.slice();
-        if (d.current && all.indexOf(d.current) < 0) all.unshift(d.current);
+        if (all.indexOf(current) < 0) all.unshift(current);
         sel.innerHTML = '';
         var common = document.createElement('optgroup');
         common.label = '常用';
@@ -1340,7 +1346,7 @@ function loadTimezones() {
                 var o = document.createElement('option');
                 o.value = z;
                 o.textContent = TZ_CN[z];
-                if (z === d.current) o.selected = true;
+                if (z === current) o.selected = true;
                 common.appendChild(o);
             }
         });
@@ -1352,10 +1358,11 @@ function loadTimezones() {
             var o = document.createElement('option');
             o.value = z;
             o.textContent = z;
-            if (z === d.current) o.selected = true;
+            if (z === current) o.selected = true;
             rest.appendChild(o);
         });
         sel.appendChild(rest);
+        sel.value = current;
     }).catch(function () {});
 }
 
