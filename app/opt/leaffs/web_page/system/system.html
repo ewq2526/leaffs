@@ -177,6 +177,22 @@ body {
 .tm-hd .dlegend i.c-rd { background: var(--primary, #34d399); }
 .tm-hd .dlegend i.c-wr { background: var(--warn, #f5b74e); }
 
+/* 总利用率 / 逻辑处理器 的切换。两样同时画一屏放不下，只留一个，省下来的高度全给图。 */
+.tm-seg {
+    display: inline-flex; align-items: stretch; align-self: center;
+    border: 1rem solid var(--tm-line-soft);
+}
+.tm-seg button {
+    background: none; border: 0; margin: 0; cursor: pointer;
+    font: inherit; font-size: 11.5rem; line-height: 1;
+    color: var(--tm-dim); padding: 4rem 10rem;
+}
+.tm-seg button + button { border-left: 1rem solid var(--tm-line-soft); }
+.tm-seg button.on { background: #2b2b2b; color: var(--text); }
+/* 两个视图占同一块地方：显示的吃满，hidden 的不参与布局 */
+.tm-view { flex: 1 1 0; min-height: 140rem; min-width: 0; display: flex; }
+.tm-view[hidden] { display: none; }
+
 /* 大曲线吃掉标题与数值表之外的全部高度。试过封顶 40vh：表下面会空出 230~310rem 的死区，
    比曲线偏大更难看，所以不封顶。flex-basis 必须是 0 —— SVG 带 viewBox，basis 为 auto 时
    会先按 100:40 算出固有高度，再被截一刀，白折腾。 */
@@ -187,7 +203,7 @@ body {
     font-variant-numeric: tabular-nums; user-select: none;
 }
 
-/* 曲线下面：左边数值表，右边附属（每核 / 组成 / 分区 / 网络列表）。
+/* 曲线下面：左边数值表，右边附属（内存的组成 / 磁盘分区 / 网络列表）。
    左列定宽而不是 1fr：数值靠右对齐，列一宽，键和值就隔开半屏，读起来要来回找。 */
 .tm-cols {
     display: grid;
@@ -199,6 +215,13 @@ body {
 .tm-cols.one { grid-template-columns: minmax(0, 1fr); }
 
 .tm-table { min-width: 0; }
+/* 两列摆放：五行压成三行，少掉的高度让给上面的图。
+   分隔线画成 border-top（第一行不要），这样最后一行不会拖一条悬空的横线。 */
+.tm-table.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 36rem; }
+.tm-table.two .tm-row { border-bottom: 0; border-top: 1rem solid var(--tm-line-soft); }
+.tm-table.two > .tm-row:nth-child(-n+2) { border-top: 0; }
+/* 温度那几行由脚本插进一个容器里，容器本身不占格子，孩子们直接进网格 */
+.tm-table.two #tempRows { display: contents; }
 .tm-row {
     display: grid;
     grid-template-columns: max-content minmax(0, 1fr);
@@ -219,16 +242,20 @@ body {
     margin: 0 0 6rem;
     font-size: 11.5rem; font-weight: 600; color: var(--tm-dim);
 }
-/* 逻辑处理器：一个核一个方框，框里是它自己的曲线，框左上角是名字、右上角是当前值 */
+/* 逻辑处理器：一个核一个方框，框里是它自己的曲线，框左上角是名字、右上角是当前值。
+   视图切到"逻辑处理器"时它铺满整块，所以按可用宽度自动分列；行高给上下限，
+   免得核少的时候（4 核铺满一屏）拉成一根两尺高的柱子。 */
 .tm-cores {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(190rem, 1fr));
-    gap: 8rem; max-width: 900rem;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240rem, 1fr));
+    grid-auto-rows: minmax(96rem, 260rem);
+    align-content: start;
+    gap: 8rem; width: 100%; min-height: 0;
 }
 .tm-core {
     border: 1rem solid var(--tm-line-soft);
     background: #1c1c1c;
     padding: 5rem 8rem 4rem;
-    height: 96rem;
+    min-height: 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: auto minmax(0, 1fr);
@@ -397,20 +424,26 @@ body {
         <div class="tm-panes" id="tmDetail">
 
             <section class="tm-detail" data-tab="cpu" id="detCPU">
-                <div class="tm-hd"><h2>CPU</h2><span class="sub" id="cpuSub">-</span></div>
-                <svg class="tm-chart" id="cpuChartBig" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
-                <div class="tm-cols">
-                    <div class="tm-table">
+                <div class="tm-hd"><h2>CPU</h2>
+                    <div class="tm-seg" id="cpuMode">
+                        <button type="button" data-mode="total" class="on">总利用率</button>
+                        <button type="button" data-mode="core">逻辑处理器</button>
+                    </div>
+                    <span class="sub" id="cpuSub">-</span></div>
+                <div class="tm-view" id="cpuViewTotal">
+                    <svg class="tm-chart" id="cpuChartBig" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
+                </div>
+                <div class="tm-view" id="cpuViewCore" hidden>
+                    <div class="tm-cores" id="cpuCores"></div>
+                </div>
+                <div class="tm-cols one">
+                    <div class="tm-table two">
                         <div class="tm-row"><span class="k">利用率</span><span class="v" id="cpuUse">-</span></div>
                         <div class="tm-row"><span class="k">峰值</span><span class="v" id="cpuPeak2">-</span></div>
                         <div class="tm-row"><span class="k">逻辑处理器</span><span class="v" id="cpuCoresN">-</span></div>
                         <div class="tm-row"><span class="k">负载（1 / 5 / 15 分钟）</span><span class="v" id="cpuLoad2">-</span></div>
                         <div class="tm-row"><span class="k">运行时长</span><span class="v" id="cpuUptime2">-</span></div>
                         <div id="tempRows"></div>
-                    </div>
-                    <div class="tm-side">
-                        <h3>逻辑处理器</h3>
-                        <div class="tm-cores" id="cpuCores"></div>
                     </div>
                 </div>
             </section>
@@ -718,11 +751,69 @@ function selectTab(name) {
     });
     // 画哪张图由 drawHistories 按 curTab 决定：刚显示出来的详情才有尺寸，
     // 隐藏时画不了（setChart 会拒绝并留下"没画成"的签名）。
+    if (name === 'cpu') layoutCores();
     drawHistories();
 }
 
 Array.prototype.forEach.call(document.querySelectorAll('.tm-item[data-tab]'), function (b) {
     b.addEventListener('click', function () { selectTab(b.dataset.tab); });
+});
+
+// ---------- CPU 视图：总利用率 / 逻辑处理器 二选一 ----------
+// 两样同时画（大曲线 + 每核小格）一屏挤不下，曲线被压到没有高度。
+// 切换只留一个，省下来的地方全给这张图。
+var cpuMode = 'total';
+
+// 每核方格的排布：按可用宽高算列数与行高，让它们铺满这块地方，
+// 而不是在核少的时候挤在上半截、留一大片空。长度用设计像素算，再折算回 rem。
+function layoutCores() {
+    var box = document.getElementById('cpuCores');
+    if (!box) return;
+    var n = box.children.length;
+    if (!n) return;
+    var w = box.clientWidth, h = box.clientHeight;
+    if (!w || !h) return;
+    var root = parseFloat(getComputedStyle(document.documentElement).fontSize) || 1;
+    var GAP = 8, MIN_W = 420, MIN_H = 96, MAX_H = 420;      // 都是设计像素
+    var gapPx = GAP * root;
+    var maxRows = Math.max(1, Math.floor((h + gapPx) / ((MIN_H + GAP) * root)));
+    var cols = Math.max(1, Math.floor((w + gapPx) / ((MIN_W + GAP) * root)));
+    cols = Math.min(n, Math.max(cols, Math.ceil(n / maxRows)));
+    var rows = Math.ceil(n / cols);
+    var rowH = (h - gapPx * (rows - 1)) / rows;
+    rowH = Math.min(rowH, MAX_H * root);
+    box.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
+    box.style.gridAutoRows = (rowH / root).toFixed(2) + 'rem';
+}
+
+function setCpuMode(mode) {
+    cpuMode = (mode === 'core') ? 'core' : 'total';
+    Array.prototype.forEach.call(document.querySelectorAll('#cpuMode button'), function (b) {
+        b.classList.toggle('on', b.dataset.mode === cpuMode);
+    });
+    document.getElementById('cpuViewTotal').hidden = cpuMode !== 'total';
+    document.getElementById('cpuViewCore').hidden = cpuMode !== 'core';
+    // 与切条目同一套口径：刚显示出来的容器才有尺寸。画不了的图不会写签名，
+    // 所以切换时把两边的签名都清掉，谁露出来谁重画。
+    layoutCores();
+    forget('cpuBig');
+    forget('coremini');
+    drawHistories();
+}
+
+Array.prototype.forEach.call(document.querySelectorAll('#cpuMode button'), function (b) {
+    b.addEventListener('click', function (e) {
+        e.stopPropagation();          // 别把点击冒泡成"切条目"
+        setCpuMode(b.dataset.mode);
+    });
+});
+
+// 换分辨率后格子要重新排：行高是按可用高度算出来的
+addEventListener('resize', function () {
+    if (curTab !== 'cpu' || cpuMode !== 'core') return;
+    layoutCores();
+    forget('coremini');
+    drawHistories();
 });
 
 // ---------- 键盘 ----------
@@ -814,6 +905,7 @@ function renderCpu(cpu) {
         });
         forget('coretxt');
         forget('coremini');
+        if (cpuMode === 'core') layoutCores();
     }
     cores.forEach(function (v, i) {
         var d = box.children[i];
@@ -1515,13 +1607,16 @@ function drawHistories() {
     if (lastCpu) {
         var lv = level(lastCpu.total || 0, 75, 90);
         setChart('cpuSpark', document.getElementById('stkCpuSpark'), hist.cpu, lv, drawSpark);
-        setChart('cpuBig', document.getElementById('cpuChartBig'), hist.cpu, lv, drawChart);
-        var box = document.getElementById('cpuCores');
-        (lastCpu.cores || []).forEach(function (v, i) {
-            var d = box.children[i];
-            if (d) setChart('coremini' + i, d.querySelector('.mini'),
-                            hist.cores[i] || [], level(v, 75, 90), drawMini);
-        });
+        if (cpuMode === 'core') {
+            var box = document.getElementById('cpuCores');
+            (lastCpu.cores || []).forEach(function (v, i) {
+                var d = box.children[i];
+                if (d) setChart('coremini' + i, d.querySelector('.mini'),
+                                hist.cores[i] || [], level(v, 75, 90), drawMini);
+            });
+        } else {
+            setChart('cpuBig', document.getElementById('cpuChartBig'), hist.cpu, lv, drawChart);
+        }
     }
     if (lastMem) {
         var mlv = level(lastMem.percent, 80, 92);
