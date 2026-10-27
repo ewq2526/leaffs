@@ -1729,7 +1729,15 @@ window.addEventListener('resize', function () {
     }, 200);
 });
 
-selectTab('cpu');
+// 从桌面的托盘点进来时带 ?tab=net，直接落到对应的那一栏；非法值落回 CPU。
+var _wantedTab = (function () {
+    var m = /[?&]tab=([\w:.-]+)/.exec(location.search);
+    if (!m) return 'cpu';
+    var ok = Array.prototype.some.call(document.querySelectorAll('.tm-item[data-tab]'),
+        function (it) { return it.dataset.tab === m[1]; });
+    return ok ? m[1] : 'cpu';
+})();
+selectTab(_wantedTab);
 loadTimezones();
 fetchSnapshot();
 connect();

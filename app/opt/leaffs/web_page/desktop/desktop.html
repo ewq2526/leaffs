@@ -270,6 +270,13 @@ window.__DESK_ROLE__='__DESK_ROLE_JSON__';</script>
     background: none; border: 0; padding: 0; color: inherit; font: inherit;
   }
   .tray .item svg { display: block; }
+  /* 能点的托盘项（现在是无线）：光标 + 悬停底色，点开系统页的「网络」栏 */
+  .tray .item.tap { cursor: pointer; border-radius: calc(5 * var(--u)); }
+  .tray .item.tap:hover { background: rgba(255, 255, 255, 0.09); }
+  .tray .item.tap:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 calc(1.5 * var(--u)) rgba(96, 150, 255, 0.8);
+  }
   .tray .label { font-size: calc(11 * var(--u)); color: var(--dim); font-variant-numeric: tabular-nums; }
   .tray .ok { color: var(--green); }
   .tray .off { color: #6b7488; }
@@ -339,18 +346,10 @@ window.__DESK_ROLE__='__DESK_ROLE_JSON__';</script>
   <div class="spacer"></div>
 
   <div class="tray">
-    <!-- 系统状态：三根柱 -->
-    <div class="item" id="traySys">
-      <div class="hint">系统状态</div>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <rect x="3" y="12" width="4" height="9" rx="2"/>
-        <rect x="10" y="4" width="4" height="17" rx="2"/>
-        <rect x="17" y="9" width="4" height="12" rx="2"/>
-      </svg>
-    </div>
-
-    <!-- 无线：已连接 / 未连接（斜杠）。初始按「未连接」画，等推送到了再改 -->
-    <div class="item off" id="trayWifi">
+    <!-- 无线：已连接 / 未连接（斜杠）。初始按「未连接」画，等推送到了再改。
+         点它打开系统页的「网络」栏 —— 扫描、选网络、输密码都在那一栏里，
+         托盘这里只显示状态，不再是个点不动的空图标。 -->
+    <button class="item tap off" id="trayWifi" type="button" aria-label="无线网络">
       <div class="hint" id="wifiHint">无线 · 未知</div>
       <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
@@ -360,7 +359,7 @@ window.__DESK_ROLE__='__DESK_ROLE_JSON__';</script>
         <circle cx="12" cy="19.2" r="1.5" fill="currentColor" stroke="none"/>
         <path id="wifiSlash" d="M3 3 L21 21" stroke-width="2"/>
       </svg>
-    </div>
+    </button>
 
     <!-- 电量：只有确实读到一块有电量的电池才出现，其余情况整块不占位 -->
     <div class="item" id="trayBatt" style="display:none">
@@ -488,7 +487,7 @@ function winsRect() { return winsEl.getBoundingClientRect(); }
 
 function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
-function makeWindow(id) {
+function makeWindow(id, route) {
   var spec = APPS[id];
   var g = gridPx();
   var area = winsRect();
@@ -539,7 +538,7 @@ function makeWindow(id) {
   frame.className = 'win-frame';
   var iframe = document.createElement('iframe');
   iframe.setAttribute('title', spec.title);
-  iframe.setAttribute('src', spec.route);
+  iframe.setAttribute('src', route || spec.route);
   frame.appendChild(iframe);
 
   body.appendChild(bar);
@@ -593,10 +592,19 @@ function removeTaskButton(id) {
   if (b) b.remove();
 }
 
-function openApp(id) {
+function openApp(id, route) {
   if (!APPS[id]) return;
-  if (opened[id]) { focusWindow(id); return; }
-  makeWindow(id);
+  if (opened[id]) {
+    // 已经在开着：给的是另一个入口（比如从托盘点无线进「网络」栏）就换一页，
+    // 不然只是把它提到前面，看起来像点了没反应。
+    if (route) {
+      var f = opened[id].querySelector('iframe');
+      if (f && f.getAttribute('src') !== route) f.setAttribute('src', route);
+    }
+    focusWindow(id);
+    return;
+  }
+  makeWindow(id, route);
   focusWindow(id);
   addTaskButton(id);
 }
@@ -856,6 +864,9 @@ var powerBtn = document.getElementById('powerBtn');
 
 var wifiState = null;
 
+// 托盘里的无线图标：点它进系统页的「网络」栏（扫描 / 选网络 / 输密码都在那一栏）
+trayWifi.addEventListener('click', function () { openApp('system', '/system?tab=net'); });
+
 function applyWifi(w) {
   if (!w) return;
   var connected = (w.state === 'COMPLETED') || !!w.ip;
@@ -863,7 +874,7 @@ function applyWifi(w) {
   if (key === wifiState) return;            // 值没变，一个节点都不碰
   wifiState = key;
   wifiSlash.style.display = connected ? 'none' : '';
-  trayWifi.className = 'item ' + (connected ? 'ok' : 'off');
+  trayWifi.className = 'item tap ' + (connected ? 'ok' : 'off');
   wifiHint.textContent = connected
     ? ('无线 · ' + (w.ssid || '已连接') + (w.ip ? ' · ' + w.ip : ''))
     : '无线 · 未连接';
