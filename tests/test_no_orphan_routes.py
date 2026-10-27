@@ -9,7 +9,7 @@
   1. 从 server/handler.py 用 AST 取**真正的路由声明** —— GET_ROUTES 表、
      _ADMIN_ONLY_GET/_ADMIN_ONLY_POST 两个清单、do_POST 里的 handlers 字典、
      以及 do_GET/do_POST 中硬编码的 path 字面量比较；
-  2. 在全仓库（web_page 的 html/js/css、android 的源码、tests、其它 py、
+  2. 在全仓库（web_page 的 html/js/css、tests、其它 py、
      以及 README/CHANGELOG）里找这个路径有没有被引用（子串匹配，前缀路由
      如 /browse/ 会被 /browse/public 命中）；
   3. 只有 handler.py 自己提到过 → 孤儿。
@@ -22,7 +22,7 @@ import pathlib
 import re
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-HANDLER = ROOT / 'leaffs' / 'server' / 'handler.py'
+HANDLER = ROOT / 'app' / 'opt' / 'leaffs' / 'server' / 'handler.py'
 
 # 扫描引用时要跳过的目录（构建副本、缓存、依赖、归档）
 # ⚠️ `.work` 必须跳：探针脚本住在那里，它们含各种 URL 字面量，会污染"孤儿路由"判定。
@@ -33,6 +33,8 @@ SCAN_SUFFIXES = {'.py', '.js', '.html', '.css', '.kt', '.java', '.json', '.md', 
 # 服务端运行时生成、前端按"值"消费的 URL —— 前端代码里当然找不到这些字面量
 GENERATED_URL_WHITELIST = {
     '/api/qrlogin': '二维码内容：后端拼 /api/qrlogin?sid=…，扫码方在浏览器地址栏访问它',
+    '/api/qrcode/status': '扫码登录：扫码方（手机客户端，不在本仓库）轮询扫码状态',
+    '/api/qrcode/refresh': '扫码登录：扫码方（手机客户端，不在本仓库）换一张二维码',
 }
 
 

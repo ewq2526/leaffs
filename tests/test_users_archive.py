@@ -141,20 +141,27 @@ def test_deleting_an_archive_refreshes_the_parent_totals(client):
     login(client)
     entry = _make_archive(client, 'arch_agg_user', b'x' * 500)
 
-    def users_total():
+    def users_total(not_value=None):
         # 目录大小是**后台补算**的：列表只查缓存、不算（算大小可能很贵），没算过先给 None。
         # 这里轮询到它算出来为止 —— 顺带也钉住"刷新一次就能看到"这条用户可见的行为。
-        for _ in range(200):
+        # 删除之后要等的是**不等于旧值**，而不是"非 None"：后台可能在你两次请求之间就补完了，
+        # 钉"非 None"是在跟后台抢跑，钉"旧值不许留着"才是这条要守的。
+        # 期限给到 60 秒：算大小是服务端队列里的活，全量跑时前面排着一堆目录要扫，
+        # 10 秒在满负载下不够 —— 那是排队，不是没失效。
+        deadline = time.time() + 60
+        while time.time() < deadline:
             d = client.get('/api/files', params={'path': 'users'}).json()
-            if d.get('total_size_sum') is not None:
-                return d['total_size_sum']
+            v = d.get('total_size_sum')
+            if v is not None and v != not_value:
+                return v
             time.sleep(0.05)
-        raise AssertionError('users 的总大小一直没算出来（后台补算没生效？）')
+        raise AssertionError('users 的总大小 60 秒内没更新（旧值 %s）：后台补算没排上，'
+                             '或者删除点没失效' % not_value)
 
     before = users_total()
     r = client.post('/api/users/archive/delete', json={'names': [entry]})
     assert r.status_code == 200 and r.json().get('deleted') == 1, r.text
-    after = users_total()
+    after = users_total(not_value=before)
     assert after < before, \
         '删了归档但 users 的聚合值没降（缓存没失效）：before=%s after=%s' % (before, after)
 
@@ -205,7 +212,7 @@ def test_admin_page_has_a_way_into_the_archive():
     前端在测试环境里跑不起来，所以按项目既有做法用**静态守卫**把这个入口钉住。
     """
     base = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                        'leaffs', 'web_page', 'management')
+                        'app', 'opt', 'leaffs', 'web_page', 'management')
     for fn in ('users.html', 'users.en.html'):
         src = io.open(os.path.join(base, fn), encoding='utf-8').read()
         assert 'function openArchive(' in src, '%s 没有进归档目录的入口' % fn

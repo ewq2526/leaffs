@@ -20,7 +20,7 @@ import os
 import re
 
 PROJ_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WEB_DIR = os.path.join(PROJ_ROOT, 'leaffs', 'web_page')
+WEB_DIR = os.path.join(PROJ_ROOT, 'app', 'opt', 'leaffs', 'web_page')
 
 # 出现在下发文件里就算泄露的字符串
 _FORBIDDEN = ('leaffs/', 'ws.py', 'render.py', 'handler.py', 'access.py',
@@ -73,7 +73,7 @@ def test_no_internal_paths_in_any_web_file():
 def test_every_template_placeholder_has_server_side_replacement():
     """模板里的**每一个**占位符都必须有服务端替换代码 —— 漏一个就会把 __XXX__ 显示给用户"""
     py = ''
-    for p in glob.glob(os.path.join(PROJ_ROOT, 'leaffs', '**', '*.py'), recursive=True):
+    for p in glob.glob(os.path.join(PROJ_ROOT, 'app', 'opt', 'leaffs', '**', '*.py'), recursive=True):
         with open(p, encoding='utf-8', errors='replace') as f:
             py += f.read()
     placeholders = _template_placeholders()

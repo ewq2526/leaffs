@@ -20,9 +20,11 @@ import pytest
 from conftest import PROJ_ROOT, login
 
 # 每个响应都该有的公共安全头
+# X-Frame-Options 是 SAMEORIGIN 而不是 DENY：桌面页用 iframe 装站内页面，
+# 与 CSP 的 frame-ancestors 'self' 是同一条规矩的两种写法（只拦外站嵌入）。
 _COMMON = {
     'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
+    'X-Frame-Options': 'SAMEORIGIN',
     'Referrer-Policy': 'no-referrer',
 }
 
@@ -253,7 +255,7 @@ def test_thumbnail_cache_policy_still_declared_in_source():
     兜底逻辑的规则是"默认 no-store、要缓存必须显式声明"，所以只要有人删掉这行，
     缩略图就会变成每次重下（性能变差，而且**不会有任何报错**）。
     """
-    text = open(os.path.join(PROJ_ROOT, 'leaffs', 'files', 'api.py'), encoding='utf-8').read()
+    text = open(os.path.join(PROJ_ROOT, 'app', 'opt', 'leaffs', 'files', 'api.py'), encoding='utf-8').read()
     assert "send_header('Cache-Control', 'max-age=3600')" in text, \
         '缩略图的缓存策略声明被删了 —— 兜底逻辑会把它改成 no-store（性能变差）'
 

@@ -146,8 +146,8 @@ def test_page_injects_role_for_every_identity(identities):
 def test_frontend_still_hides_settings_for_non_admin():
     """白盒：两份下载器页面里"按角色隐藏设置区"的代码还在（删了这条就红）"""
     missing = []
-    for rel in ('leaffs/web_page/downloader/downloader.html',
-                'leaffs/web_page/downloader/downloader.en.html'):
+    for rel in ('app/opt/leaffs/web_page/downloader/downloader.html',
+                'app/opt/leaffs/web_page/downloader/downloader.en.html'):
         text = open(os.path.join(PROJ_ROOT, rel.replace('/', os.sep)), encoding='utf-8').read()
         for frag, why in (('var myRole = __MY_ROLE__;', '没注入角色'),
                           ("querySelector('.dl-settings')", '没找到设置区（隐藏无从谈起）'),

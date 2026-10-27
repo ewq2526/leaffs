@@ -17,7 +17,7 @@ import re
 import pytest
 
 BASE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    'leaffs', 'web_page', 'home')
+                    'app', 'opt', 'leaffs', 'web_page', 'home')
 PAGES = ('home.html', 'home.en.html')
 
 

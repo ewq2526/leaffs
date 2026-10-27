@@ -279,7 +279,7 @@ def test_home_pages_show_ws_errors():
 
     纯文本检查，不需要起服务。
     """
-    base = os.path.join(PROJ_ROOT, 'leaffs', 'web_page', 'home')
+    base = os.path.join(PROJ_ROOT, 'app', 'opt', 'leaffs', 'web_page', 'home')
     missing = []
     for name in ('home.html', 'home.en.html'):
         with open(os.path.join(base, name), encoding='utf-8') as f:

@@ -20,7 +20,9 @@ import subprocess
 from leaffs import paths
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WORK_DIR = os.path.join(paths.PROJECT_DIR, '.work')
+# 开发工作区在**仓库根**：`paths.PROJECT_DIR` 是运行数据根（源码运行时是 app/opt），
+# 拿它去拼 `.work` 会指向一个根本不存在的目录，判据也就形同虚设。
+WORK_DIR = os.path.join(REPO, '.work')
 
 
 def test_cache_dir_is_the_service_runtime_cache():
@@ -48,7 +50,7 @@ def test_service_code_never_treats_the_work_dir_as_a_runtime_path():
     注释里指向探针脚本的引用是允许的（那是给人看的线索），所以这里只查
     带引号的字符串字面量：把 `.work` 拼进路径就会写成 `'.work'` 或 `".work"`。
     """
-    pkg = os.path.join(REPO, 'leaffs')
+    pkg = os.path.join(REPO, 'app', 'opt', 'leaffs')
     offenders = []
     for dp, dn, fn in os.walk(pkg):
         if '__pycache__' in dp:

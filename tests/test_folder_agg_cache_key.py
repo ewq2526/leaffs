@@ -48,17 +48,26 @@ def _write(path, size):
         f.write(b'x' * size)
 
 
-def test_mixed_and_plain_separators_are_the_same_key(agg_env):
-    """混合分隔符与纯分隔符必须归一到同一个键（N-9 的根因面）"""
+def test_different_spellings_of_the_same_dir_share_one_key(agg_env):
+    """同一目录的不同写法必须归到一个键（N-9 的根因面）
+
+    调用方给出的路径形态不统一：`abs_path()` 用 `os.path.join(UPLOAD_DIR, rel)` 拼，
+    而 `invalidate_folder_cache()` 内部一律走 `abspath()`。两边拼出来的字符串必须归到
+    同一个键，否则**写入用键与删除用键永不相等**：失效删不掉东西，聚合值永久冻结。
+
+    ⚠️ 这个 bug 在 Windows 上最先暴露，形态是分隔符混用（`...\\users/zzw` 对
+    `...\\users\\zzw`）；POSIX 上分隔符只有一种，等价写法改用多余分隔符与尾斜杠造。
+    两种平台打的是同一个不变量：**同一个目录只该有一个键。**
+    """
     import leaffs.utils.core as UC
     upload, _cache, _shards = agg_env
-    mixed = os.path.join(upload, 'users/zzw')          # abs_path() 的产物
-    plain = os.path.join(upload, 'users', 'zzw')       # 归化后的形态
+    plain = os.path.join(upload, 'users', 'zzw')
+    weird = upload + '//users//zzw/'      # 多余分隔符 + 尾斜杠：字符串不同，目录相同
 
-    # 对照：这两种形态本来就不相等 —— 否则这条测试打不到 N-9
-    assert mixed != plain, '对照失效：混合分隔符路径应当与归一化路径不同'
+    # 对照：两种写法必须是不同的字符串，否则这条测试打不到归一化
+    assert weird != plain, '对照失效：两种写法应当是不同的字符串'
 
-    assert UC._agg_key(mixed) == UC._agg_key(plain)
+    assert UC._agg_key(weird) == UC._agg_key(plain)
     assert UC._agg_key(plain) == UC._agg_key(UC._agg_key(plain)), '归一化必须幂等'
 
 
@@ -140,7 +149,10 @@ def test_list_files_totals_follow_the_files(agg_env):
     got, err = FC.list_files('users/zzw')
     assert err is None
     assert len(got['files']) == 2                 # 文件数组是磁盘实况，立刻就是对的
-    assert got['total_size_sum'] is None, got     # 聚合值刚被失效，后台在补
+    # 刚失效时聚合值可能是 None（后台在补），也可能补完了 —— 但它**不许还是旧值**。
+    # 钉瞬时状态会和后台线程抢跑，钉"旧值不许露出来 + 最终正确"才是这条要守的。
+    assert got['total_size_sum'] != 507, \
+        '失效了却还返回旧的聚合值（N-9 的典型表现）：%r' % (got,)
     _settle(UC)
     got, err = FC.list_files('users/zzw')
     assert (got['total_file_count'], got['total_size_sum']) == (2, 630), \
@@ -151,7 +163,8 @@ def test_legacy_shard_keys_are_dropped_at_startup(agg_env):
     """旧键（未归一化）在启动迁移时必须被丢弃，否则永远命不中也删不掉"""
     import leaffs.utils.core as UC
     upload, _cache, shards = agg_env
-    legacy_key = os.path.join(upload, 'users/zzw')       # 旧版本写下的形态
+    legacy_key = upload + '//users//zzw/'                 # 旧版本写下的形态：没归一化
+    assert legacy_key != UC._agg_key(legacy_key), '对照失效：这个键本身必须是未归一化的'
     shard = os.path.join(shards, 'users.json')
     with open(shard, 'w') as f:
         json.dump({legacy_key: {'size': 507, 'files': 1, 'folders': 0}}, f)

@@ -13,53 +13,88 @@
 1. **幂等语义**：删一个不存在的文件**仍然是成功**（`deleted=0, failed=[]`）——
    判据必须是 **failed 非空**，不是 `deleted > 0`；
 2. **提示必须精确**：原来那句 `'文件被占用或权限不足'` 把两种完全不同的原因混在一起，
-   用户既判断不了也不知道该做什么。这里直接用 mmap 造一个真实的"被占用"，
-   断言原因里**有「占用」且没有「权限」**。
+   用户既判断不了也不知道该做什么。这里造一个真实的"删不掉"，
+   断言原因里有「权限」且没有「占用」。
+
+⚠️ 怎么造"删不掉"：原来用 `mmap` 映射文件当分布式锁 —— 那是 **Windows 的共享冲突**
+（ERROR_SHARING_VIOLATION）。POSIX 上 mmap 不阻止 unlink，锁造不出来，文件会真被删掉，
+测的就不是这条路径了。这里改用**只读父目录**造 EACCES，走 `delete_fail_reason` 里
+"权限不足"那一支；EBUSY（真被程序占用）在 Linux 上要有挂载点才造得出来，那支交给
+Windows 版覆盖。
 """
-import mmap
+import errno
 import os
+
+import pytest
 
 from conftest import login
 
 
 def _make_file(data_root, name, size=100):
     p = os.path.join(data_root, 'shared_files', name)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
     with open(p, 'wb') as f:
         f.write(b'x' * size)
     return p
 
 
-def test_locked_file_delete_reports_failure_with_precise_reason(client, data_root):
-    """被占用的文件：如实报失败，且原因精确到"占用"（with mmap 造的锁跨进程有效）"""
+def _file_in_readonly_dir(data_root, dirname, filename, size=100):
+    """写一个落在**只读目录**里的文件：POSIX 上 unlink 要目录写权限，于是删不掉。
+
+    文件系统不认权限位时（drvfs / FAT 一类 chmod 被忽略的挂载）这招造不出"删不掉"，
+    而"假绿"比"跳过"更坏 —— 探一下，不生效就跳过。
+    """
+    d = os.path.join(data_root, 'shared_files', dirname)
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, filename)
+    with open(p, 'wb') as f:
+        f.write(b'x' * size)
+
+    os.chmod(d, 0o500)
+    probe = os.path.join(d, '.probe')
+    try:
+        with open(probe, 'w') as f:
+            f.write('x')
+    except OSError:
+        return d, p                      # 真的只读：保持这个状态给用例用
+    # 这里跑到说明 chmod 没生效（drvfs / FAT 一类）：造不出"删不掉"，跳过而不是假绿
+    os.chmod(d, 0o700)
+    try:
+        os.remove(probe)
+    except OSError:
+        pass
+    pytest.skip('这个数据根所在的文件系统不认权限位（chmod 无效），造不出"删不掉"')
+
+
+def test_undeletable_file_reports_failure_with_precise_reason(client, data_root):
+    """删不掉的文件：如实报失败，且原因精确到"权限"（不混「占用」）"""
     login(client)
-    p = _make_file(data_root, 'lf23locked.bin')
-    with open(p, 'r+b') as f:
-        mm = mmap.mmap(f.fileno(), 0)          # 文件映射锁住：服务端是另一个进程，照样删不掉
-        try:
-            r = client.post('/api/delete', json={'files': ['lf23locked.bin']})
-            assert r.status_code == 200, r.text
-            d = r.json()
+    ro, p = _file_in_readonly_dir(data_root, 'lf23ro', 'lf23inro.bin')
+    try:
+        r = client.post('/api/delete', json={'files': ['lf23ro/lf23inro.bin']})
+        assert r.status_code == 200, r.text
+        d = r.json()
 
-            assert d.get('success') is False, \
-                '删不掉却回了 success=true —— 前端会弹「删除成功」：%s' % d
-            assert d.get('deleted') == 0, d
+        assert d.get('success') is False, \
+            '删不掉却回了 success=true —— 前端会弹「删除成功」：%s' % d
+        assert d.get('deleted') == 0, d
 
-            failed = d.get('failed') or []
-            assert failed, '没给出任何失败原因：%s' % d
-            err = failed[0].get('error') or ''
-            assert '占用' in err, '原因没说明是「被占用」：%r' % err
-            assert '权限' not in err, \
-                '把「占用」与「权限不足」两种不同原因混成一句了（提示必须精确）：%r' % err
+        failed = d.get('failed') or []
+        assert failed, '没给出任何失败原因：%s' % d
+        err = failed[0].get('error') or ''
+        assert '权限' in err, '原因没说明是「权限不足」：%r' % err
+        assert '占用' not in err, \
+            '把「占用」与「权限不足」两种不同原因混成一句了（提示必须精确）：%r' % err
 
-            assert os.path.exists(p), '文件居然被删掉了？'
-        finally:
-            mm.close()
+        assert os.path.exists(p), '文件居然被删掉了？'
+    finally:
+        os.chmod(ro, 0o700)
 
-    # 放开占用之后必须能删掉 —— 证明这次改动没有把删除本身改坏
-    r = client.post('/api/delete', json={'files': ['lf23locked.bin']})
+    # 放开只读之后必须能删掉 —— 证明这次改动没有把删除本身改坏
+    r = client.post('/api/delete', json={'files': ['lf23ro/lf23inro.bin']})
     assert r.status_code == 200, r.text
     d = r.json()
-    assert d.get('success') is True, '占用解除后应当删除成功：%s' % d
+    assert d.get('success') is True, '放开只读后应当删除成功：%s' % d
     assert not os.path.exists(p), '文件还在'
 
 
@@ -78,21 +113,20 @@ def test_partial_delete_reports_both_sides(client, data_root):
     """部分成功：两边都要如实说 —— 成功几个、哪一个失败、为什么"""
     login(client)
     ok = _make_file(data_root, 'lf23ok.bin')
-    locked = _make_file(data_root, 'lf23locked2.bin')
-    with open(locked, 'r+b') as f:
-        mm = mmap.mmap(f.fileno(), 0)
-        try:
-            r = client.post('/api/delete', json={'files': ['lf23ok.bin', 'lf23locked2.bin']})
-            assert r.status_code == 200, r.text
-            d = r.json()
-            assert d.get('success') is False, '有一个删不掉，不该整体报成功：%s' % d
-            assert d.get('deleted') == 1, '成功数要如实报：%s' % d
-            failed = d.get('failed') or []
-            assert len(failed) == 1, '失败项要逐条列出：%s' % d
-            assert failed[0].get('path') == 'lf23locked2.bin', failed
-            assert '占用' in (failed[0].get('error') or ''), failed
-            assert not os.path.exists(ok), '成功的那个应当已被删掉'
-            assert os.path.exists(locked), '失败的那个应当还在'
-        finally:
-            mm.close()
-    os.remove(locked)
+    ro, blocked = _file_in_readonly_dir(data_root, 'lf23ro2', 'lf23inro2.bin')
+    try:
+        r = client.post('/api/delete',
+                        json={'files': ['lf23ok.bin', 'lf23ro2/lf23inro2.bin']})
+        assert r.status_code == 200, r.text
+        d = r.json()
+        assert d.get('success') is False, '有一个删不掉，不该整体报成功：%s' % d
+        assert d.get('deleted') == 1, '成功数要如实报：%s' % d
+        failed = d.get('failed') or []
+        assert len(failed) == 1, '失败项要逐条列出：%s' % d
+        assert failed[0].get('path') == 'lf23ro2/lf23inro2.bin', failed
+        assert '权限' in (failed[0].get('error') or ''), failed
+        assert not os.path.exists(ok), '成功的那个应当已被删掉'
+        assert os.path.exists(blocked), '失败的那个应当还在'
+    finally:
+        os.chmod(ro, 0o700)
+    os.remove(blocked)

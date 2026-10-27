@@ -17,7 +17,7 @@ import subprocess
 import pytest
 
 ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    'leaffs', 'web_page')
+                    'app', 'opt', 'leaffs', 'web_page')
 SCRIPT_RE = re.compile(r'<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>', re.S | re.I)
 
 

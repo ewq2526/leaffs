@@ -217,7 +217,7 @@ def test_only_whitelisted_calls_are_exempt():
     映射成 404 的调用点，它们是这条路的设计。要守的是"没人为了省事随手加豁免"。
     """
     unmatched = []
-    for dirpath, dirnames, filenames in os.walk(os.path.join(PROJ_ROOT, 'leaffs')):
+    for dirpath, dirnames, filenames in os.walk(os.path.join(PROJ_ROOT, 'app', 'opt', 'leaffs')):
         dirnames[:] = [d for d in dirnames if d != '__pycache__']
         for fn in filenames:
             if not fn.endswith('.py'):

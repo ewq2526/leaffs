@@ -1,15 +1,10 @@
 # -*- coding: utf-8 -*-
 """软件内不允许访问外部链接（2026-09-18，用户要求「不能在我们软件内出事」）。
 
-**背景**：审网页 JS 时发现两个出站口子 —— 安卓端长按菜单的「在浏览器打开」
-（`openExternal` → `ACTION_VIEW` 甩给系统浏览器），以及 `onLoadRequest` 对任意 URL 放行
-（网页里的站外链接、**PDF 里的外链**会在 App 内嵌浏览器里打开）。
+**背景**：审网页 JS 时发现两个出站口子 —— 长按菜单的「在浏览器打开」
+（`openExternal` → `ACTION_VIEW` 甩给系统浏览器），以及 `onLoadRequest` 对任意 URL
+放行（网页里的站外链接、**PDF 里的外链**会在内嵌浏览器里打开）。
 用户明确要求：**软件内不访问外部链接**，并要求 **Windows 的 webview 一起防护**。
-
-**安卓侧（两处）**：
-1. 删掉「在浏览器打开」整项 + `openExternal()`；
-2. `onLoadRequest` 加白名单 —— 只放行 `127.0.0.1` / `localhost` / `[::1]`、
-   `leaffs://`、`data:`、`about:`、`blob:`，其余 `DENY` 并提示。
 
 **桌面侧（2026-09-18 晚，升级 pywebview 4.2.2 → 6.2.1 后重做）**：
 三层，全在 `_install_webview_guard()` 里，都走 WebView2 官方接口：
@@ -18,17 +13,18 @@
 ⚠️ 每一层的行为都用**真窗口实测**过（`.work/probe_pwv6_*.py`），不是照文档抄的 ——
 本文件只做静态断言，行为验证看那些探针。
 
-⚠️ **子资源那一层**：安卓侧**没做**（GeckoView 没有公开的拦截 API，要 WebExtension 的
+⚠️ **子资源那一层**：客户端侧原先没做（GeckoView 没有公开的拦截 API，要 WebExtension 的
 webRequest），靠**服务端 CSP** 兜 —— `send_raw` 与 `_share_stream_file` 都发
 `sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:`，且站内页面本身
 没有任何外链。桌面侧这一层**做了**（`WebResourceRequested`，实测真的不发包）。
+
+⚠️ 移动端那几条静态断言（`MainActivity.kt` 的 `isInternalUrl` 白名单、删掉「在浏览器
+打开」）随客户端移出仓库一并删除 —— 断言的对象不在了，留着只能跳过。
 """
 import os
-import re
 
 import leaffs
 
-MAIN_ACTIVITY = 'android/app/src/main/java/com/leaffs/mobile/MainActivity.kt'
 APP_PY = 'leaffs/app.py'
 RAW_API = 'leaffs/files/api.py'
 HANDLER = 'leaffs/server/handler.py'
@@ -38,34 +34,6 @@ def _read(rel):
     root = os.path.dirname(os.path.dirname(os.path.abspath(leaffs.__file__)))
     with open(os.path.join(root, rel), encoding='utf-8') as f:
         return f.read()
-
-
-# ---------- 安卓：白名单在位 ----------
-
-def test_android_navigation_whitelist():
-    src = _read(MAIN_ACTIVITY)
-    assert 'private fun isInternalUrl(' in src, '没有 isInternalUrl 白名单函数'
-    # 放行名单
-    for token in ('"127.0.0.1"', '"localhost"', '"[::1]"',
-                  'leaffs://', 'data:', 'about:', 'blob:'):
-        assert token in src, '白名单漏了 %s' % token
-    # 必须在 onLoadRequest 里真的用上，而且拒绝路径要返回 DENY
-    assert re.search(r'if \(!isInternalUrl\(uri\)\)', src), 'onLoadRequest 没调用 isInternalUrl'
-    assert 'AllowOrDeny.DENY' in src
-
-
-def test_android_browser_menu_item_removed():
-    """★ 「在浏览器打开」必须整项删掉（函数定义与调用都不许留）
-
-    ⚠️ 断言要精确到"定义/调用"，不能断言"整个文件里不出现这个词" ——
-    留下来的注释里本来就会提到它（说明为什么删）。
-    """
-    src = _read(MAIN_ACTIVITY)
-    assert 'private fun openExternal' not in src, 'openExternal 函数还在'
-    assert 'actions += { openExternal' not in src, '菜单项还在'
-    assert 'labels += "在浏览器打开"' not in src, '菜单项文案还在'
-    # 没有任何地方再把 URL 交给系统去 VIEW（`package:` 跳应用详情页不算）
-    assert 'Intent(Intent.ACTION_VIEW' not in src, '还有 ACTION_VIEW 打开链接的路径'
 
 
 # ---------- 桌面：三层出站守卫 ----------

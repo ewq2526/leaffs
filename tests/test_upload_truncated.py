@@ -167,7 +167,7 @@ def test_hard_close_truncated_upload_is_discarded(trunc_root, cookie):
 
 def test_frontend_has_abort_and_beforeunload():
     """LF-25：两份 home 页都要有 `onabort`（复位队列）与 `beforeunload`（拦误刷新）"""
-    base = os.path.join(PROJ_ROOT, 'leaffs', 'web_page', 'home')
+    base = os.path.join(PROJ_ROOT, 'app', 'opt', 'leaffs', 'web_page', 'home')
     missing = []
     for name in ('home.html', 'home.en.html'):
         with open(os.path.join(base, name), encoding='utf-8') as f:

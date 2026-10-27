@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""`system.wifi._unescape`：wpa_supplicant 转义过的 SSID 要还原成正常文本。
+r"""`system.wifi._unescape`：wpa_supplicant 转义过的 SSID 要还原成正常文本。
 
 wpa_cli 的输出走的是 wpa_supplicant 自己的 printf_encode：非 ASCII 字节写成 `\xNN`，
 所以中文 SSID 原样打到页面上就是 `\xe4\xb8\xad…` 这样一段源码。

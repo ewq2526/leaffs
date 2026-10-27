@@ -23,7 +23,7 @@
 import os
 
 PROJ_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HOME_DIR = os.path.join(PROJ_ROOT, 'leaffs', 'web_page', 'home')
+HOME_DIR = os.path.join(PROJ_ROOT, 'app', 'opt', 'leaffs', 'web_page', 'home')
 PAGES = ('home.html', 'home.en.html')
 
 # JS 里那两段字面量（注意反斜杠：源码里是 `\'` + sp + `\'`）

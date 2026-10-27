@@ -30,7 +30,7 @@ HTTP_PORT = 8090
 WS_PORT = 8091
 BASE_URL = '%s://127.0.0.1:%d' % ('https' if TEST_TLS else 'http', HTTP_PORT)
 
-TEST_RUNS_DIR = os.path.join(PROJ_ROOT, '.work', 'test_runs')
+TEST_RUNS_DIR = os.environ.get('LEAFFS_TEST_RUNS') or os.path.join(PROJ_ROOT, '.work', 'test_runs')
 STALE_ROOT_AGE = 24 * 3600      # 秒：超过这个岁数的残留一定是"死运行"留下的
 
 
