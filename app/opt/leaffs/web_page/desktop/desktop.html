@@ -69,8 +69,11 @@ window.__DESK_ROLE__='__DESK_ROLE_JSON__';</script>
   /* 图标一列往下排，一格一个 */
   .desk-icon-row {
     display: flex; flex-direction: column;
-    gap: calc(10 * var(--u));
+    gap: calc(12 * var(--u));
   }
+  /* 桌面快捷方式：图标直接坐在壁纸上，平时**没有框**；只有光标/键盘停在上面时
+     才在图标底下铺一层淡色，跟 Windows 的悬停高亮一个意思。
+     ⚠️ 里面 .tile 的实测宽度是全页缩放的基准（见 gridPx/u），尺寸别动。 */
   .desk-icon {
     position: relative;
     width: var(--g);
@@ -80,22 +83,30 @@ window.__DESK_ROLE__='__DESK_ROLE_JSON__';</script>
   }
   .desk-icon .tile {
     width: var(--g); height: var(--g);
-    border-radius: calc(11 * var(--u));
-    background: rgba(12, 16, 24, 0.72);
-    border: 1px solid rgba(52, 211, 153, 0.45);
+    border-radius: calc(10 * var(--u));
     display: flex; align-items: center; justify-content: center;
+    filter: drop-shadow(0 calc(2 * var(--u)) calc(3 * var(--u)) rgba(0, 0, 0, 0.6));
+    transition: background 0.15s var(--ease, ease);
   }
-  .desk-icon:hover .tile { background: rgba(20, 26, 38, 0.86); }
-  .desk-icon img { width: calc(37 * var(--u)); height: auto; display: block; }
+  .desk-icon:hover .tile { background: rgba(96, 150, 255, 0.2); }
+  .desk-icon:focus-visible { outline: none; }
+  .desk-icon:focus-visible .tile {
+    background: rgba(96, 150, 255, 0.28);
+    box-shadow: 0 0 0 calc(1 * var(--u)) rgba(96, 150, 255, 0.75);
+  }
+  .desk-icon img {
+    max-width: calc(46 * var(--u)); max-height: calc(46 * var(--u));
+    width: auto; height: auto; display: block;
+  }
   .desk-icon svg {
-    width: calc(30 * var(--u)); height: calc(30 * var(--u));
-    fill: none; stroke: var(--green); stroke-width: 1.7;
+    width: calc(44 * var(--u)); height: calc(44 * var(--u));
+    fill: none; stroke: var(--green); stroke-width: 2;
     stroke-linecap: round; stroke-linejoin: round;
   }
   .desk-icon span {
-    margin-top: calc(6 * var(--u));
+    margin-top: calc(5 * var(--u));
     font-size: calc(12 * var(--u));
-    text-shadow: 0 calc(1.5 * var(--u)) calc(4 * var(--u)) rgba(0, 0, 0, 0.8);
+    text-shadow: 0 calc(1.5 * var(--u)) calc(4 * var(--u)) rgba(0, 0, 0, 0.85);
   }
 
   .online {
