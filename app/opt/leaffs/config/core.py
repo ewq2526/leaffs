@@ -342,10 +342,15 @@ def set_speed_limit(bytes_per_sec):
 
 
 def set_guest_mode(val):
-    """切换游客模式；返回是否落盘成功"""
+    """切换游客模式；返回是否落盘成功。
+
+    落盘之后把 SMB 的共享表重写一遍：[public] 的存在与否由这个开关决定。
+    """
     global _guest_mode
     _guest_mode = bool(val)
-    return save_config()
+    ok = save_config()
+    sync_smb_policy()
+    return ok
 
 
 def set_quotas(user_q=None, public_q=None, total_q=None):
@@ -725,7 +730,18 @@ def apply_deep_config(data):
             if not save_config():
                 return False, '保存失败：改动只在内存里，重启后会丢', False
             sync_all_constants()
+            sync_smb_policy()
         return True, '', changed
+
+
+def sync_smb_policy():
+    """共享策略（游客模式、guest 可写）变了：让 SMB 那边重写共享表并重读。
+
+    SMB 的 [public] 不是写死的，它由这两个设置决定存在与否、只读与否；改了设置不
+    重写一遍，客户端看到的就是旧策略。
+    """
+    from leaffs.auth import core as _auth
+    _auth.sync_smb_db()
 
 
 def sync_all_constants():

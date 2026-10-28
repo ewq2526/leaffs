@@ -70,14 +70,29 @@ if [ -d "$MNT/root" ]; then
 	rsync -aHAX --numeric-ids "$MNT/root/" / || fail "铺文件失败"
 fi
 
-# 2.1 用户名回填：应用层里那两处账号是占位的，账号要等安装时才建出来。
-#   ksmbd 用 nobody 只能读不能写，管理端的文件管理服务也是普通用户就跑不动。
+# 2.1 账号回填 + 共享目录 + 用户库链接
+#   SMB 的落盘身份**不用**安装账号：那个账号在 sudo 组里。这里建一个专用账号，只用来
+#   落盘共享目录 —— 没有登录 shell、不在 sudo 里。
 say "账号回填"
 u=$(awk -F: '$3 >= 1000 && $3 < 65534 { print $1; exit }' /etc/passwd)
+if ! getent passwd camphor-smb >/dev/null 2>&1; then
+	useradd --system --no-create-home --shell /usr/sbin/nologin camphor-smb \
+		|| say "建 camphor-smb 失败"
+fi
+# 用户库由后端生成，写在内存盘上（/run，关机即消失，启动时按账号表重建）——
+# 盘上常驻的只有密文。这里只把 ksmbd 指过去；此刻目标文件还不存在也没关系，
+# 符号链接先立着，app 起来就会写。
+mkdir -p /run/ksmbd
+rm -f /etc/ksmbd/ksmbdpwd.db
+ln -s /run/ksmbd/ksmbdpwd.db /etc/ksmbd/ksmbdpwd.db
+# 共享目录的根：属主是那个专用账号，后端在里面给每个账号建自己的子目录。
+install -d -o camphor-smb -g camphor-smb -m 0770 /srv/leaffs/shared_files/users \
+	|| say "共享目录建不出来"
+# 公共目录也归它：游客模式下 SMB 直接以这个身份往里写（网页那边是 root，不受影响）。
+install -d -o camphor-smb -g camphor-smb -m 0775 /srv/leaffs/shared_files/public \
+	|| say "公共目录建不出来"
 if [ -n "$u" ]; then
 	say "账号回填：$u"
-	sed -i "s/^\([[:space:]]*force user = \).*/\1$u/" /etc/ksmbd/ksmbd.conf
-	sed -i "s/^\([[:space:]]*valid users = \).*/\1$u/" /etc/ksmbd/ksmbd.conf
 	svc=/etc/systemd/system/camphor-filemgr.service
 	if [ -f "$svc" ]; then
 		sed -i "s/^\([[:space:]]*\)User=.*/\1User=$u/;s/^\([[:space:]]*\)Group=.*/\1Group=$u/" "$svc"

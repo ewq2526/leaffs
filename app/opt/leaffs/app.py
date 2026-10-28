@@ -118,6 +118,9 @@ def start_server():
     # A-12/D4：启动即生成“本机自动登录一次性令牌”（HTTP /login?leaf= 与 WS auth token 共用）。
     # 每次启动新令牌、旧文件覆盖（登录用；与证书机制无关）。
     _lt.reset_and_write()  # 每次启动新令牌、旧文件覆盖（登录用；与证书机制无关）
+    # 启动时把 ksmbd 的用户库按账号表重建一次：那份库是派生物（见 auth.core.sync_smb_db），
+    # 盘上被删掉、或者上次写到一半断电，都在这里对齐；写完顺手通知 mountd 重读。
+    threading.Thread(target=_ac.sync_smb_db, daemon=True).start()
     # TLS 启用时：先单线程预热 TLS 上下文（见 _build_tls_context）。证书来源按序：
     #   a) server_config.json 显式配置 tls_cert/tls_key（相对 config 或绝对路径）；
     #   b) 既有 config/selfsigned.crt + selfsigned.key（直接加载）；

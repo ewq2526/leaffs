@@ -8,6 +8,7 @@ Password security: PBKDF2-HMAC-SHA256 with per-user salt (32 bytes)
 
 import os
 import json
+import logging
 import threading
 import secrets
 import time
@@ -16,6 +17,8 @@ import hmac
 import base64
 from leaffs.paths import CONFIG_DIR
 from leaffs.utils.core import parse_cookies
+
+_log = logging.getLogger(__name__)
 
 AUTH_COOKIE = 'wifi_session'
 SESSION_EXPIRY_DAYS = 30
@@ -594,6 +597,44 @@ def validate_username(name):
         return False
     return True
 
+def _smb_nt(password):
+    """SMB 那边的口令形式：base64(MD4(UTF-16LE(明文)))，加密之后才落盘。
+
+    ksmbdpwd.db(5) 规定库里的口令就是这个值。它是无盐的、可以直接当凭据用，所以账号表
+    里存的是它的密文（`smb_nt_enc`），密钥单独一个 0600 文件；明文形式的库只写在 /run
+    下的内存盘上，关机即消失。明文本身从头到尾不落盘。
+    """
+    from leaffs.system import smb as _smb
+    return _smb.encrypt_nt(_smb.nt_hash(password))
+
+
+def sync_smb_db():
+    """把当前账号表整份写进 ksmbd 的用户库（见 leaffs/system/smb.py）。
+
+    账号只有一份（这个文件，users.json）。SMB 那份库是派生物：谁能解出 `smb_nt_enc`
+    就写谁，没有的（从旧版本升上来、之后没改过口令的账号）不写 —— 那些账号在改过一次
+    口令之前不能用 SMB 登录，这是"明文只在这边出现过一次"的必然结果。
+
+    改名不影响：ksmbd 认的是名字，改名只是换一行。
+    """
+    from leaffs.system import smb as _smb
+    with _users_lock:
+        rows = {name: u.get('smb_nt_enc', '') for name, u in _users.items()}
+    accounts = {name: _smb.decrypt_nt(blob) for name, blob in rows.items()}
+    # 共享策略跟着后端设置走：游客模式决定 [public] 存不存在，guest_public_write
+    # 决定它只读还是可写。设置改了会再调一次这里（见 config.core.apply_deep_config）。
+    from leaffs.config import core as _cfg
+    guest = bool(_cfg.get_guest_mode())
+    writable = bool(_cfg.get_guest_public_write())
+    try:
+        n = _smb.sync(accounts, guest_mode=guest, public_writable=writable)
+    except OSError as e:
+        # 写不进去不能把账号操作判成失败：账号已经落盘了，SMB 是附加能力。
+        _log.warning('SMB 用户库写入失败：%s', e)
+        return 0
+    return n
+
+
 def add_user(username, password, role='user', caller_role='admin'):
     # B-02 服务端角色门槛与枚举收紧（纵深：B-01 在 ac_user 层已前置门槛）
     if caller_role not in ('admin', 'super_admin'):
@@ -612,8 +653,10 @@ def add_user(username, password, role='user', caller_role='admin'):
         return False, err
     with _users_lock:
         if username in _users: return False, 'Username exists'
-        _users[username] = {'password': _hash_password(password), 'role': role}
+        _users[username] = {'password': _hash_password(password), 'role': role,
+                            'smb_nt_enc': _smb_nt(password)}
         _save_users()
+    sync_smb_db()
     return True, ''
 
 def precheck_user_delete(username, caller_role='admin'):
@@ -647,6 +690,7 @@ def delete_user(username, caller_role='admin'):
                 if _sessions[sid]['username'] == username: del _sessions[sid]
             # ⚠️ 必须落盘：否则被删用户的会话只从内存消失，**重启后会复活**
             _save_sessions_locked()
+    sync_smb_db()
     return True, ''
 
 def change_password(username, new_password, caller_role='admin', keep_sid=''):
@@ -660,7 +704,9 @@ def change_password(username, new_password, caller_role='admin', keep_sid=''):
     with _users_lock:
         if username not in _users: return False, 'User not found'
         _users[username]['password'] = _hash_password(new_password)
+        _users[username]['smb_nt_enc'] = _smb_nt(new_password)
         _save_users()
+    sync_smb_db()
     _revoke_user_sessions(username, keep_sid=keep_sid)
     with _sessions_lock:
         for info in _sessions.values():
@@ -680,7 +726,9 @@ def self_change_password(username, new_password, keep_sid=''):
         if username not in _users:
             return False, 'User not found'
         _users[username]['password'] = _hash_password(new_password)
+        _users[username]['smb_nt_enc'] = _smb_nt(new_password)
         _save_users()
+    sync_smb_db()
     _revoke_user_sessions(username, keep_sid=keep_sid)
     with _sessions_lock:
         for info in _sessions.values():
@@ -730,6 +778,7 @@ def update_user_name(old_name, new_name, caller_role='admin', keep_sid=''):
         user_data = _users.pop(old_name)
         _users[new_name] = user_data
         _save_users()
+    sync_smb_db()          # 改名 = 库里换一行；口令不用重给
     _revoke_user_sessions(old_name, keep_sid=keep_sid)
     return True, ''
 
