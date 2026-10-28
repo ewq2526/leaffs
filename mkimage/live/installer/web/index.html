@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <title>安装 Camphor</title>
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --pad-y: 36px; --pad-x: 48px; }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 36px 48px; color: #e8e8ea;
+    margin: 0; padding: var(--pad-y) var(--pad-x); color: #e8e8ea;
     font: 15px/1.6 "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
     /* 底图是同一个夜间樟树，上面叠一道暗色遮罩：图能看见，字压得住。
        遮罩跟着图一起 fixed，滚动时不会出现明暗断层。 */
@@ -21,48 +21,71 @@
   .sub { color: #8b8b93; margin-bottom: 22px; }
   .step-dot { display: inline-block; color: #6b6b75; font-size: 13px; margin-right: 14px; }
   .step-dot.on { color: #8fd18f; }
-  .disk { margin-bottom: 26px; }
-  .disk-name { color: #9aa0a6; font-size: 14px; margin-bottom: 8px; }
+  /* 一块盘一框：外面那圈粗边框就是这块盘的范围，里面的长条只属于它。
+     以前分区是一根横条按比例切块，窄的分区连编号都写不下，信息全靠下面
+     那行文字对照；现在一条分区一行，一块盘的信息就在一条里写完。 */
+  .disk { margin-bottom: 22px; padding: 12px 14px 14px;
+          border: 2px solid #4d4d60; border-radius: 12px; background: #0a0a0f;
+          box-shadow: 0 0 0 4px #050508; }
+  .disk-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+  .disk-dev { font-size: 15px; color: #d3dae1; }
+  .disk-cap { color: #7f8790; font-size: 13px; }
+  /* 整页一起滚，不在每块盘里各滚各的：盘内滚动条会让人以为"这块盘就这么长"，
+     而且下一块盘被挡在下面看不见。盘再多也只是把页面拉长。 */
+  .disk-rows { display: flex; flex-direction: column; gap: 6px; }
 
-  /* 外框要比页面底色亮一档，否则整条分区带糊在背景里看不出边界 */
-  /* 分区多了会把每块压成一条线：给每块一个最小宽度，放不下的折到下一行，
-     不缩到看不见，也不做成横向滚动。 */
-  .barwrap { padding-bottom: 2px; }
-  .bar { display: flex; flex-wrap: wrap; align-content: flex-start;
-         border-radius: 8px; overflow: hidden; min-width: 100%;
-         border: 1px solid #4a4a5c; background: #08080b;
-         box-shadow: 0 0 0 3px #06060a; }
-  .blk { position: relative; display: flex; align-items: center; justify-content: center;
-         height: 54px;
-         font-size: 13px; color: #0e0e12; cursor: pointer; overflow: hidden;
-         border-right: 2px solid #08080b; border-bottom: 2px solid #08080b;
-         white-space: nowrap; min-width: 58px; }
-  .blk:last-child { border-right: none; }
-  .blk.part { background: #8fb0c8; color: #10151a; }
-  .blk.part.esp { background: #b596d6; color: #171020; }
-  .blk.free { background: #56a874; color: #0d1a12; }
-  .blk.sel { outline: 3px solid #8fd18f; outline-offset: -3px; }
-  /* 选中带数据的分区：不是"选中"，是"要被格式化"，用警示色 */
-  .blk.sel.warn { outline: 4px solid #e06a6a; }
+  .prow { display: flex; align-items: center; gap: 16px; width: 100%;
+          padding: 9px 14px; border-radius: 8px; text-align: left;
+          font: inherit; color: #e9f1f6; cursor: pointer;
+          border: 1px solid #33465a; background: #16222c;
+          /* 深浅两档的底色由 JS 按已用比例铺成渐变 */
+          transition: filter .12s; }
+  .prow:hover { filter: brightness(1.15); }
+  .prow .main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
+                gap: 2px; }
+  .prow .name { font-size: 15px; overflow: hidden; text-overflow: ellipsis;
+                white-space: nowrap; }
+  .prow .meta { font-size: 13px; color: #c3d2dd; overflow: hidden;
+                text-overflow: ellipsis; white-space: nowrap; }
+  .prow .side { flex: 0 0 auto; text-align: right; font-size: 13px; line-height: 1.45;
+                color: #c3d2dd; }
+  .prow .side b { font-size: 16px; font-weight: 600; color: #ffffff; }
+  /* 选中：深底上用亮黄实线，隔着两三条也看得见；有数据的分区换成警示红。
+     注意别叫 .warn —— 那个类已经给第②页的说明文字用了颜色。 */
+  .prow.sel { outline: 4px solid #ffcf5c; outline-offset: -4px;
+              box-shadow: 0 0 0 2px #ffcf5c; }
+  .prow.sel.wipe { outline: 4px solid #ff6b6b; box-shadow: 0 0 0 2px #ff6b6b; }
+  /* ①页：盘与分区在上面滚，操作区与"下一步"钉在底部不参与滚动 ——
+     分区再多，选中的那条对应哪些操作、下一步能不能走，始终在眼前。
+     高度只减上边距，再用负的下边距抵掉 body 底部那段内边距：不然整页会多出
+     一条滚动条，底部这条带子就跟着页面一起滚了。 */
+  #step1.show { display: flex; flex-direction: column;
+                height: calc(100vh - var(--pad-y));
+                margin-bottom: calc(-1 * var(--pad-y)); }
+  #list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 6px; }
+  .dock { flex: 0 0 auto; margin-top: 10px; padding: 12px 0 14px;
+          border-top: 1px solid #2e2e3a; }
+  /* 焦点落到下面这条带子上的时候：带子顶边加粗亮起来，上面那条选中的长条
+     改成细框。不然选完回车，页面看着没变化，人以为没选中。 */
+  #step1.dock-focus .dock { box-shadow: inset 0 3px 0 #ffcf5c; }
+  #step1.dock-focus .dock .pick { color: #ffcf5c; }
+  #step1.dock-focus .prow.sel { outline-width: 2px; box-shadow: 0 0 0 1px #ffcf5c; }
+  #step1.dock-focus .prow.sel.wipe { outline-width: 2px; box-shadow: 0 0 0 1px #ff6b6b; }
+  .dock .tools { margin-top: 0; }
+  .dock .foot { margin-top: 12px; }
+  .pick { color: #9fb2c0; font-size: 14px; margin-right: 4px; }
+  /* 没选中任何东西时这块是空的，别留一道空带子 */
+  .tools:empty { display: none; }
   .warnbad { color: #e08a8a; }
-  .blk:hover { filter: brightness(1.15); }
-  .blk span { padding: 0 6px; overflow: hidden; text-overflow: ellipsis; }
-  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px;
-            color: #9aa0a6; font-size: 13px; }
-  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px;
-              margin-right: 6px; vertical-align: -1px; }
-  .legend i.part { background: #8fb0c8; }
-  .legend i.esp { background: #b596d6; }
-  .legend i.free { background: #56a874; }
 
-  .tools { display: flex; gap: 10px; align-items: center; margin-top: 10px;
+  .tools { display: flex; gap: 10px; align-items: center; margin-top: 12px;
            min-height: 42px; flex-wrap: wrap; }
   .tools label { color: #9aa0a6; font-size: 14px; }
   input[type=number], input[type=text], input[type=password] {
     font: inherit; padding: 8px 10px; border-radius: 7px;
     border: 1px solid #33333d; background: #12121a; color: #e8e8ea;
   }
-  input[type=number] { width: 110px; }
+  input[type=number] { width: 132px; }
   input[type=text], input[type=password] { width: 260px; }
 
   button {
@@ -95,10 +118,30 @@
   button:focus-visible, input:focus-visible, #log:focus {
     outline: 3px solid #dcdce8; outline-offset: 2px;
   }
-  .blk:focus-visible {
-    outline: 3px dashed #f2f2f2; outline-offset: -6px; z-index: 1;
+  .prow:focus-visible {
+    outline: 3px dashed #f2f2f2; outline-offset: -6px;
   }
+  /* 操作区本身也可能拿到焦点（分区没有可操作的东西时焦点落在这里，
+     比掉回 body 强）：也要看得见 */
+  .tools:focus-visible { outline: 3px dashed #dcdce8; outline-offset: 5px; }
   button:focus:not(:focus-visible) { outline: none; }
+
+  /* 确认框自己画：原生 confirm 的字体、按钮、换行都不受控，宽度还会顶到
+     屏幕边上；这套页面全屏跑在 kiosk 里，一个原生弹窗格外扎眼。 */
+  .mask { position: fixed; inset: 0; display: none; align-items: center;
+          justify-content: center; background: rgba(4, 5, 8, .72);
+          backdrop-filter: blur(2px); z-index: 20; }
+  .mask.show { display: flex; }
+  .dialog { width: min(680px, 84vw); padding: 22px 24px 18px;
+            border: 1px solid #3c3c4a; border-radius: 12px;
+            background: #14141b; box-shadow: 0 18px 60px rgba(0, 0, 0, .6); }
+  .dialog h3 { margin: 0 0 12px; font-size: 19px; font-weight: 600; }
+  .dialog .body { color: #c8ccd2; font-size: 15px; line-height: 1.65; }
+  .dialog .body p { margin: 0 0 8px; }
+  .dialog .body b { color: #e8e8ea; font-weight: 600; }
+  .dialog .body .danger { color: #e08a8a; }
+  .dialog .buttons { display: flex; justify-content: flex-end; gap: 10px;
+                     margin-top: 18px; }
 </style>
 </head>
 <body>
@@ -109,11 +152,14 @@
       <span class="step-dot">② 账号</span>
       <span class="step-dot">③ 安装</span>
     </div>
-    <div class="sub">调整分区，然后选一个分区作为系统位置。</div>
+    <div class="sub">选一块分区或未分配空间作为系统位置；要调整分区，选中之后在下面操作。</div>
     <div id="list"></div>
-    <div class="foot">
-      <button id="next" class="primary" disabled>下一步</button>
-      <span class="hint" id="h1" aria-live="polite">先选一个分区</span>
+    <div class="dock">
+      <div class="tools" id="tools" tabindex="-1"></div>
+      <div class="foot">
+        <button id="next" class="primary" disabled>下一步</button>
+        <span class="hint" id="h1" aria-live="polite">先选一个分区</span>
+      </div>
     </div>
   </div>
 
@@ -163,6 +209,17 @@
     </div>
   </div>
 
+  <div class="mask" id="mask" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
+    <div class="dialog">
+      <h3 id="dlg-title"></h3>
+      <div class="body" id="dlg-body"></div>
+      <div class="buttons">
+        <button id="dlg-no">取消</button>
+        <button id="dlg-yes" class="primary">继续</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 let picked = null;
 let timer = null;
@@ -187,6 +244,68 @@ function el(tag, cls, text) {
   return e;
 }
 
+/* 自己画的确认框。原生 confirm 用不了自定义文案与按钮措辞，样式还跟着浏览器走，
+   在全屏 kiosk 里格外突兀。返回 Promise<boolean>：确认 true，取消/按 Esc false。
+   焦点默认落在"不改动任何东西"的那个按钮上 —— 手滑按回车不会把盘清掉。 */
+let dlgSettle = null;
+function openDialog(opts) {
+  const mask = document.getElementById('mask');
+  const back = document.activeElement;
+  document.getElementById('dlg-title').textContent = opts.title || '请确认';
+  const body = document.getElementById('dlg-body');
+  body.innerHTML = '';
+  for (const line of (opts.lines || [])) {
+    const p = el('p', line && line.danger ? 'danger' : null);
+    p.textContent = (line && line.text !== undefined) ? line.text : String(line);
+    body.appendChild(p);
+  }
+  const yes = document.getElementById('dlg-yes');
+  const no = document.getElementById('dlg-no');
+  yes.textContent = opts.okText || '继续';
+  yes.className = opts.danger ? 'danger' : 'primary';
+  no.textContent = opts.cancelText || '取消';
+  no.style.display = opts.onlyOk ? 'none' : '';
+  mask.classList.add('show');
+  (opts.onlyOk ? yes : no).focus();
+  return new Promise((resolve) => {
+    dlgSettle = (v) => {
+      mask.classList.remove('show');
+      dlgSettle = null;
+      if (back && back.focus) back.focus();
+      resolve(v);
+    };
+  });
+}
+function askConfirm(opts) { return openDialog(opts); }
+function notify(title, text) { return openDialog({ title, lines: [text], okText: '知道了', onlyOk: true }); }
+
+const dlgMask = document.getElementById('mask');
+dlgMask.addEventListener('keydown', (e) => {
+  // 弹窗开着的时候，键盘只归弹窗：底下的页面一个键都不该收到
+  // （否则 Enter 会被页面的"下一步"接走）
+  e.stopPropagation();
+
+  if (e.key === 'Escape' && dlgSettle) {
+    e.preventDefault();
+    dlgSettle(false);
+    return;
+  }
+
+  // 方向键在按钮之间走。装机器上常常只有键盘，弹窗里的按钮光靠 Tab 摸不到，
+  // 上下左右按下去没反应就会以为卡住了。
+  const dir = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 }[e.key];
+  if (dir === undefined) return;
+  const btns = [...dlgMask.querySelectorAll('.buttons button')]
+    .filter((b) => b.style.display !== 'none' && !b.disabled);
+  if (btns.length < 2) return;
+  e.preventDefault();
+  const i = btns.indexOf(document.activeElement);
+  const j = i < 0 ? 0 : (i + dir + btns.length) % btns.length;
+  btns[j].focus();
+});
+document.getElementById('dlg-yes').onclick = () => { if (dlgSettle) dlgSettle(true); };
+document.getElementById('dlg-no').onclick = () => { if (dlgSettle) dlgSettle(false); };
+
 const TYPE_NAMES = {
   'esp': 'EFI 系统分区',
   'bios-boot': 'BIOS 引导分区',
@@ -202,116 +321,176 @@ function typeName(r) {
   return TYPE_NAMES[r.ptype] || (r.fstype ? r.fstype + ' 分区' : '分区');
 }
 
-function toolsId(device) { return 'tools-' + device.replace(/\W/g, ''); }
+/* 一条长条 = 一条分区（或一块未分配空间）。
+   占用量用长条本身的深浅表示：亮的那一段就是已经用掉的，右边再写百分比；
+   分区号、类型、文件系统、容量、起止位置都在条里，不再另起一行对照。
+   底色压得深：浅底上深字在投影/低亮度屏上糊成一片，选中框也压不住。 */
+const SKIN = {
+  part: ['#1c2f3d', '#356d8a'],   // [空着, 已用]
+  esp: ['#271f3a', '#5a4382'],
+  free: ['#14301e', '#2b6141'],
+};
 
+function rowKind(r) {
+  if (r.free) return 'free';
+  return /esp/i.test(r.flags || '') ? 'esp' : 'part';
+}
+
+function rowTitle(r) {
+  if (r.free) return '未分配空间';
+  const t = typeName(r);
+  return `分区 ${r.index}` + (t ? ' · ' + t : '');
+}
+
+function renderRow(d, r) {
+  const kind = rowKind(r);
+  const used = (typeof r.used_pct === 'number') ? r.used_pct : null;
+  const row = el('button', 'prow ' + kind);
+  row.type = 'button';
+  row.dataset.key = d.device + '#' + r.rowid;
+  row.setAttribute('aria-pressed', 'false');
+  if (picked && picked.device === d.device && picked.row.rowid === r.rowid) {
+    row.classList.add('sel');
+    row.setAttribute('aria-pressed', 'true');
+    // 有数据的分区被选中，等于"这些数据要被清掉"：用警示框
+    if (!r.free && (r.fstype || (r.used_pct || 0) > 0)) row.classList.add('wipe');
+  }
+
+  const pct = (!r.free && used !== null) ? used : 0;
+  const skin = SKIN[kind];
+  row.style.background = pct > 0
+    ? `linear-gradient(90deg, ${skin[1]} 0 ${pct}%, ${skin[0]} ${pct}% 100%)`
+    : skin[0];
+
+  const main = el('span', 'main');
+  main.appendChild(el('span', 'name', rowTitle(r) + (r.fstype ? ' · ' + r.fstype : '')));
+  const span = `${human(r.start)} → ${human(r.end)}`;
+  const bits = r.free ? [`未分配 ${human(r.size)}`, span] : [human(r.size), span];
+  main.appendChild(el('span', 'meta', bits.join(' · ')));
+  row.appendChild(main);
+
+  const side = el('span', 'side');
+  if (r.free) {
+    side.appendChild(el('b', null, '新建'));
+    side.appendChild(el('br'));
+    side.appendChild(document.createTextNode('可以装系统'));
+  } else if (used !== null) {
+    side.appendChild(el('b', null, used + '%'));
+    side.appendChild(el('br'));
+    side.appendChild(document.createTextNode('已用'));
+  }
+  if (side.childNodes.length) row.appendChild(side);
+
+  row.setAttribute('aria-label', `${rowTitle(r)}，${bits.join('，')}`);
+  row.onclick = () => selectRow(d, r);
+  // 上下左右在一条条之间走；Enter / 空格由 button 自己触发 click
+  row.addEventListener('keydown', (e) => {
+    const rows = [...document.querySelectorAll('.prow')];
+    const i = rows.indexOf(row);
+    let j = -1;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') j = i + 1;
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') j = i - 1;
+    else if (e.key === 'Home') j = 0;
+    else if (e.key === 'End') j = rows.length - 1;
+    if (j >= 0 && j < rows.length) {
+      e.preventDefault();
+      // 页面级还有一套上下键走焦点的兜底；这里已经挪过了，不拦住就会再挪一格
+      e.stopPropagation();
+      rows[j].focus();
+    }
+  });
+  return row;
+}
 
 function renderDisk(d) {
   const box = el('div', 'disk');
-  box.appendChild(el('div', 'disk-name', `${d.device}   ${d.size}`));
+  const head = el('div', 'disk-head');
+  head.appendChild(el('span', 'disk-dev', d.device));
+  head.appendChild(el('span', 'disk-cap', `整盘 ${humanText(d.size)}`));
+  box.appendChild(head);
 
-  const bar = el('div', 'bar');
-  const legend = el('div', 'legend');
-  const total = d.rows.reduce((n, r) => n + (parseFloat(r.size) || 0), 0) || 1;
-  for (const r of d.rows) {
-    const pct = (parseFloat(r.size) || 0) / total * 100;
-    const w = Math.max(2, pct);
-    const esp = /esp/i.test(r.flags || '');
-    const fs = r.fstype ? ' · ' + r.fstype : '';
-    const used = (typeof r.used_pct === 'number') ? r.used_pct : null;
-    const name = r.free ? '空闲' : (esp ? 'EFI 系统分区' : `分区 ${r.index}` + (r.ptype && r.ptype !== 'linux' ? `（${typeName(r)}）` : ''));
-    const full = `${name}${fs} · ${Math.round(r.size)} MiB` +
-                 (used !== null ? ` · 已用 ${used}%` : '') +
-                 ` · ${r.start}–${r.end} MiB`;
-    const blk = el('div', 'blk ' + (r.free ? 'free' : (esp ? 'part esp' : 'part')));
-    blk.style.flex = `0 0 ${w}%`;
-    blk.title = full + (r.protected ? '　（系统分区，格式化后另一套系统可能起不来）' : '');
-    // 已用部分压深一档：分区占用多少一眼能看出来
-    if (!r.free && used !== null) {
-      const base = esp ? '#b596d6' : '#8fb0c8';
-      const dark = esp ? '#7d5aa0' : '#4f7a99';
-      blk.style.background =
-        `linear-gradient(90deg, ${dark} 0 ${used}%, ${base} ${used}% 100%)`;
-    }
-    // 每块至少有 58px（CSS 的 min-width），够写一个编号。
-    // 宽的地方写全，窄的地方只留编号，完整信息在下面的图例与悬停提示里。
-    let label;
-    if (r.free) label = `${Math.round(r.size)}M`;
-    else if (pct >= 14) label = `分区 ${r.index}${r.fstype ? ' · ' + r.fstype : ''}`;
-    else if (pct >= 6) label = `${r.index}${r.fstype ? ' · ' + r.fstype : ''}`;
-    else label = String(r.index);
-    blk.appendChild(el('span', null, label));
-    if (picked && picked.device === d.device && picked.row.rowid === r.rowid) {
-      blk.classList.add('sel');
-      // 有数据的分区被选中 = 这些数据要被格式化
-      if (!r.free && (r.fstype || (r.used_pct || 0) > 0)) blk.classList.add('warn');
-    }
-    // 键盘：每块都能 Tab 到，Enter/空格选中，左右键在同一块盘的分区之间走。
-    blk.tabIndex = 0;
-    blk.setAttribute('role', 'button');
-    blk.dataset.key = d.device + '#' + r.rowid;
-    blk.setAttribute('aria-label', (r.free ? '空闲空间' : `分区 ${r.index}`) + '，' + full);
-    if (picked && picked.device === d.device && picked.row.rowid === r.rowid) {
-      blk.setAttribute('aria-pressed', 'true');
-    }
-    blk.onclick = () => selectRow(d, r, false);
-    blk.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        selectRow(d, r, true);
-        return;
-      }
-      const blocks = [...bar.querySelectorAll('.blk')];
-      const i = blocks.indexOf(blk);
-      let j = -1;
-      if (e.key === 'ArrowRight') j = i + 1;
-      else if (e.key === 'ArrowLeft') j = i - 1;
-      else if (e.key === 'Home') j = 0;
-      else if (e.key === 'End') j = blocks.length - 1;
-      if (j >= 0 && j < blocks.length) { e.preventDefault(); blocks[j].focus(); }
-    });
-    bar.appendChild(blk);
-
-    const item = el('span');
-    item.appendChild(el('i', r.free ? 'free' : (esp ? 'esp' : 'part')));
-    item.appendChild(document.createTextNode(full));
-    legend.appendChild(item);
-  }
-  const barwrap = el('div', 'barwrap');
-  barwrap.appendChild(bar);
-  box.appendChild(barwrap);
-  box.appendChild(legend);
-
-  const tools = el('div', 'tools');
-  tools.id = toolsId(d.device);
-  box.appendChild(tools);
+  const rows = el('div', 'disk-rows');
+  for (const r of d.rows) rows.appendChild(renderRow(d, r));
+  box.appendChild(rows);
+  // 操作区不在盘里：它在页面底部那条固定的带子上，见 showTools()
   return box;
 }
 
-async function selectRow(d, r, fromKeyboard) {
+async function selectRow(d, r) {
   picked = { device: d.device, disk: d, row: r };
-  await load();                    // 先重画色块（会清空工具区）
-  const fresh = disksData.find(x => x.device === d.device);
-  const same = fresh && fresh.rows.find(x => x.rowid === r.rowid);
-  picked.row = same || r;
-  if (same) showTools(fresh, same, fromKeyboard);
+  await load();
+  const fresh = disksData.find(x => x.device === picked.device);
+  const same = fresh && fresh.rows.find(x => x.rowid === picked.row.rowid);
+  if (same) picked.row = same;
   checkNext();
-  // 键盘选中的：焦点跟到工具区（能直接输大小），没有工具就停在色块上，
-  // 否则重画之后焦点掉回 body，再按 Tab 就得从头走。
-  if (fromKeyboard && !document.querySelector('#' + toolsId(d.device) + ' input')) {
-    focusBlock(picked.device, picked.row.rowid);
-  }
+  focusTools();
 }
 
-function focusBlock(device, rowid) {
-  const b = document.querySelector(`.blk[data-key="${device}#${rowid}"]`);
-  if (b) b.focus();
-  return b;
+function focusTools() {
+  const box = document.getElementById('tools');
+  if (!box) return;
+  const first = box.querySelector('button:not([disabled]), input:not([disabled])');
+  (first || box).focus();
 }
 
-function showTools(d, r, fromKeyboard) {
-  const tools = document.getElementById(toolsId(d.device));
-  if (!tools) return;
+// 焦点在底部那条带子里的时候给 #step1 挂个标记，让上面选中的长条改细、带子顶边变粗。
+// focusout 会先于下一个 focusin 触发，所以延到下一个任务里再判断，避免按钮之间
+// 移动时标记闪一下。
+(function trackDockFocus() {
+  const dock = document.querySelector('#step1 .dock');
+  const step1 = document.getElementById('step1');
+  if (!dock || !step1) return;
+  dock.addEventListener('focusin', () => step1.classList.add('dock-focus'));
+  dock.addEventListener('focusout', () => {
+    setTimeout(() => {
+      if (!dock.contains(document.activeElement)) step1.classList.remove('dock-focus');
+    }, 0);
+  });
+})();
+
+function deleteButton(d, r) {
+  const esp = /esp/i.test(r.flags || '');
+  const del = el('button', 'danger', `删除分区 ${r.index}`);
+  del.onclick = async () => {
+    const ok = await askConfirm({
+      title: `删除分区 ${r.index}？`,
+      lines: [
+        `位置：${d.device} 分区 ${r.index}`,
+        { text: '这个分区会被删掉，里面的数据不可恢复。', danger: true },
+        ...(esp
+          ? [{ text: '这是 EFI 系统分区，删掉之后同一块盘上另一套系统可能起不来（装好本系统会新建一个）。', danger: true }]
+          : (r.protected
+              ? [{ text: `这是${typeName(r)}，删掉之后同一块盘上另一套系统可能起不来。`, danger: true }]
+              : [])),
+      ],
+      okText: '删除',
+      cancelText: '保留',
+      danger: true,
+    });
+    if (!ok) return;
+    del.disabled = true;
+    try {
+      await api('/api/rmpart', { device: d.device, index: r.index });
+      picked = null;
+      await load();
+      checkNext();
+    } catch (e) {
+      del.disabled = false;
+      notify('删除失败', e.message);
+    }
+  };
+  return del;
+}
+
+function showTools(d, r) {
+  const tools = document.getElementById('tools');
   tools.innerHTML = '';
+  if (!d || !r) {
+    checkNext();
+    return;
+  }
+  tools.appendChild(el('span', 'pick', `${d.device} · ${rowTitle(r)}`));
+
   if (r.free) {
     const size = el('input');
     size.type = 'number';
@@ -321,7 +500,11 @@ function showTools(d, r, fromKeyboard) {
     const btn = el('button', 'primary', '在这里新建分区');
     btn.onclick = async () => {
       const mib = parseInt(size.value, 10);
-      if (!mib || mib < 100) { alert('至少 100 MiB'); return; }
+      if (!mib || mib < 100) {
+        notify('大小不合适', '新分区至少要 100 MiB。');
+        size.focus();
+        return;
+      }
       btn.disabled = true;
       try {
         // 只报行号与大小：边界由后端按空闲区的扇区值算，前端不碰偏移量
@@ -329,42 +512,36 @@ function showTools(d, r, fromKeyboard) {
         picked = null;
         await load();
         checkNext();
-      } catch (e) { alert('新建失败：' + e.message); btn.disabled = false; }
+      } catch (e) {
+        btn.disabled = false;
+        notify('新建分区失败', e.message);
+      }
     };
     // 在大小输入框里按 Enter 直接建，不用再去摸按钮
     size.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); btn.click(); }
     });
     tools.append(el('label', null, `大小（MiB，最多 ${Math.floor(r.size)}）`), size, btn);
-    if (fromKeyboard) size.focus();
-  } else {
-    const esp = /esp/i.test(r.flags || '');
-    if (esp) {
-      tools.append(el('span', 'hint', '这是 EFI 系统分区，装系统时会复用它，不会被格式化'));
-    } else {
-      const hasData = !!r.fstype || (r.used_pct || 0) > 0;
-      const desc = `${typeName(r)}${r.fstype ? '（' + r.fstype + '）' : ''}`;
-      tools.append(el(hasData || r.protected ? 'warnbad' : 'hint',
-        r.protected
-          ? `这是${desc}，属于系统引导/恢复一类的分区。选它装系统会把它格式化，另一套系统可能起不来`
-          : (hasData
-              ? `这个分区上有数据（${desc}${typeof r.used_pct === 'number' ? `，已用 ${r.used_pct}%` : ''}），下一步会把它格式化`
-              : '这个分区是空的，下一步会格式化它并装系统')));
-      const del = el('button', 'danger', `删除分区 ${r.index}`);
-      del.onclick = async () => {
-        const extra = r.protected ? `\n\n注意：这是${typeName(r)}，删掉后另一套系统可能起不来。` : '';
-        if (!confirm(`删除分区 ${r.index}？上面的数据会丢失。${extra}`)) return;
-        del.disabled = true;
-        try {
-          await api('/api/rmpart', { device: d.device, index: r.index });
-          picked = null;
-          await load();
-          checkNext();
-        } catch (e) { alert('删除失败：' + e.message); del.disabled = false; }
-      };
-      tools.append(del);
-    }
+    return;
   }
+
+  // 每条已有的分区都能删 —— 包括 EFI 分区：装机的人可能就是要清掉旧引导，
+  // 藏着这个按钮只会让人以为动不了它。删 EFI 时确认框里把后果写清楚。
+  const esp = /esp/i.test(r.flags || '');
+  const hasData = !!r.fstype || (r.used_pct || 0) > 0;
+  const desc = `${typeName(r)}${r.fstype ? '（' + r.fstype + '）' : ''}`;
+  let hint;
+  if (esp) {
+    hint = '这是 EFI 系统分区：拿它装系统会直接复用、不格式化；要清掉它可以删。';
+  } else if (r.protected) {
+    hint = `这是${desc}，属于引导或恢复用的分区。拿它装系统会清空它。`;
+  } else if (hasData) {
+    hint = `这个分区里有数据（${desc}${typeof r.used_pct === 'number' ? `，已用 ${r.used_pct}%` : ''}），装系统会清空它。`;
+  } else {
+    hint = '这个分区是空的，装系统会把它格式化。';
+  }
+  tools.append(el('span', esp || r.protected || hasData ? 'warnbad' : 'hint', hint));
+  tools.append(deleteButton(d, r));
 }
 
 const MIN_ROOT_MIB = 4096;   // 系统解开约 2.4 GB，加应用层与运行余量
@@ -373,7 +550,7 @@ function checkNext() {
   const next = document.getElementById('next');
   const h1 = document.getElementById('h1');
   let why = '';
-  if (!picked) why = '先选一个分区，或选一块空闲空间';
+  if (!picked) why = '先选一块分区，或者一块未分配空间';
   next.disabled = !!why;
   if (why) {
     h1.textContent = why;
@@ -382,23 +559,32 @@ function checkNext() {
   }
   const r = picked.row;
   const size = parseFloat(r.size) || 0;
-  if (size < MIN_ROOT_MIB) {
-    h1.textContent = `这块只有 ${Math.round(size)} MiB，系统至少要 ${MIN_ROOT_MIB} MiB`;
+  if (!r.free && /esp/i.test(r.flags || '')) {
+    // 装系统会复用 EFI 分区，不会往里装；选中它等于选了个走不通的位置。
+    // 直接挡住，别让人一路点到第③页才被服务端拒绝。
+    h1.textContent = `${picked.device} 分区 ${r.index} 是 EFI 系统分区，装不了系统；装系统时会复用它。要清掉就删掉它。`;
     h1.className = 'warnbad';
+    next.disabled = true;
+    return;
+  }
+  if (size < MIN_ROOT_MIB) {
+    h1.textContent = `这一块只有 ${Math.round(size)} MiB，装系统至少要 ${MIN_ROOT_MIB} MiB`;
+    h1.className = 'warnbad';
+    next.disabled = true;
     return;
   }
   if (r.free) {
-    h1.textContent = `${picked.device} 空闲 ${Math.round(r.size)} MiB —— 会新建分区并装进去`;
+    h1.textContent = `${picked.device} 上还有 ${Math.round(r.size)} MiB 没分配，会在这里新建分区`;
     h1.className = 'hint';
     return;
   }
   const hasData = !!r.fstype || (r.used_pct || 0) > 0;
   const desc = `${typeName(r)}${r.fstype ? '（' + r.fstype + '）' : ''}`;
   h1.textContent = r.protected
-    ? `${picked.device} 分区 ${r.index} 是${desc} —— 选它装系统会把这个分区格式化`
+    ? `${picked.device} 分区 ${r.index} 是${desc}，拿它装系统会清空它`
     : (hasData
-        ? `${picked.device} 分区 ${r.index}（${desc}，${r.size} MiB）—— 下一步会格式化它`
-        : `${picked.device} 分区 ${r.index}，${r.size} MiB`);
+        ? `${picked.device} 分区 ${r.index}（${desc}，${Math.round(size)} MiB），装系统会清空它`
+        : `${picked.device} 分区 ${r.index}，${Math.round(size)} MiB，是空的`);
   h1.className = (hasData || r.protected) ? 'warnbad' : 'hint';
 }
 
@@ -412,20 +598,57 @@ function showStep(n) {
   } else if (n === 3) {
     document.getElementById('log').focus();
   } else {
-    const b = document.querySelector('.blk.sel') || document.querySelector('.blk');
+    const b = document.querySelector('.prow.sel') || document.querySelector('.prow');
     if (b) b.focus();
   }
 }
 
-document.getElementById('next').onclick = () => {
+function human(mib) {
+  const n = parseFloat(mib) || 0;
+  return n >= 1024 ? `${(n / 1024).toFixed(1)} GiB` : `${Math.round(n)} MiB`;
+}
+
+// 后端的整盘容量是字符串（"122104 MiB"），显示时统一换成好读的单位
+function humanText(s) {
+  const m = /^([\d.]+)\s*MiB$/i.exec(s || '');
+  return m ? human(parseFloat(m[1])) : (s || '');
+}
+
+function targetText() {
+  const r = picked.row;
+  if (r.free) return `${picked.device} 上未分配的 ${human(r.size)}`;
+  const desc = `${typeName(r)}${r.fstype ? '（' + r.fstype + '）' : ''}`;
+  return `${picked.device} 分区 ${r.index} — ${desc}，${human(r.size)}`;
+}
+
+// 下一步不直接翻页：先让人确认"要动的到底是哪一块"，确认框里把设备、分区、
+// 会被清掉什么写清楚。点错一次就是整块盘的数据，值这一次点击。
+document.getElementById('next').onclick = async () => {
   if (document.getElementById('next').disabled) return;
   const r = picked.row;
-  document.getElementById('p-target').textContent = r.free
-    ? `${picked.device}   空闲 ${Math.round(r.size)} MiB`
-    : `${picked.device}   分区 ${r.index}   ${r.size} MiB`;
+  const hasData = !!r.fstype || (r.used_pct || 0) > 0;
+  const ok = await askConfirm({
+    title: '下一步要改动这块磁盘',
+    lines: [
+      `目标：${targetText()}`,
+      r.free
+        ? '会做：在这块未分配空间上新建一个分区，把系统装进去。'
+        : { text: '会做：清空这个分区，把系统装进去。分区里原来的数据全部丢失。', danger: true },
+      ...(r.protected
+        ? [{ text: `注意：这是${typeName(r)}，清空后同一块盘上的另一套系统可能起不来。`, danger: true }]
+        : []),
+      '引导：同一块盘上已有的 EFI 分区会被复用；没有就新建一个。',
+    ],
+    okText: '确认，去下一步',
+    cancelText: '再看看',
+    danger: hasData || !!r.protected,
+  });
+  if (!ok) return;
+
+  document.getElementById('p-target').textContent = targetText();
   document.getElementById('p-act').textContent = r.free
-    ? '在这块空闲空间上新建分区，把系统装进去'
-    : '格式化这个分区，把系统装进去（数据会全部丢失）';
+    ? '新建一个分区，把系统装进去'
+    : '清空这个分区，把系统装进去';
   document.getElementById('p-esp').textContent = '同一块盘上已有的 EFI 分区会被复用；没有就新建一个';
   showStep(2);
   checkForm();
@@ -523,13 +746,22 @@ async function load() {
     }
     for (const d of disksData) list.appendChild(renderDisk(d));
     if (keepKey) {
-      const b = list.querySelector(`.blk[data-key="${keepKey}"]`);
+      const b = list.querySelector(`.prow[data-key="${keepKey}"]`);
       if (b) b.focus();
     }
     if (picked) {
       const fresh = disksData.find(x => x.device === picked.device);
       const same = fresh && fresh.rows.find(x => x.rowid === picked.row.rowid);
-      if (same) showTools(fresh, same, false);
+      if (same) {
+        picked.row = same;
+        showTools(fresh, same);
+      } else {
+        // 选中的那一条已经不在了（被删、或者分区表变了）：底部那条带子要跟着清空
+        picked = null;
+        showTools(null, null);
+      }
+    } else {
+      showTools(null, null);
     }
     checkNext();
   } catch (e) {
