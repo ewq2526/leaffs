@@ -1294,6 +1294,7 @@ class HTTPHandler(BaseHTTPRequestHandler):
             '/api/account/lang': lambda: _ac_self.account_set_lang(self),
             '/api/wifi/connect': lambda: _sys_api.wifi_connect(self),
             '/api/system/timezone': lambda: _sys_api.set_timezone(self),
+            '/api/power': lambda: _sys_api.power_action(self),
         }
         h = handlers.get(path)
         if h: h()

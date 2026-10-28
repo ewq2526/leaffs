@@ -87,3 +87,35 @@ def wifi_connect(handler):
         handler.send_json({'error': str(e)}, 400)
         return
     handler.send_json(result)
+
+
+# 关机 / 重启。命令走绝对路径；`--no-block` 先把动作交给 systemd 就返回，
+# 不把请求线程挂在整个关机流程上 —— 否则页面那边等到超时，看到的反而是"失败了"。
+_SYSTEMCTL = '/usr/bin/systemctl'
+_POWER_ACTIONS = ('poweroff', 'reboot')
+
+
+def power_action(handler):
+    """POST /api/power {action: poweroff|reboot} —— 关机 / 重启这台机器。
+
+    只认**本机一次性令牌**建立的会话（与"服务端本机弹选择框"同一口径，见
+    `share_pick_mount`）：这是"人坐在机器前"的能力，不跟账号走 —— 远程管理员
+    一律 403。CSRF 由 do_POST 的统一同源校验兜住。
+    """
+    if not handler._is_local_token_session():
+        handler.send_json({'error': '关机只能在机器本机上操作'}, 403)
+        return
+    body = handler._read_json()
+    if body is None:
+        return
+    action = str(body.get('action') or '')
+    if action not in _POWER_ACTIONS:
+        handler.send_json({'error': '未知操作：%r' % action}, 400)
+        return
+    try:
+        subprocess.Popen([_SYSTEMCTL, '--no-block', action],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as e:
+        handler.send_json({'error': '执行失败: %s' % e}, 500)
+        return
+    handler.send_json({'ok': True, 'action': action})

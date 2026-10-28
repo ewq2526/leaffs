@@ -243,6 +243,37 @@ window.__DESK_ROLE__='__DESK_ROLE_JSON__';</script>
   .power:hover { background: rgba(255, 255, 255, 0.08); }
   .power svg { width: calc(24 * var(--u)); height: calc(24 * var(--u)); }
 
+  /* 电源菜单：贴在电源键正上方。关机/重启只在本机可用（后端按"本机一次性令牌"
+     判），墙上挂的这台机器就是它自己的操作面板。 */
+  .power-menu {
+    position: absolute; z-index: 6;
+    left: var(--inset);
+    bottom: calc(var(--bar) + var(--inset) + calc(8 * var(--u)));
+    min-width: calc(132 * var(--u));
+    padding: calc(5 * var(--u));
+    background: rgba(18, 22, 32, 0.97);
+    border: 1px solid var(--line);
+    border-radius: calc(9 * var(--u));
+    box-shadow: 0 calc(8 * var(--u)) calc(22 * var(--u)) rgba(0, 0, 0, 0.55);
+    display: flex; flex-direction: column;
+  }
+  .power-menu[hidden] { display: none; }
+  .power-menu button {
+    background: none; border: 0; color: var(--text); font: inherit;
+    font-size: calc(12 * var(--u)); text-align: left;
+    padding: calc(7 * var(--u)) calc(10 * var(--u));
+    border-radius: calc(5 * var(--u)); cursor: pointer;
+  }
+  .power-menu button:hover { background: rgba(255, 255, 255, 0.1); }
+  .power-menu button.danger:hover { background: rgba(239, 100, 97, 0.24); }
+  .power-menu .state {
+    font-size: calc(11 * var(--u)); color: var(--dim);
+    padding: calc(2 * var(--u)) calc(10 * var(--u)) calc(5 * var(--u));
+    min-height: calc(16 * var(--u));
+  }
+  /* 没有要说的就别占那一行 —— 空着的话菜单顶上多出一块空白 */
+  .power-menu .state:empty { display: none; }
+
   .apps { display: flex; align-items: center; gap: calc(6 * var(--u)); }
   .app {
     flex: none;
@@ -330,6 +361,14 @@ window.__DESK_ROLE__='__DESK_ROLE_JSON__';</script>
 <div class="wins" id="wins"></div>
 
 <div class="online" id="online"></div>
+
+<!-- 电源菜单：点任务栏那个电源键弹出来 -->
+<div class="power-menu" id="powerMenu" hidden>
+  <div class="state" id="powerState"></div>
+  <button type="button" data-act="reboot">重启</button>
+  <button type="button" data-act="poweroff" class="danger">关机</button>
+  <button type="button" data-act="cancel">取消</button>
+</div>
 
 <!-- 任务栏 -->
 <nav class="taskbar">
@@ -866,6 +905,66 @@ var wifiState = null;
 
 // 托盘里的无线图标：点它进系统页的「网络」栏（扫描 / 选网络 / 输密码都在那一栏）
 trayWifi.addEventListener('click', function () { openApp('system', '/system?tab=net'); });
+
+/* ---------- 电源菜单 ----------
+   关机 / 重启都调 /api/power，服务端按"本机一次性令牌会话"判：只有坐在机器前
+   打开的这一页能关，远程管理员一律 403。 */
+var powerMenu = document.getElementById('powerMenu');
+var powerState = document.getElementById('powerState');
+
+function closePowerMenu() {
+  powerMenu.hidden = true;
+  powerState.textContent = '';
+}
+
+powerBtn.addEventListener('click', function (e) {
+  e.stopPropagation();                 // 别让这次点击顺手把菜单又关掉
+  if (powerMenu.hidden) {
+    powerState.textContent = '';
+    powerMenu.hidden = false;
+  } else {
+    closePowerMenu();
+  }
+});
+document.addEventListener('click', function () {
+  if (!powerMenu.hidden) closePowerMenu();
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && !powerMenu.hidden) closePowerMenu();
+});
+
+function askPower(action) {
+  var label = (action === 'reboot') ? '重启' : '关机';
+  powerState.textContent = '正在' + label + '…';
+  fetch('/api/power', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: action })
+  }).then(function (r) {
+    return r.json().then(function (d) { return { ok: r.ok, d: d || {} }; },
+                         function () { return { ok: false, d: {} }; });
+  }).then(function (res) {
+    if (!res.ok) {
+      powerState.textContent = res.d.error || (label + '失败');
+      return;
+    }
+    // 命令已交给 systemd，屏幕到断电前还会亮几秒：锁住按钮，别让人连点
+    Array.prototype.forEach.call(
+      powerMenu.querySelectorAll('button'),
+      function (b) { b.disabled = true; });
+    powerState.textContent = label + '中…';
+  }).catch(function () {
+    powerState.textContent = '请求失败';
+  });
+}
+
+powerMenu.addEventListener('click', function (e) {
+  e.stopPropagation();
+  var b = e.target && e.target.closest ? e.target.closest('button[data-act]') : null;
+  if (!b || b.disabled) return;
+  if (b.dataset.act === 'cancel') { closePowerMenu(); return; }
+  askPower(b.dataset.act);
+});
 
 function applyWifi(w) {
   if (!w) return;
