@@ -6,6 +6,10 @@
 #
 # 同一份 theme.txt 两处用：介质上的 /boot/grub/live-theme/、装好系统里的
 # /boot/grub/themes/camphor/。底图与标题图都在同目录，引用写相对路径。
+#
+# boot_menu 的框要按"条目都放得下"给：grub 不会把框撑开，超出框高的条目直接卷到
+# 看不见（边上只有一根滚动条），而屏幕右边大半空着。以前框高 24% 只有四行多一点，
+# 条目一多就成了"只看得到四条、剩下的不知道去哪了"；宽度 16% 也放不下长标题。
 
 desktop-image: "splash.jpg"
 desktop-image-scale-method: "crop"
@@ -20,8 +24,8 @@ title-text: ""
 + boot_menu {
 	left = 6%
 	top = 18%
-	width = 16%
-	height = 24%
+	width = 46%
+	height = 72%
 	item_font = "Unifont Regular 16"
 	item_color = "#c6d2d8"
 	selected_item_color = "#a6e6bb"

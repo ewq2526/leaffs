@@ -66,9 +66,31 @@ mv boot/grub/grub.cfg.new boot/grub/grub.cfg
 sed -i \
 	-e "s/^submenu 'Advanced install options \.\.\.' --hotkey=a {/submenu '高级选项' --hotkey=a {/" \
 	-e "s/^submenu 'Utilities\.\.\.' --hotkey=u {/submenu '工具' --hotkey=u {/" \
-	-e "s/^[[:space:]]*menuentry \"UEFI Firmware Settings\" --hotkey=f {/	menuentry \"进入主板设置（UEFI 固件）\" --hotkey=f {/" \
+	-e "s/^[[:space:]]*menuentry \"UEFI Firmware Settings\" --hotkey=f {/	menuentry \"进入主板设置\" --hotkey=f {/" \
 	-e "s/^[[:space:]]*menuentry \"Verify integrity of the boot medium\" --hotkey=v {/	menuentry \"校验启动介质\" --hotkey=v {/" \
 	boot/grub/grub.cfg
+
+# 「工具」子菜单摊平到主页。这一页只有三两条，主页位置大把空着，把固件设置和
+# 校验介质藏进二级菜单纯属自我削减：装机的人要先多按一次才看得见有哪些功能。
+# 摊平的做法是整段去掉 submenu 那层壳，里面的东西原样留在顶层 —— 里面两条都包在
+# `if [ ... ]` 里，挪到顶层照样成立。
+# 花括号靠计数认：里面的 menuentry 自己也带 {}，只看行尾 `}` 会把它们截断。
+awk '
+	/^submenu .工具. --hotkey=u \{/ { depth = 1; inmenu = 1; next }
+	inmenu {
+		tmp = $0; o = gsub(/\{/, "", tmp)
+		tmp = $0; c = gsub(/\}/, "", tmp)
+		# 深度回到 1 时的那个 `}` 是这个子菜单的壳，收在这里
+		if (depth == 1 && o == 0 && c == 1) { inmenu = 0; next }
+		depth += o - c
+		# 子菜单里那份 theme.cfg 是壳自带的，顶层已经 source 过一次，不要重复
+		if ($0 ~ /^[ \t]*source \/boot\/grub\/theme\.cfg[ \t]*$/) next
+		print
+		next
+	}
+	{ print }
+' boot/grub/grub.cfg > boot/grub/grub.cfg.new
+mv boot/grub/grub.cfg.new boot/grub/grub.cfg
 
 # 默认项按标题指定，不用序号：菜单顺序会随条目增删变化，序号指错就会
 # 启动到「工具」那种子菜单里。
