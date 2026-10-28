@@ -523,7 +523,11 @@ def power():
 
 _io_lock = threading.Lock()
 _last_io = {}
-_DISK_RE = re.compile(r'^(sd[a-z]+|nvme\d+n\d+|mmcblk\d+)$')
+# 名字对得上才是真实盘：/sys/block 里还有 loop、ram、光驱这些。
+# vd* 是 virtio-blk（KVM / QEMU 里的磁盘），不收它等于虚拟机上整块盘不存在 ——
+# 系统页没有条目，读写曲线也是空的。分区（vda1）不会出现在 /sys/block 顶层，
+# 所以这里按整盘名匹配就够。
+_DISK_RE = re.compile(r'^(sd[a-z]+|vd[a-z]+|nvme\d+n\d+|mmcblk\d+)$')
 
 
 def _diskstats():
