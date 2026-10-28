@@ -189,6 +189,32 @@ if [ -f "$T/fs.squashfs" ]; then
 		&& bad "镜像里有 xserver-xorg-video-*（旧 DDX 会盖掉 modesetting，界面灰屏）" \
 		|| ok "没有 xserver-xorg-video-*"
 
+	# 视频硬解：包装进了清单，不代表驱动文件在 dri 目录里（libva 只认那几个
+	# *_drv_video.so）。缺了照样能跑，只是所有播放落到 CPU 软解 —— 从装了哪些包
+	# 完全看不出来，只能看文件。
+	# 判据不能拿行尾锚定：mesa-va-drivers 那几个是符号链接，unsquashfs -ll 里记成
+	# "名字 -> 目标"，行尾是目标名。所以要认"名字出现在行里"，并且链接指向的文件
+	# 也在镜像里 —— 悬空链接和没有文件一样，libva 打不开。
+	missing_va=
+	for f in iHD_drv_video.so i965_drv_video.so radeonsi_drv_video.so; do
+		line=$(grep "dri/$f" "$T/sq.list" | head -1)
+		if [ -z "$line" ]; then
+			missing_va="$missing_va $f"
+			continue
+		fi
+		case $line in
+		*" -> "*)
+			tgt=${line##* -> }
+			grep -q "/${tgt##*/}$" "$T/sq.list" || missing_va="$missing_va $f(链接断了)"
+			;;
+		esac
+	done
+	if [ -z "$missing_va" ]; then
+		ok "VA-API 驱动在（iHD / i965 / radeonsi）"
+	else
+		bad "缺 VA-API 驱动：$missing_va —— 视频全部走 CPU 软解"
+	fi
+
 	# 不该有的
 	grep -q 'squashfs-root/etc/default/grub$' "$T/sq.list" \
 		&& bad "镜像里有 /etc/default/grub（装 grub 时会弹 conffile 冲突）" \

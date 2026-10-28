@@ -62,6 +62,16 @@ gstreamer1.0-plugins-bad
 gstreamer1.0-gl
 gstreamer1.0-x
 
+# ── 视频硬解 ────────────────────────────────────────────────
+# 上面那组只解决"有没有解码器"；解码走不走硬件，由 VA-API 决定。libva2 早就随
+# 依赖进来了，但没有实现驱动它就是个空壳 —— /usr/lib/x86_64-linux-gnu/dri/ 下
+# 一个 *_drv_video.so 都没有，播放一律落到 CPU 软解，软解 1080p 要占掉一个核。
+# 驱动按核显厂商各装一份：几份同时装着不冲突，libva 按核显自己挑。
+intel-media-va-driver      # Intel Gen9 及以后（iHD_drv_video.so）
+i965-va-driver             # Intel 更老的核显（i965_drv_video.so）
+mesa-va-drivers            # AMD radeonsi/r600、nouveau、virtio-gpu（Gallium 的 VA 前端）
+vainfo                     # 诊断工具：在真机上列出这颗核显实际支持的 profile
+
 # ── Python ─────────────────────────────────────────────────
 # 安装器的后端与应用都是 Python 写的，同在公共层。
 python3
