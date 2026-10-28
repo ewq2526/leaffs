@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -117,25 +118,172 @@ PART_TYPES = {
 PROTECTED = {"esp", "bios-boot", "msr", "win-recovery", "ldm", "swap"}
 
 
+USAGE_TMP = "/run/camphor-fsusage"
+USAGE_LOCK = threading.Lock()
+# 设备 → 只读挂载点。挂上就留着：statvfs 读的是内核里那份超级块，不碰盘，
+# 每次挂/卸反而是白花时间。卸只在一个时候做 —— 要动分区表之前。
+USAGE_MOUNTS = {}
+USAGE_FAILED = set()
+# 挂载失败的最后一行原因，界面上要能看见 —— 否则"读不到占用"和"这块是空的"分不清
+USAGE_ERROR = {}
+# 装系统的时候不需要那排百分比：装的过程中分区表一直在变，挂上去只会碍事
+USAGE_ENABLED = True
+
+# 有些文件系统报给 parted 的名字与 mount 认得的不一样
+MOUNT_TYPE = {
+    "fat16": "vfat", "fat32": "vfat", "fat": "vfat",
+    "ntfs": "ntfs3",
+}
+
+
+def _mounted_at(device):
+    """设备已经挂着就返回它的挂载点，别再挂第二次。"""
+    try:
+        with open("/proc/mounts", encoding="utf-8") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] == device:
+                    return parts[1]
+    except OSError:
+        pass
+    return None
+
+
+def _used_pct(path):
+    st = os.statvfs(path)
+    if not st.f_blocks:
+        return None
+    used = st.f_blocks - st.f_bfree
+    return int(round(used * 100.0 / st.f_blocks))
+
+
+def _looks_dirty(text):
+    """挂载被拒是不是因为这块卷"脏"（上次没正常关机留下的日志）。
+
+    NTFS 脏卷、ext 需要 fsck 的卷都会被内核拒挂。这种情况和"没有文件系统"
+    完全两回事，界面上得分开写 —— 否则装机的人只会以为工具坏了。
+    """
+    t = (text or "").lower()
+    for word in ("dirty", "unclean", "needs recovery", "not clean", "run chkdsk", "chkdsk"):
+        if word in t:
+            return True
+    return False
+
+
+def _mount_usage(device, fstype):
+    """把设备只读挂一次，挂点记下来复用；挂不上就记下来，别每次刷新都再试。"""
+    with USAGE_LOCK:
+        mp = USAGE_MOUNTS.get(device)
+        if mp:
+            return mp
+        if device in USAGE_FAILED:
+            return None
+        os.makedirs(USAGE_TMP, exist_ok=True)
+        mp = tempfile.mkdtemp(dir=USAGE_TMP, prefix="mnt-")
+        # 只读挂载。选项必须跟着驱动这条路走：这里走的是内核里那个文件系统驱动，
+        # 所以只能给它认得的选项（ro）。ntfs-3g 那套用户态选项（norecover、force、
+        # remove_hiberfile）交给 ntfs3 只会得到 "unknown option"，一挂一个失败。
+        opts = "ro"
+        attempts = [["mount", "-o", opts, "-t", MOUNT_TYPE.get(fstype, fstype), device, mp],
+                    # 名字对不上时（fat32 之类）退回让 mount 自己按超级块猜
+                    ["mount", "-o", opts, device, mp]]
+        errs = []
+        for cmd in attempts:
+            try:
+                p = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+            except (OSError, subprocess.SubprocessError) as exc:
+                errs.append(str(exc))
+                continue
+            if p.returncode == 0:
+                USAGE_MOUNTS[device] = mp
+                USAGE_ERROR.pop(device, None)
+                return mp
+            errs.append((p.stderr or p.stdout or "").strip())
+        USAGE_FAILED.add(device)
+        # 取有用的那几行：mount 的正文在第一行，dmesg 提示那种尾巴没有信息量
+        lines = [p.strip() for p in (errs[-1] if errs else "").splitlines() if p.strip()]
+        USAGE_ERROR[device] = (" ".join(lines) or "挂载失败")[:160]
+        try:
+            os.rmdir(mp)
+        except OSError:
+            pass
+        return None
+
+
+def release_usage_mounts(device=None):
+    """卸掉读占用用的只读挂载。
+
+    留给"马上要改分区表"的调用者：设备挂着的时候 parted 删/建分区会报 EBUSY。
+    device 为空就把所有这类挂载都卸掉。
+    """
+    with USAGE_LOCK:
+        for dev in list(USAGE_MOUNTS):
+            if device is not None and dev != device:
+                continue
+            mp = USAGE_MOUNTS.pop(dev)
+            subprocess.run(["umount", "-l", mp], capture_output=True, timeout=20)
+            try:
+                os.rmdir(mp)
+            except OSError:
+                pass
+            # 卸过之后这块盘的分区可能会变，缓存过的"挂不上"也该重新试
+            USAGE_FAILED.discard(dev)
+            USAGE_ERROR.pop(dev, None)
+
+
+def _cleanup_usage_mounts():
+    """进程里没记着、文件系统上还挂着的，收干净（上次被打断留下的那种）。"""
+    release_usage_mounts()
+    try:
+        with open("/proc/mounts", encoding="utf-8") as f:
+            mounts = [line.split()[1] for line in f if len(line.split()) >= 2]
+    except OSError:
+        return
+    for mp in mounts:
+        if mp.startswith(USAGE_TMP + "/"):
+            subprocess.run(["umount", "-l", mp], capture_output=True, timeout=15)
+            try:
+                os.rmdir(mp)
+            except OSError:
+                pass
+
+
 def fs_usage(device, fstype):
-    """ext 系列的使用率（百分比）。其他文件系统没有可靠又不挂载的读法，返回 None。"""
-    if fstype not in ("ext2", "ext3", "ext4"):
+    """分区的已用百分比。
+
+    ext 系列看 dumpe2fs 的块计数，不碰设备；其它文件系统（vfat、exfat、ntfs、
+    btrfs、xfs…）没有这种离线读法，就以只读方式挂一次，之后一直读它的 statvfs。
+    已经挂着的设备直接用它的挂载点。读不到就返回 None —— 界面上少一个百分比，
+    不影响装系统。
+    """
+    if not USAGE_ENABLED or not fstype or fstype == "swap":
+        return None
+
+    if fstype.startswith("ext"):
+        try:
+            p = subprocess.run(["dumpe2fs", "-h", device],
+                               capture_output=True, text=True, timeout=5)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if p.returncode != 0:
+            return None
+        total = free = None
+        for line in p.stdout.splitlines():
+            if line.startswith("Block count:"):
+                total = int(line.split(":")[1])
+            elif line.startswith("Free blocks:"):
+                free = int(line.split(":")[1])
+        if total and free is not None and total > 0:
+            return int(round((total - free) * 100.0 / total))
+        return None
+
+    mp = _mounted_at(device) or _mount_usage(device, fstype)
+    if not mp:
         return None
     try:
-        p = subprocess.run(["dumpe2fs", "-h", device], capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
+        return _used_pct(mp)
+    except OSError:
         return None
-    if p.returncode != 0:
-        return None
-    total = free = None
-    for line in p.stdout.splitlines():
-        if line.startswith("Block count:"):
-            total = int(line.split(":")[1])
-        elif line.startswith("Free blocks:"):
-            free = int(line.split(":")[1])
-    if total and free is not None and total > 0:
-        return int(round((total - free) * 100.0 / total))
-    return None
 
 
 def list_disks():
@@ -207,6 +355,8 @@ def list_disks():
                 "name": "",
                 "flags": "",
                 "used_pct": None,
+                "used_error": "",
+                "used_dirty": False,
                 "ptype": "",
                 "protected": False,
             }]
@@ -221,8 +371,20 @@ def list_disks():
             tuuid = (part.get("type-uuid") or "").lower()
             ptype = PART_TYPES.get(tuuid, "")
             used = None
+            used_err = ""
+            used_dirty = False
             if not is_free and fstype and num:
-                used = fs_usage(partdev(path, num), fstype)
+                dev = partdev(path, num)
+                used = fs_usage(dev, fstype)
+                if used is None:
+                    # 读不到就把原因带上：界面上"读不到"要能说清是为什么
+                    raw = USAGE_ERROR.get(dev, "")
+                    if _looks_dirty(raw):
+                        used_dirty = True
+                        used_err = ("这块分区上次没正常关机（脏卷），系统不认它；"
+                                    "先在原来的系统里正常关机或检查一次，才能读占用")
+                    else:
+                        used_err = raw
             rowid += 1
             rows.append({
                 "rowid": rowid,
@@ -238,6 +400,8 @@ def list_disks():
                 "name": part.get("name", ""),
                 "flags": ",".join(part.get("flags", [])),
                 "used_pct": used,
+                "used_error": used_err,
+                "used_dirty": used_dirty,
                 "ptype": ptype,
                 "protected": ptype in PROTECTED,
             })
@@ -293,6 +457,8 @@ def mkpart(device, rowid, size_mib, name="camphor", fs_type="ext4"):
     也不加 `-a opt`：盘上已有分区的对齐偏移不一定是 1 MiB 的整数倍，
     带上它 parted 同样会拒绝精确取值。边界是自己算好的，用 `-a none` 照做。
     """
+    # 读占用时挂上的只读挂载必须先卸：设备挂着，parted 改分区表会报 EBUSY
+    release_usage_mounts(device)
     ensure_label(device)
 
     region = None
@@ -393,6 +559,9 @@ def ensure_esp(device, lo=None, hi=None):
 
 def rmpart(device, index):
     """删一个分区。挂着的先卸，不然内核不认。"""
+    # 这块盘上读占用用的只读挂载也要卸：设备挂着的时候改分区表，
+    # 内核读不到新表，partprobe 等于白跑
+    release_usage_mounts(device)
     dev = partdev(device, index)
     unmount_device(dev)
     run(["parted", "-s", device, "rm", str(index)])
@@ -747,8 +916,13 @@ def install_removable_fallback():
 
 
 def install_worker(device, rowid, username="", password=""):
+    global USAGE_ENABLED
     try:
         set_state(running=True, done=False, error="", step="读取磁盘布局", lines=[], pct=2)
+        # 从这里开始不再读分区占用：挂载留着只会让 parted 报 EBUSY，
+        # 之前页面刷新留下的那几个也要收干净
+        USAGE_ENABLED = False
+        _cleanup_usage_mounts()
         disks, _ = list_disks()
         row = None
         for d in disks:

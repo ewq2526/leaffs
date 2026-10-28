@@ -399,6 +399,11 @@ function renderRow(d, r) {
   main.appendChild(el('span', 'name', rowTitle(r) + (r.fstype ? ' · ' + r.fstype : '')));
   const span = `${human(r.start)} → ${human(r.end)}`;
   const bits = r.free ? [`未分配 ${human(r.size)}`, span] : [human(r.size), span];
+  // 占用读不到的时候在正文这一行里说明，右边只留给真数字 ——
+  // 那里写"读不到/脏盘"看着像个值，会让人以为这一块只有这么点空间。
+  if (!r.free && used === null) {
+    bits.push(r.used_dirty ? '脏卷，占用读不到' : '占用读不到');
+  }
   main.appendChild(el('span', 'meta', bits.join(' · ')));
   row.appendChild(main);
 
@@ -412,7 +417,9 @@ function renderRow(d, r) {
     side.appendChild(el('br'));
     side.appendChild(document.createTextNode('已用'));
   }
+  // 读不到就空着，不摆占位文字
   if (side.childNodes.length) row.appendChild(side);
+  if (r.used_error) row.title = r.used_error;
 
   row.setAttribute('aria-label', `${rowTitle(r)}，${bits.join('，')}`);
   row.onclick = () => selectRow(d, r);
@@ -574,6 +581,10 @@ function showTools(d, r) {
     hint = '这个分区是空的，装系统会把它格式化。';
   }
   tools.append(el('span', esp || r.protected || hasData ? 'warnbad' : 'hint', hint));
+  // 占用读不到的时候把原因写在这里：一行半句，够看出是挂载被拒还是根本认不出文件系统
+  if (r.used_error) {
+    tools.append(el('span', 'warnbad', `占用读不到：${r.used_error}`));
+  }
   tools.append(deleteButton(d, r));
 }
 
