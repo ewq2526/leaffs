@@ -1146,12 +1146,15 @@ var _disks = {}, _diskPlaceholder = false;
 
 // 盘的类型。USB 盘要单独认出来：很多 U 盘把 queue/rotational 报成 1，
 // 只看那个字段会把它写成"机械盘"（后端按设备路径判，见 host._disk_bus）。
+// 接口（总线）也是后端给的：sda 既可能是 SATA 也可能是 USB，只有 /sys 那条链路知道。
+var DISK_BUS = { nvme: 'NVMe', sata: 'SATA', virtio: 'virtio', mmc: 'SD 卡', usb: 'USB' };
+
 function diskKind(d) {
     if (d.usb) return 'USB 盘';
     if (d.removable) return '移动盘';
     var kind = d.rotational ? '机械盘' : '固态盘';
-    if ((d.name || '').indexOf('nvme') === 0) kind += ' · NVMe';
-    return kind;
+    var bus = DISK_BUS[d.bus];
+    return bus ? (kind + ' · ' + bus) : kind;
 }
 
 // 条目上那行小字：类型 + 型号（型号只在盘自己报得出来、且不是设备名时才写）

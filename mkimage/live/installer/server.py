@@ -286,6 +286,57 @@ def fs_usage(device, fstype):
         return None
 
 
+def _read_first(path, default=""):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return default
+
+
+def _disk_bus(name, real):
+    """这块盘接在哪条总线上。
+
+    只看得到设备名不够：sda 既可能是 SATA，也可能是 USB 或 virtio。判据是
+    /sys/block/<盘> 软链到的那串路径 —— USB 下有 /usb，SATA 走 libata 有 /ata1
+    这类节点，virtio 有 /virtio*，SD 卡是 mmcblk。认不出就不写，不猜。
+    """
+    parts = [part for part in (real or "").split("/") if part]
+    # 路径里那一段叫 usb1、usb2（控制器编号），不是光秃秃的 usb
+    if any(part.startswith("usb") for part in parts):
+        return "usb"
+    if name.startswith("nvme"):
+        return "nvme"
+    if any(part.startswith("virtio") for part in parts):
+        return "virtio"
+    if name.startswith("mmcblk"):
+        return "mmc"
+    if any(part.startswith("ata") for part in parts):
+        return "sata"
+    return ""
+
+
+def _disk_info(path):
+    """这块盘是什么盘、哪一路：型号与总线，分区页标题上要写。
+
+    `queue/rotational` 对 U 盘不可信（很多 U 盘报成 1，内核按"不是 SSD"一刀切），
+    所以先按设备路径认 USB，再按 removable 认移动介质，最后才用它分机械/固态。
+    """
+    name = os.path.basename(path)
+    base = os.path.join("/sys/block", name)
+    try:
+        real = os.path.realpath(base)
+    except OSError:
+        real = ""
+    return {
+        "model": _read_first(os.path.join(base, "device", "model")),
+        "rotational": _read_first(os.path.join(base, "queue", "rotational")) == "1",
+        "usb": _disk_bus(name, real) == "usb",
+        "removable": _read_first(os.path.join(base, "removable")) == "1",
+        "bus": _disk_bus(name, real),
+    }
+
+
 def list_disks():
     """列盘：每块盘的每一行（分区与未分配空间）。"""
     disks = []
@@ -360,7 +411,9 @@ def list_disks():
                 "ptype": "",
                 "protected": False,
             }]
-            disks.append({"device": path, "size": "%d MiB" % (total // 2048), "rows": rows})
+            info = _disk_info(path)
+            disks.append({"device": path, "size": "%d MiB" % (total // 2048),
+                          "rows": rows, **info})
             continue
         size = "%d MiB" % int(sectors(disk_json.get("size", "0s")) / 2048)
         rowid = 0
@@ -405,7 +458,7 @@ def list_disks():
                 "ptype": ptype,
                 "protected": ptype in PROTECTED,
             })
-        disks.append({"device": path, "size": size, "rows": rows})
+        disks.append({"device": path, "size": size, "rows": rows, **_disk_info(path)})
     return disks, seen
 
 

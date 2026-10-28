@@ -100,19 +100,33 @@ def _udev_fs_type(major_minor):
 
 
 def _disk_bus(name):
-    """这块盘挂在什么总线上：('usb', 是否可移动)。
+    """这块盘挂在什么总线上：('usb' | 'nvme' | 'virtio' | 'mmc' | 'sata' | '')。
 
-    `queue/rotational` 对 U 盘**不可信**：很多 U 盘把它报成 1（内核按
-    "不是 SSD" 一刀切），于是页面上把 U 盘写成"机械盘"。真正的判据是设备路径 ——
-    `/sys/block/sdb` 软链到的那串里带不带 `/usb`（移动硬盘、U 盘、读卡器都在 USB 下）。
-    `removable` 只作补充：SD 卡那种非 USB 的可移动介质也算移动盘。
+    只看设备名不够：sda 既可能是 SATA，也可能是 USB 或 virtio。判据是
+    `/sys/block/<盘>` 软链到的那串路径 —— USB 控制器下带 `usb1` 这类段（段名带
+    编号，不是光秃秃的 `usb`，只能按前缀认），SATA 走 libata 有 `ata1`，
+    virtio 有 `virtio*`，SD 卡是 `mmcblk`。认不出就不写，不猜。
+
+    第二个返回值是 `removable`：`queue/rotational` 对 U 盘不可信（很多 U 盘报成 1，
+    内核按"不是 SSD"一刀切），可移动介质要靠这个字段单独认。
     """
     try:
         real = os.path.realpath(os.path.join('/sys/block', name))
     except OSError:
         real = ''
+    parts = [p for p in real.split('/') if p]
     removable = _read(os.path.join('/sys/block', name, 'removable')).strip() == '1'
-    return ('usb' in real.split('/'), removable)
+    if any(p.startswith('usb') for p in parts):
+        return ('usb', removable)
+    if name.startswith('nvme'):
+        return ('nvme', removable)
+    if any(p.startswith('virtio') for p in parts):
+        return ('virtio', removable)
+    if name.startswith('mmcblk'):
+        return ('mmc', removable)
+    if any(p.startswith('ata') for p in parts):
+        return ('sata', removable)
+    return ('', removable)
 
 
 def disks():
@@ -141,7 +155,8 @@ def disks():
             size = 0
         model = _read(os.path.join(base, 'device', 'model')).strip() or name
         rotational = _read(os.path.join(base, 'queue', 'rotational')) == '1'
-        usb, removable = _disk_bus(name)
+        bus, removable = _disk_bus(name)
+        usb = (bus == 'usb')
         parts = []
         try:
             entries = sorted(os.listdir(base))
@@ -175,6 +190,7 @@ def disks():
             'rotational': rotational,
             'usb': usb,
             'removable': removable,
+            'bus': bus,
             'partitions': parts,
         })
     out.sort(key=lambda d: d['name'])

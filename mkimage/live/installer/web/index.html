@@ -30,6 +30,7 @@
   .disk-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
   .disk-dev { font-size: 15px; color: #d3dae1; }
   .disk-cap { color: #7f8790; font-size: 13px; }
+  .disk-kind { color: #8fa3b3; font-size: 13px; }
   /* 整页一起滚，不在每块盘里各滚各的：盘内滚动条会让人以为"这块盘就这么长"，
      而且下一块盘被挡在下面看不见。盘再多也只是把页面拉长。 */
   .disk-rows { display: flex; flex-direction: column; gap: 6px; }
@@ -442,11 +443,33 @@ function renderRow(d, r) {
   return row;
 }
 
+// 盘的类型：先认总线和可移动介质，再分机械/固态。
+// 很多 U 盘把 queue/rotational 报成 1，只看那个字段会把 U 盘写成机械盘
+// （后端按设备路径判，见 server._disk_bus）。总线认不出来就只写介质，不猜。
+const BUS_NAMES = { sata: 'SATA', nvme: 'NVMe', virtio: 'virtio', mmc: 'mmc' };
+
+function diskKind(d) {
+  if (d.usb) return 'USB 盘';
+  if (d.removable) return '移动盘';
+  const media = d.rotational ? '机械盘' : '固态盘';
+  const bus = BUS_NAMES[d.bus] || '';
+  return bus ? `${bus} ${media}` : media;
+}
+
+function diskModel(d) {
+  const model = (d.model || '').trim();
+  const name = (d.device || '').replace('/dev/', '');
+  // 型号只有盘自己报得出来、又不是设备名本身时才写
+  return model && model !== name ? model : '';
+}
+
 function renderDisk(d) {
   const box = el('div', 'disk');
   const head = el('div', 'disk-head');
   head.appendChild(el('span', 'disk-dev', d.device));
   head.appendChild(el('span', 'disk-cap', `整盘 ${humanText(d.size)}`));
+  head.appendChild(el('span', 'disk-kind',
+    [diskKind(d), diskModel(d)].filter(Boolean).join(' · ')));
   box.appendChild(head);
 
   const rows = el('div', 'disk-rows');
