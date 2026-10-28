@@ -287,13 +287,25 @@ def mkpart(device, rowid, size_mib, name="camphor", fs_type="ext4"):
     return layout(device)
 
 
-def ensure_esp(device, preferred_rowid=None):
+def _free_span(device, lo, hi):
+    """[lo, hi] 这段扇区范围里剩下的空闲区；没有返回 None。
+
+    交换分区与 ESP 都是从前部往下切的，切完之后这里返回的就是根分区要用那一段。
+    前后有相邻空闲区时 parted 会把它们并成一块，所以判断用「有重叠」而不是「完全在里」。
+    """
+    inside = [r for r in layout(device)["rows"]
+              if r["free"] and r["end_s"] > lo and r["start_s"] < hi]
+    if not inside:
+        return None
+    inside.sort(key=lambda r: r["start_s"])
+    return inside[0]
+
+
+def ensure_esp(device, lo=None, hi=None):
     """确保盘上有一块能用的 ESP，返回它的设备名（建不出来就抛错）。
 
-    必须先于根分区调用：根分区会把整块空闲区吃掉，之后再切 ESP 就没地方了。
-
-    位置不是"硬盘最前面"：有现成的 ESP 就复用；没有就从**用户选中的那块
-    空闲区的起点**切 512 MiB；用户选的是已有分区时，才去别处找第一块够大的
+    有现成的 ESP 就复用。没有的话从 [lo, hi] 这段空间的前部切 512 MiB —— 调用方
+    保证交换分区已经先切走了，这里不会和它抢；那段空间放不下时再退到盘上其它
     空闲区（按扇区位置从低到高）。都不行就停下，不装作还能装。
     """
     rows = layout(device)["rows"]
@@ -302,9 +314,16 @@ def ensure_esp(device, preferred_rowid=None):
             add_line("使用已有 EFI 系统分区：%s" % partdev(device, r["index"]))
             return partdev(device, r["index"])
 
-    free = [r for r in rows if r["free"]]
-    free.sort(key=lambda r: (r["rowid"] != preferred_rowid, r["start_s"]))
-    for spot in free:
+    spots = []
+    if lo is not None:
+        here = _free_span(device, lo, hi)
+        if here is not None:
+            spots.append(here)
+    for r in sorted((r for r in rows if r["free"]), key=lambda r: r["start_s"]):
+        if not spots or r["rowid"] != spots[0]["rowid"]:
+            spots.append(r)
+
+    for spot in spots:
         start_s = max(2048, spot["start_s"])
         if spot["end_s"] - start_s < 512 * 2048:
             continue
@@ -584,6 +603,91 @@ def purge_live_packages():
         add_line("initrd 已重打")
 
 
+SWAP_MIB = 128
+# 根分区的最小要求，与界面上的限制同一个数（见"这块只有 N MiB"那条检查）
+ROOT_MIN_MIB = 4096
+# 盘上还没有 ESP 时要给它留的位置
+ESP_MIB = 512
+
+
+def swap_partition_mib(free_mib, esp_need_mib=ESP_MIB):
+    """专用交换分区的大小：128 MiB。
+
+    它不是拿来当交换空间的，是留给内核的退路：内存被写尽时内核要能把页换出去才
+    能继续干活（回收、唤醒、给清理内存的那批帮手腾出运行空间）。128 MiB 足够
+    周转，又不至于占用盘上本该给系统的空间。切完之后 ESP 与根分区还得放得下，
+    放不下就不切（返回 0），不为了交换区把系统装不进去。
+    """
+    if free_mib < SWAP_MIB + esp_need_mib + ROOT_MIN_MIB:
+        return 0
+    return SWAP_MIB
+
+
+def _ram_mb():
+    try:
+        with open("/proc/meminfo", encoding="ascii", errors="replace") as f:
+            for line in f:
+                if line.startswith("MemTotal:"):
+                    return int(line.split()[1]) // 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0
+
+
+def ensure_swap_partition(device, lo, hi):
+    """在 [lo, hi] 这段空间的**前部**切一块专用交换分区，返回 {'dev','uuid','mib'}。
+
+    这段空间就是用户选中的那块安装分区（已有分区会先被删掉，空闲区就是它自己），
+    所以交换分区切在安装分区的最前头，根分区用后面剩下的部分。
+
+    为什么是独立分区，而不是根分区里的文件：交换文件要走 ext4 的写路径 ——
+    分配块、记日志、writeback —— 这些自身就要占内存；极端情况下那条路先卡住。
+    裸分区中间没有文件系统，内核直接读写，是内存耗尽时最稳的一条退路。
+
+    必须最先切：ESP 与根分区都从同一段空间的前部往下吃，先切根就没地方了。
+    """
+    rows = layout(device)["rows"]
+    spot = _free_span(device, lo, hi)
+    if spot is None:
+        add_line("这块空间里没有空闲区，不切交换分区")
+        return None
+    has_esp = any(not r["free"] and r["ptype"] == "esp" for r in rows)
+    size = swap_partition_mib(spot["size"], 0 if has_esp else ESP_MIB)
+    if not size:
+        add_line("这块空间只有 %d MiB，切了交换分区就放不下系统，不切"
+                 % int(spot["size"]))
+        return None
+
+    before = {r["index"] for r in rows if not r["free"]}
+    set_state(step="新建交换分区（%d MiB）" % size)
+    try:
+        after = mkpart(device, spot["rowid"], size, name="CAMPHORSWAP",
+                       fs_type="linux-swap")
+    except RuntimeError as exc:
+        add_line("交换分区没建成：%s" % exc)
+        return None
+    new = [r for r in after["rows"] if not r["free"] and r["index"] not in before]
+    if not new:
+        add_line("交换分区建完却没有看到它，跳过")
+        return None
+    num = new[0]["index"]
+    dev = partdev(device, num)
+    run(["parted", "-s", device, "set", str(num), "swap", "on"], check=False)
+    unmount_device(dev)
+    p = subprocess.run(["mkswap", "-L", "camphor-swap", dev],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        add_line("mkswap 失败：%s" % (p.stderr or p.stdout or "").strip()[:200])
+        return None
+    uuid = run(["blkid", "-o", "value", "-s", "UUID", dev]).strip()
+    if not uuid:
+        add_line("读不到交换分区的 UUID，跳过写 fstab")
+        return None
+    add_line("交换分区就绪：%s（%d MiB，%d MiB 起，UUID %s）"
+             % (dev, size, int(new[0]["start"]), uuid))
+    return {"dev": dev, "uuid": uuid, "mib": size}
+
+
 def install_removable_fallback():
     """在 ESP 的 EFI/BOOT/ 下再放一份 shim + grub。
 
@@ -629,29 +733,52 @@ def install_worker(device, rowid, username="", password=""):
 
         root_dev = ""
         esp_dev = ""
+        swap_dev = None
+
+        # 先确定"要装系统的那块空间"。选的是空闲区就是它自己；选的是一块已有分区，
+        # 就把那块分区删掉重新分 —— 它反正是要被格式化的，只有删了才能在它的前部
+        # 切出交换分区。交换分区、ESP、根分区全都从这一块空间里出，不挪到别处去。
         if row["free"]:
-            # 这块空闲区如果一直用到盘尾，就没有地方再放 ESP 了。
-            # 所以先切 ESP、再在剩下的空间里建根分区 —— 反过来做，
-            # 根分区会把整块空闲区吃掉，ESP 就没处可建，最后装不进去。
-            esp_dev = ensure_esp(device, row["rowid"])
-            rows_now = layout(device)["rows"]
-            region = None
-            for r in rows_now:
-                if r["free"] and (region is None or r["size"] > region["size"]):
-                    region = r
-            if region is None:
-                raise RuntimeError("切出 EFI 系统分区之后没有空间建根分区了")
-            set_state(step="新建分区")
-            add_line("新建分区：%s（用掉剩下的空闲区）" % device)
-            after = mkpart(device, region["rowid"], region["size"])
-            nums = [r["index"] for r in after["rows"] if not r["free"] and r["index"]]
-            if not nums:
-                raise RuntimeError("分区建完却没有看到新分区")
-            root_dev = partdev(device, max(nums))
-            add_line("根分区：%s" % root_dev)
+            span_lo = max(2048, row["start_s"])
+            span_hi = row["end_s"]
         else:
-            root_dev = partdev(device, row["index"])
-            esp_dev = ensure_esp(device, None)
+            span_lo = row["start_s"]
+            span_hi = row["end_s"]
+            victim = partdev(device, row["index"])
+            set_state(step="删除 %s（这块要重新分区）" % victim)
+            add_line("删除已有分区 %s，这块空间重新分成：交换 + 根" % victim)
+            rmpart(device, row["index"])
+            # 删掉之后那块空间变成空闲区；前后紧邻空闲区时 parted 会把它们并成一块，
+            # 所以按"有重叠"找，范围取合并后的完整范围。
+            merged = None
+            for r in layout(device)["rows"]:
+                if not r["free"]:
+                    continue
+                if r["end_s"] <= span_lo or r["start_s"] >= span_hi:
+                    continue
+                if merged is None or r["size"] > merged["size"]:
+                    merged = r
+            if merged is None:
+                raise RuntimeError("删掉分区之后找不到那块空闲区了")
+            span_lo, span_hi = merged["start_s"], merged["end_s"]
+
+        # 三块都从这块空间的**前部**往下吃，顺序不能反：交换分区最靠前（128 MiB），
+        # 然后是 ESP（没有现成的才切），最后根分区把剩下的全部用掉。
+        swap_dev = ensure_swap_partition(device, span_lo, span_hi)
+        esp_dev = ensure_esp(device, span_lo, span_hi)
+
+        region = _free_span(device, span_lo, span_hi)
+        if region is None:
+            raise RuntimeError("切完交换分区与 EFI 分区之后没有空间建根分区了")
+        set_state(step="新建分区")
+        add_line("新建根分区：%s（用掉这块空间剩下的 %d MiB）"
+                 % (device, int(region["size"])))
+        after = mkpart(device, region["rowid"], region["size"])
+        nums = [r["index"] for r in after["rows"] if not r["free"] and r["index"]]
+        if not nums:
+            raise RuntimeError("分区建完却没有看到新分区")
+        root_dev = partdev(device, max(nums))
+        add_line("根分区：%s" % root_dev)
 
         if not os.path.exists(root_dev):
             raise RuntimeError("分区设备 %s 不存在" % root_dev)
@@ -691,6 +818,10 @@ def install_worker(device, rowid, username="", password=""):
             "# <file system> <mount point> <type> <options> <dump> <pass>",
             "UUID=%s / ext4 defaults,noatime 0 1" % root_uuid,
         ]
+        if swap_dev:
+            # 优先级 10，低于 zram 的 100：平时用压缩内存把页压小，
+            # 压不动了内核才落到这块盘上 —— 那时候它还有地方落页，就不会卡死。
+            lines.append("UUID=%s none swap defaults,pri=10 0 0" % swap_dev["uuid"])
         if esp_dev:
             esp_uuid = run(["blkid", "-o", "value", "-s", "UUID", esp_dev]).strip()
             lines.append("UUID=%s /boot/efi vfat umask=0077 0 1" % esp_uuid)

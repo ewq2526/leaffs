@@ -68,24 +68,37 @@ EFI 系统分区、BIOS boot、MSR、Windows 恢复、Windows 数据、LDM、Lin
 ### 安装
 
 ```
-选中的行如果是已有分区 = 这块要被格式化，界面会描红提示
+选中的行如果是已有分区 = 这块要被格式化并重新分区，界面会描红提示
 1  读布局，定位选中的那块（分区或空闲区）
-2  空闲区：建分区；已有分区：直接用
-3  umount 目标分区（live 的自动挂载会挡住 mkfs）
-4  mkfs.ext4 -F -L camphor
-5  mount 到 /target
-6  unsquashfs 主镜像到 /target
-7  有 ESP 就复用，没有就从空闲区建一块 512 MiB 的
-8  挂 ESP 到 /target/boot/efi（要放在展开之后：先挂会被写进引导分区）
-9  写 fstab：根与 ESP 都用 UUID
-10 写 /etc/apt/sources.list：介质上那份，装好的系统才有 apt 源
-11 chroot 建账号（useradd + chpasswd，加进 sudo 组）
-12 chroot grub-install --target=x86_64-efi --bootloader-id=camphor
-13 写 /etc/default/grub（发行版名、超时、内核参数、主题、gfxterm）
-14 chroot update-grub
-15 复制 shim 与 grub 到 ESP 的 EFI/BOOT/BOOTX64.EFI
-16 删掉目标系统里的 camphor-installer-boot.sh
+2  选中已有分区：先把它删掉，那块空间重新分成「交换 + 根」；选空闲区则直接用
+3  在这块空间的前部切 128 MiB 当专用交换分区（见下）—— 必须在 ESP 与根之前切
+4  没有 ESP 就从剩下的前部再切 512 MiB，有现成的就复用
+5  umount 目标分区（live 的自动挂载会挡住 mkfs）
+6  剩下的空间全部给根分区，mkfs.ext4 -F -L camphor
+7  mount 到 /target
+8  unsquashfs 主镜像到 /target
+9  挂 ESP 到 /target/boot/efi（要放在展开之后：先挂会被写进引导分区）
+10 写 fstab：根与 ESP 都用 UUID，交换分区那一行按优先级 10 写进去
+11 写 /etc/apt/sources.list：介质上那份，装好的系统才有 apt 源
+12 chroot 建账号（useradd + chpasswd，加进 sudo 组）
+13 chroot grub-install --target=x86_64-efi --bootloader-id=camphor
+14 写 /etc/default/grub（发行版名、超时、内核参数、主题、gfxterm）
+15 chroot update-grub
+16 复制 shim 与 grub 到 ESP 的 EFI/BOOT/BOOTX64.EFI
+17 删掉目标系统里的 camphor-installer-boot.sh
 ```
+
+**专用交换分区**：内存被写尽时，内核要能把页换出去才能继续干活（回收、唤醒、给清理内存的
+那批帮手腾出运行空间）；没有地方落页就只能杀进程，界面那一支被杀掉就是整屏卡住。
+所以安装时从**用户选中的那块安装分区的前部**切 128 MiB 出来做交换分区，写进 fstab，
+优先级 10 —— 低于 zram 的 100，平时用压缩内存，压不动了内核才落到它上面。
+
+为什么是独立分区而不是根分区里的交换文件：交换文件要走 ext4 的写路径 —— 分配块、记日志、
+writeback —— 这些自身就要占内存，极端情况下那条路先卡住。裸分区中间没有文件系统，
+内核直接读写。
+
+切之前会算一遍：`128 MiB + （没 ESP 时）512 MiB + 根分区 4096 MiB` 必须放得下，
+放不下就不切（安装日志里写明），不为了交换区把系统装不进去。
 
 第 15 步是兜底：固件找不到 NVRAM 启动项时会走 removable media 路径（`\EFI\BOOT\BOOTX64.EFI`），
 只写 `EFI/camphor/` 的话那块盘在有些机器上起不来。
