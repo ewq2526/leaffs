@@ -1,0 +1,13 @@
+<?xml version="1.0" standalone='no'?><!--*-nxml-*-->
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+
+<!-- 让 macOS 与多数 Linux 文件管理器在「网络」里看见这台机器的 SMB。
+     Windows 那边不靠 mDNS：wsdd2 提供 WSD 与 LLMNR，走 3702/5355。
+     只广播 _smb._tcp 与端口 445 —— 记录里不放容量、用户、型号这类会过期的信息。 -->
+<service-group>
+	<name replace-wildcards="yes">Camphor (%h)</name>
+	<service>
+		<type>_smb._tcp</type>
+		<port>445</port>
+	</service>
+</service-group>
