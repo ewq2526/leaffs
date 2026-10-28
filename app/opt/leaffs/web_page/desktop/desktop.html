@@ -243,6 +243,82 @@ window.__DESK_ROLE__='__DESK_ROLE_JSON__';</script>
   .power:hover { background: rgba(255, 255, 255, 0.08); }
   .power svg { width: calc(24 * var(--u)); height: calc(24 * var(--u)); }
 
+  /* 无线面板：贴在托盘无线图标上方。扫描大概 4 秒，所以点开先给当前状态、
+     再自己扫一轮；点一行就地输密码连上，不用离开桌面。 */
+  .wifi-panel {
+    position: absolute; z-index: 6;
+    right: var(--inset);
+    bottom: calc(var(--bar) + var(--inset) + calc(8 * var(--u)));
+    width: calc(300 * var(--u));
+    max-height: calc(420 * var(--u));
+    display: flex; flex-direction: column;
+    background: rgba(18, 22, 32, 0.97);
+    border: 1px solid var(--line);
+    border-radius: calc(9 * var(--u));
+    box-shadow: 0 calc(8 * var(--u)) calc(22 * var(--u)) rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+  }
+  .wifi-panel[hidden] { display: none; }
+  .wifi-panel .wf-head {
+    display: flex; align-items: baseline; gap: calc(8 * var(--u));
+    padding: calc(9 * var(--u)) calc(11 * var(--u)) calc(7 * var(--u));
+    border-bottom: 1px solid var(--line);
+  }
+  .wifi-panel .wf-head b { font-size: calc(12.5 * var(--u)); font-weight: 600; }
+  .wifi-panel .wf-head span { font-size: calc(11 * var(--u)); color: var(--dim); margin-left: auto; }
+  .wifi-panel .wf-bar {
+    display: flex; align-items: center; gap: calc(8 * var(--u));
+    padding: calc(7 * var(--u)) calc(11 * var(--u));
+    border-bottom: 1px solid var(--line);
+  }
+  .wifi-panel .wf-bar button {
+    background: rgba(255, 255, 255, 0.08); border: 0; color: var(--text);
+    font: inherit; font-size: calc(11.5 * var(--u));
+    padding: calc(4 * var(--u)) calc(10 * var(--u));
+    border-radius: calc(5 * var(--u)); cursor: pointer;
+  }
+  .wifi-panel .wf-bar button:hover { background: rgba(255, 255, 255, 0.16); }
+  .wifi-panel .wf-bar .hint { font-size: calc(11 * var(--u)); color: var(--dim); margin-left: auto; }
+  .wifi-panel .wf-list { overflow-y: auto; padding: calc(4 * var(--u)); }
+  .wifi-panel .wf-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: calc(8 * var(--u)); align-items: center;
+    padding: calc(6 * var(--u)) calc(8 * var(--u));
+    border-radius: calc(6 * var(--u)); cursor: pointer;
+    font-size: calc(12 * var(--u));
+  }
+  .wifi-panel .wf-row:hover, .wifi-panel .wf-row:focus-visible {
+    background: rgba(96, 150, 255, 0.18); outline: none;
+  }
+  .wifi-panel .wf-row.on { background: rgba(52, 211, 153, 0.14); }
+  .wifi-panel .wf-row .ssid { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wifi-panel .wf-row .sec, .wifi-panel .wf-row .sig {
+    color: var(--dim); font-size: calc(10.5 * var(--u)); white-space: nowrap;
+  }
+  .wifi-panel .wf-empty {
+    padding: calc(10 * var(--u)); color: var(--dim); font-size: calc(11.5 * var(--u));
+  }
+  .wifi-panel .wf-form {
+    display: flex; gap: calc(6 * var(--u));
+    padding: 0 calc(8 * var(--u)) calc(7 * var(--u));
+  }
+  .wifi-panel .wf-form input {
+    flex: 1; min-width: 0;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid var(--line); border-radius: calc(5 * var(--u));
+    color: var(--text); font: inherit; font-size: calc(12 * var(--u));
+    padding: calc(5 * var(--u)) calc(7 * var(--u));
+  }
+  .wifi-panel .wf-form input:focus { outline: none; border-color: var(--green); }
+  .wifi-panel .wf-form button {
+    background: rgba(255, 255, 255, 0.08); border: 0; color: var(--text);
+    font: inherit; font-size: calc(11.5 * var(--u));
+    padding: calc(4 * var(--u)) calc(9 * var(--u));
+    border-radius: calc(5 * var(--u)); cursor: pointer; white-space: nowrap;
+  }
+  .wifi-panel .wf-form button.go { background: rgba(52, 211, 153, 0.24); }
+  .wifi-panel .wf-form button:hover { background: rgba(255, 255, 255, 0.18); }
+
   /* 电源菜单：贴在电源键正上方。关机/重启只在本机可用（后端按"本机一次性令牌"
      判），墙上挂的这台机器就是它自己的操作面板。 */
   .power-menu {
@@ -361,6 +437,16 @@ window.__DESK_ROLE__='__DESK_ROLE_JSON__';</script>
 <div class="wins" id="wins"></div>
 
 <div class="online" id="online"></div>
+
+<!-- 无线面板：点托盘那个无线图标弹出来 -->
+<div class="wifi-panel" id="wifiPanel" hidden>
+  <div class="wf-head"><b id="wfNow">无线</b><span id="wfState"></span></div>
+  <div class="wf-bar">
+    <button type="button" id="wfScan">扫描</button>
+    <span class="hint" id="wfHint"></span>
+  </div>
+  <div class="wf-list" id="wfList"></div>
+</div>
 
 <!-- 电源菜单：点任务栏那个电源键弹出来 -->
 <div class="power-menu" id="powerMenu" hidden>
@@ -903,8 +989,144 @@ var powerBtn = document.getElementById('powerBtn');
 
 var wifiState = null;
 
-// 托盘里的无线图标：点它进系统页的「网络」栏（扫描 / 选网络 / 输密码都在那一栏）
-trayWifi.addEventListener('click', function () { openApp('system', '/system?tab=net'); });
+// 托盘里的无线图标：点开面板（列网络、就地输密码连上），不再跳到系统页
+trayWifi.addEventListener('click', function (e) {
+  e.stopPropagation();                 // 别让这次点击顺手把面板又关掉
+  closePowerMenu();
+  if (!wifiPanel.hidden) { closeWifiPanel(); return; }
+  wifiPanel.hidden = false;
+  loadWifiStatus();
+  if (!wifiNets.length) scanWifi();    // 第一次打开自己扫一轮
+});
+
+/* ---------- 无线面板 ----------
+   数据与系统页「网络」栏同源：/api/wifi/status、/api/wifi/scan、/api/wifi/connect。
+   扫描要 4 秒左右，所以点开先给当前状态，扫描在后台跑。 */
+var wifiPanel = document.getElementById('wifiPanel');
+var wfList = document.getElementById('wfList');
+var wfNow = document.getElementById('wfNow');
+var wfState = document.getElementById('wfState');
+var wfHint = document.getElementById('wfHint');
+var wfScanBtn = document.getElementById('wfScan');
+var wifiNets = [];
+var WIFI_SEC = { open: '开放', wep: 'WEP', wpa: 'WPA', wpa2: 'WPA2', wpa3: 'WPA3' };
+
+function closeWifiPanel() { wifiPanel.hidden = true; }
+
+function wfFetch(url, opts) {
+  var o = Object.assign({ credentials: 'same-origin' }, opts || {});
+  return fetch(url, o).then(function (r) {
+    return r.json().then(function (d) { return { ok: r.ok, d: d || {} }; },
+                          function () { return { ok: false, d: {} }; });
+  });
+}
+
+function renderWifiStatus(s) {
+  s = s || {};
+  var connected = (s.state === 'COMPLETED') || !!s.ip;
+  wfNow.textContent = connected ? (s.ssid || '已连接') : '无线';
+  wfState.textContent = connected ? (s.ip || '已连接')
+    : (s.state === 'unavailable' ? '没有无线网卡' : '未连接');
+}
+
+function loadWifiStatus() {
+  return wfFetch('/api/wifi/status').then(function (res) {
+    if (res.ok) renderWifiStatus(res.d);
+    else wfState.textContent = res.d.error || '读取失败';
+  }).catch(function () { wfState.textContent = '读取失败'; });
+}
+
+function renderWifiNets() {
+  wfList.innerHTML = '';
+  if (!wifiNets.length) {
+    wfList.innerHTML = '<div class="wf-empty">没有扫到网络</div>';
+    return;
+  }
+  var cur = null;
+  wifiNets.forEach(function (n) {
+    var bars = n.signal >= -55 ? '▂▄▆█' : n.signal >= -70 ? '▂▄▆'
+             : n.signal >= -80 ? '▂▄' : '▂';
+    var row = document.createElement('div');
+    row.className = 'wf-row';
+    row.tabIndex = 0;
+    row.innerHTML = '<span class="ssid"></span><span class="sec"></span><span class="sig"></span>';
+    row.querySelector('.ssid').textContent = n.ssid || '（隐藏网络）';
+    row.querySelector('.sec').textContent =
+      (WIFI_SEC[n.security] || n.security || '') + (n.saved ? ' · 已保存' : '');
+    row.querySelector('.sig').textContent = bars;
+    var pick = function () { askPsk(row, n); };
+    row.addEventListener('click', pick);
+    row.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); }
+    });
+    wfList.appendChild(row);
+  });
+}
+
+function askPsk(row, net) {
+  if (row.nextElementSibling && row.nextElementSibling.className === 'wf-form') return;
+  var locked = net.security !== 'open';
+  var form = document.createElement('div');
+  form.className = 'wf-form';
+  form.innerHTML = (locked ? '<input type="password" placeholder="密码（8~63 位）" autocomplete="off">' : '')
+    + '<button type="button" class="go">连接</button>'
+    + '<button type="button">取消</button>';
+  var input = form.querySelector('input');
+  var go = form.querySelector('.go');
+  var cancel = form.querySelectorAll('button')[1];
+  var drop = function () { form.remove(); row.classList.remove('on'); };
+
+  go.addEventListener('click', function () {
+    go.disabled = true;
+    go.textContent = '连接中…';
+    wfFetch('/api/wifi/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ssid: net.ssid, psk: input ? input.value : '' })
+    }).then(function (res) {
+      if (!res.ok) {
+        wfHint.textContent = res.d.error || '连接失败';
+        go.disabled = false;
+        go.textContent = '连接';
+        return;
+      }
+      drop();
+      wfHint.textContent = '正在连接…';
+      // 关联 + 拿地址要几秒，隔一会儿再问一次状态
+      setTimeout(loadWifiStatus, 4000);
+    }).catch(function () {
+      wfHint.textContent = '请求失败';
+      go.disabled = false;
+      go.textContent = '连接';
+    });
+  });
+  cancel.addEventListener('click', drop);
+  if (input) {
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); go.click(); }
+      else if (e.key === 'Escape') { e.preventDefault(); drop(); row.focus(); }
+    });
+  }
+  row.classList.add('on');
+  row.parentNode.insertBefore(form, row.nextSibling);
+  if (input) input.focus(); else go.focus();
+}
+
+function scanWifi() {
+  wfScanBtn.disabled = true;
+  wfHint.textContent = '扫描中…';
+  wfFetch('/api/wifi/scan').then(function (res) {
+    if (!res.ok) { wfHint.textContent = res.d.error || '扫描失败'; return; }
+    wifiNets = res.d.networks || [];
+    renderWifiNets();
+    wfHint.textContent = wifiNets.length ? (wifiNets.length + ' 个网络') : '没有扫到';
+  }).catch(function () {
+    wfHint.textContent = '扫描失败';
+  }).then(function () { wfScanBtn.disabled = false; });
+}
+
+wfScanBtn.addEventListener('click', function (e) { e.stopPropagation(); scanWifi(); });
+wifiPanel.addEventListener('click', function (e) { e.stopPropagation(); });
 
 /* ---------- 电源菜单 ----------
    关机 / 重启都调 /api/power，服务端按"本机一次性令牌会话"判：只有坐在机器前
@@ -919,6 +1141,7 @@ function closePowerMenu() {
 
 powerBtn.addEventListener('click', function (e) {
   e.stopPropagation();                 // 别让这次点击顺手把菜单又关掉
+  closeWifiPanel();
   if (powerMenu.hidden) {
     powerState.textContent = '';
     powerMenu.hidden = false;
@@ -928,9 +1151,12 @@ powerBtn.addEventListener('click', function (e) {
 });
 document.addEventListener('click', function () {
   if (!powerMenu.hidden) closePowerMenu();
+  if (!wifiPanel.hidden) closeWifiPanel();
 });
 document.addEventListener('keydown', function (e) {
-  if (e.key === 'Escape' && !powerMenu.hidden) closePowerMenu();
+  if (e.key !== 'Escape') return;
+  if (!powerMenu.hidden) closePowerMenu();
+  if (!wifiPanel.hidden) closeWifiPanel();
 });
 
 function askPower(action) {

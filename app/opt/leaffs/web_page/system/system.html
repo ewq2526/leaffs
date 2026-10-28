@@ -1729,7 +1729,8 @@ window.addEventListener('resize', function () {
     }, 200);
 });
 
-// 从桌面的托盘点进来时带 ?tab=net，直接落到对应的那一栏；非法值落回 CPU。
+// 深链参数：`?tab=net` 直接落到对应的那一栏（托盘改弹面板之后暂时没人带这个参数，
+// 但从别处链进来仍然好用）；非法值落回 CPU。
 var _wantedTab = (function () {
     var m = /[?&]tab=([\w:.-]+)/.exec(location.search);
     if (!m) return 'cpu';
