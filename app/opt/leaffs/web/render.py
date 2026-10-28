@@ -333,7 +333,13 @@ def _desk_state_json():
     except Exception:
         power = {}
     try:
-        text = _json.dumps({'wifi': wifi, 'power': power}, ensure_ascii=False)
+        import leaffs.config.core as _cfg2
+        devices = len(_cfg2.get_connections())
+    except Exception:
+        devices = 0
+    try:
+        text = _json.dumps({'wifi': wifi, 'power': power, 'devices': devices},
+                           ensure_ascii=False)
     except Exception:
         return '{}'
     return (text.replace('\\', '\\\\').replace("'", "\\'")

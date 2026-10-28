@@ -257,34 +257,30 @@ def system_snapshot_payload():
             'back': int((time.perf_counter() - t0) * 1000)}
 
 
-def _delta(sent, data):
-    """这一拍的采集结果压成「只含变化键」的一份；`sent` 就地更新为最新值。
-
-    比的是**上一次发出去的值**，不是时钟：值没变就不进帧，页面也就不会去写 DOM。
-    """
-    changed = {k: v for k, v in data.items() if sent.get(k) != v}
-    sent.update(changed)
-    return changed
-
-
 def system_push_loop():
-    """每秒一帧增量；慢档按 30 秒或事件。
+    """每秒一整帧：把当前所有监控值原样发出去，不做"变没变"的过滤。
 
-    三条硬约束，都是这条通道低占用的来源：
+    以前这里只有变过的键才进帧，想省那几百字节。代价是页面必须自己判断
+    "这个键没来是因为没变、还是因为没采"，而两条路都通向编数据：
+    拿上一拍补一格，上一拍是 100 MB/s、这一拍盘没动，补上去就是假的 100 MB/s。
+    监视器要的是每秒一条真实样本，省这点流量的做法本身就是错的。
 
-    * 没有订阅者时**什么都不采**，循环体只剩一次 sleep；
-    * 比值不比时钟：`sent` 存上一次发出去的值，一个键都没变就整帧不发；
-    * 帧里只出现变过的一级键，键内的值是整块（不做深合并），页面据此整块替换。
+    慢档（分区、服务、无线、温度、进程榜）仍然 30 秒才采一次 —— 那是**采集**的
+    成本，不是发送的成本；没到采集点就在帧里带上一次采到的值（它确实还没变）。
+
+    三条硬约束不变：
+    * 没有订阅者时什么都不采，循环体只剩一次 sleep；
+    * 帧里的值是整块（不做深合并），页面据此整块替换；
+    * 帧自带 `t` 与 `back`（这一帧采集花的毫秒数）。
     """
-    sent = {}
     last_slow = 0.0
+    slow_data = {}
     while True:
         try:
             with _system_lock:
                 targets = list(_system_subscribers)
             if not targets:
-                # 没人看就不采。`sent` 保留：新订阅者由那一帧 snap 拿全量，
-                # 这里继续拿旧值比，没变的键自然还是不发。
+                # 没人看就不采。
                 _slow_dirty.clear()
                 time.sleep(1.0)
                 continue
@@ -294,16 +290,20 @@ def system_push_loop():
             if now - last_slow >= _SLOW_INTERVAL or _slow_dirty.is_set():
                 _slow_dirty.clear()
                 last_slow = now
-                data.update(_sys_host.slow())
+                slow_data = _sys_host.slow()
+            data.update(slow_data)
+            # 在线设备数：桌面任务栏要它。数一下连接字典的大小，没有额外开销。
+            try:
+                data['devices'] = len(_cfg.get_connections())
+            except Exception:
+                data['devices'] = 0
             back = int((time.perf_counter() - t0) * 1000)
-            set_ = _delta(sent, data)
-            if set_:
-                text = json.dumps({'type': 'system_delta', 'set': set_,
-                                   't': time.time(), 'back': back})
-                for ws in targets:
-                    if not _schedule_send(ws, text):
-                        with _system_lock:
-                            _system_subscribers.discard(ws)
+            text = json.dumps({'type': 'system_delta', 'set': data,
+                               't': time.time(), 'back': back})
+            for ws in targets:
+                if not _schedule_send(ws, text):
+                    with _system_lock:
+                        _system_subscribers.discard(ws)
         except Exception:
             pass
         time.sleep(1.0)

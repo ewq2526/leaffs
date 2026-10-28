@@ -317,6 +317,8 @@ def timezones():
 
 _cpu_lock = threading.Lock()
 _last_cpu = {}
+_net_lock = threading.Lock()
+_last_net = {}
 
 
 def _cpu_rows():
@@ -486,9 +488,12 @@ def _diskstats():
     return rows
 
 
-def io():
-    """每块盘的读写速率与 IOPS。首次调用没有基线，返回空字典。"""
-    now = time.time()
+def io(now=None):
+    """每块盘的读写速率与 IOPS。首次调用没有基线，返回空字典。
+
+    `now` 由调用方给：一拍里所有速率都用同一个时刻，互相对得上；不给就自己取。
+    """
+    now = time.time() if now is None else now
     rows = _diskstats()
     out = {}
     with _io_lock:
@@ -545,18 +550,74 @@ def statics():
     }
 
 
+def _net_dev():
+    """/proc/net/dev 里每块网卡的累计收/发字节数。回环与容器网桥不列。"""
+    rows = {}
+    try:
+        with open('/proc/net/dev', encoding='ascii', errors='replace') as f:
+            for line in f:
+                name, _, rest = line.partition(':')
+                name = name.strip()
+                if not name or name == 'lo' or name.startswith(('veth', 'docker', 'br-')):
+                    continue
+                cols = rest.split()
+                if len(cols) < 9:
+                    continue
+                try:
+                    rows[name] = (int(cols[0]), int(cols[8]))
+                except ValueError:
+                    continue
+    except OSError:
+        return {}
+    return rows
+
+
+def net(now=None):
+    """每块网卡的收发速率（字节/秒）。与 io() 同一套：拿累计值差分，不 fork。
+
+    `now` 同上：一拍里所有速率共用一个时刻。
+    """
+    now = time.time() if now is None else now
+    rows = _net_dev()
+    out = {}
+    with _net_lock:
+        for name, cur in rows.items():
+            prev = _last_net.get(name)
+            if prev is not None:
+                dt = now - prev[0]
+                if dt > 0.2:
+                    prx, ptx = prev[1]
+                    out[name] = {
+                        'rx_bps': max(0, (cur[0] - prx) / dt),
+                        'tx_bps': max(0, (cur[1] - ptx) / dt),
+                    }
+            _last_net[name] = (now, cur)
+    return out
+
+
 def fast():
-    """每秒档：/proc/stat、/proc/meminfo、/proc/diskstats、/proc/loadavg。"""
+    """每秒档：一次采齐，五个 /proc 文件各读一次。
+
+    /proc 没有"一次读打包"这种东西，每个文件各自是一个视图，所以顺序读五个；
+    但一拍之内同一个文件只读一次，而且**所有速率共用一个时刻**（`now`）——
+    否则同一帧里磁盘和网卡的间隔起点差几毫秒，两条曲线对不齐。
+    """
+    now = time.time()
     load = _read('/proc/loadavg', '').split()
+    cpu_data = cpu()
+    mem_data = memory()
+    io_data = io(now)
+    net_data = net(now)
     return {
         'load': {
             'l1': load[0] if len(load) > 0 else '',
             'l5': load[1] if len(load) > 1 else '',
             'l15': load[2] if len(load) > 2 else '',
         },
-        'cpu': cpu(),
-        'mem': memory(),
-        'io': io(),
+        'cpu': cpu_data,
+        'mem': mem_data,
+        'io': io_data,
+        'net': net_data,
     }
 
 
@@ -576,7 +637,7 @@ def slow():
 def reseed():
     """断档后重建基线。
 
-    cpu 与 io 都是累计值相减，采样停了以后再算会把整段间隔平均进去；没订阅者时
+    cpu、io、net 都是累计值相减，采样停了以后再算会把整段间隔平均进去；没订阅者时
     循环不采样（这是有意的），所以重新有人订阅时要先把基线清掉、取一个新样本，
     让接下来那一拍是真正的「一秒之差」。
     """
@@ -584,8 +645,11 @@ def reseed():
         _last_cpu.clear()
     with _io_lock:
         _last_io.clear()
+    with _net_lock:
+        _last_net.clear()
     cpu()
     io()
+    net()
 
 
 def snapshot(scope='full'):

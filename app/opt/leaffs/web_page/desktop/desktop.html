@@ -499,10 +499,9 @@ function removeTaskButton(id) {
 function openApp(id) {
   if (!APPS[id]) return;
   if (opened[id]) { focusWindow(id); return; }
-  var el = makeWindow(id);
+  makeWindow(id);
   focusWindow(id);
   addTaskButton(id);
-  if (el) refreshOnline();
 }
 
 function closeWindow(id) {
@@ -513,7 +512,6 @@ function closeWindow(id) {
   removeTaskButton(id);
   syncMaxState();                 // 关掉的是那个最大化的窗口时，任务栏要回到悬浮
   reclampWindows();
-  refreshOnline();
 }
 
 function focusWindow(id) {
@@ -790,21 +788,15 @@ function applyPower(p) {
   battHint.textContent = '电池 · ' + s + (charging ? ' · 充电中' : '');
 }
 
-/* ---------- 设备在线：一次取一次，开/关窗口时再对一次 ---------- */
+/* ---------- 设备在线：服务端注入首帧，之后随 system-sub 的帧更新 ---------- */
 var lastOnline = null;
 
-function refreshOnline() {
-  fetch('/api/connections', { credentials: 'same-origin' })
-    .then(function (r) { if (!r.ok) throw 0; return r.json(); })
-    .then(function (d) {
-      var list = Array.isArray(d) ? d : (d && d.connections) || [];
-      var n = list.length;
-      if (n === lastOnline) return;                 // 没变就不写 DOM
-      lastOnline = n;
-      var s = n ? (n + ' 台设备在线') : '';
-      if (onlineEl.textContent !== s) onlineEl.textContent = s;
-    })
-    .catch(function () { onlineEl.textContent = ''; });
+function applyDevices(n) {
+  if (typeof n !== 'number') return;
+  if (n === lastOnline) return;                   // 没变就不写 DOM
+  lastOnline = n;
+  var s = n ? (n + ' 台设备在线') : '';
+  if (onlineEl.textContent !== s) onlineEl.textContent = s;
 }
 
 /* ---------- 时钟：对齐到下一分钟才醒一次，不每秒空转 ---------- */
@@ -845,12 +837,14 @@ function onFrame(m) {
   if (m.type === 'system_snap') {
     applyWifi(m.data && m.data.wifi);
     applyPower(m.data && m.data.power);
+    applyDevices(m.data && m.data.devices);
     return;
   }
   if (m.type === 'system_delta') {
     var set = m.set || {};
     if (set.wifi) applyWifi(set.wifi);          // 只有慢档才碰 DOM
     if (set.power) applyPower(set.power);
+    if (typeof set.devices === 'number') applyDevices(set.devices);
   }
 }
 
@@ -887,17 +881,11 @@ scheduleClock();
 (function boot() {
   var st = null;
   try { st = JSON.parse(window.__DESK_STATE__ || ''); } catch (e) { st = null; }
-  var hasDevices = false;
   if (st && typeof st === 'object') {
     if (st.wifi) applyWifi(st.wifi);
     if (st.power) applyPower(st.power);
-    if (typeof st.devices === 'number') {
-      hasDevices = true;
-      lastOnline = st.devices;
-      onlineEl.textContent = st.devices ? (st.devices + ' 台设备在线') : '';
-    }
+    applyDevices(st.devices);
   }
-  if (!hasDevices) refreshOnline();
 })();
 
 connectWs();

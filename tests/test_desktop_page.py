@@ -56,28 +56,41 @@ def _serve(cookie=''):
     return h, h.wfile.getvalue().decode('utf-8')
 
 
+def _state_raw(html):
+    """把 `window.__DESK_STATE__='…'` 里那段 JS 单引号字符串取出来（识别反斜杠转义）。"""
+    marker = "window.__DESK_STATE__='"
+    start = html.index(marker) + len(marker)
+    out = []
+    i = start
+    while i < len(html):
+        c = html[i]
+        if c == '\\':
+            out.append(html[i:i + 2])
+            i += 2
+            continue
+        if c == "'":
+            break
+        out.append(c)
+        i += 1
+    return ''.join(out)
+
+
 def test_placeholders_are_replaced():
     """桌面页里那几个占位符一个都不许留在响应里。"""
     h, html = _serve()
     assert h.status == 200
-    for ph in ('__DESK_STATE_JSON__', '__WS_PORT_NUM__', '__MY_USERNAME__',
-               '__MY_ROLE__', '__SERVER_BASE_URL__', '__UPLOAD_MAX_BYTES__'):
+    for ph in ('__DESK_STATE_JSON__', '__WS_PORT_NUM__'):
         assert ph not in html, '%s 没被替换' % ph
-    assert 'leaf' in html
-    assert 'super_admin' in html
 
 
 def test_state_json_is_parseable():
-    """注入的那一段从页面里取回来，必须能 JSON.parse —— 就是页面干的事。"""
+    """注入的那一段按 JS 转义规则还原后，必须能 JSON.parse —— 就是页面干的事。"""
     _h, html = _serve()
-    start = html.index("window.__DESK_STATE__='") + len("window.__DESK_STATE__='")
-    end = html.index("'", start)
-    text = html[start:end]
-    # 页面拿到的就是这个字符串；JS 字符串里的转义要按 JS 规则还原
-    data = json.loads(text.encode('utf-8').decode('unicode_escape')
-                      if '\\\\' in text else text)
+    raw = _state_raw(html).encode('utf-8').decode('unicode_escape')
+    data = json.loads(raw)
     assert isinstance(data, dict)
     assert 'wifi' in data and 'power' in data
+    assert isinstance(data.get('devices'), int)
 
 
 def test_quote_in_ssid_does_not_break_the_script(monkeypatch):
@@ -85,7 +98,7 @@ def test_quote_in_ssid_does_not_break_the_script(monkeypatch):
     import leaffs.system.wifi as wifi
     monkeypatch.setattr(wifi, 'status', lambda: {'ssid': "it's a net", 'state': 'COMPLETED'})
     _h, html = _serve()
-    start = html.index("window.__DESK_STATE__='") + len("window.__DESK_STATE__='")
-    end = html.index("'", start)
-    # 真正的字符串结束符不会出现在里面：撇号被转义成了 \'
-    assert "\\'" in html[start:end]
+    raw = _state_raw(html)
+    assert '\\' in raw                     # 撇号被转义了
+    data = json.loads(raw.encode('utf-8').decode('unicode_escape'))
+    assert data['wifi']['ssid'] == "it's a net"

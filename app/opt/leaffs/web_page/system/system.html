@@ -378,8 +378,9 @@ body {
                 <svg class="spark" id="stkMemSpark" viewBox="0 0 100 22" preserveAspectRatio="none"></svg>
             </button>
             <div id="stkDisks"></div>
-            <button class="tm-item plain" type="button" data-tab="net" id="stkNet">
+            <button class="tm-item" type="button" data-tab="net" id="stkNet">
                 <span class="nm">无线网络</span><span class="pv small" id="stkNetPv">-</span>
+                <svg class="spark" id="stkNetSpark" viewBox="0 0 100 22" preserveAspectRatio="none"></svg>
             </button>
             <button class="tm-item plain" type="button" data-tab="svc" id="stkSvc">
                 <span class="nm">服务</span><span class="pv small" id="stkSvcPv">-</span>
@@ -438,13 +439,19 @@ body {
             </section>
 
             <section class="tm-detail" data-tab="net" id="detNet">
-                <div class="tm-hd"><h2>无线网络</h2><span class="sub" id="netSub">-</span></div>
+                <div class="tm-hd"><h2>无线网络</h2>
+                    <span class="dlegend"><i class="c-rd"></i>下行<i class="c-wr"></i>上行</span>
+                    <span class="sub" id="netSub">-</span></div>
+                <svg class="tm-chart" id="netChartBig" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>
                 <div class="tm-cols">
                     <div class="tm-table">
                         <div class="tm-row"><span class="k">状态</span><span class="v" id="wifiNow">-</span></div>
                         <div class="tm-row"><span class="k">IPv4 地址</span><span class="v" id="wifiIp">-</span></div>
                         <div class="tm-row"><span class="k">接入点</span><span class="v" id="wifiBssid">-</span></div>
                         <div class="tm-row"><span class="k">频率</span><span class="v" id="wifiFreq">-</span></div>
+                        <div class="tm-row"><span class="k">下行速率</span><span class="v" id="netRx">-</span></div>
+                        <div class="tm-row"><span class="k">上行速率</span><span class="v" id="netTx">-</span></div>
+                        <div class="tm-row"><span class="k">网卡</span><span class="v" id="netIfName">-</span></div>
                     </div>
                     <div class="tm-side">
                         <h3>可用网络</h3>
@@ -703,13 +710,9 @@ function selectTab(name) {
     Array.prototype.forEach.call(document.querySelectorAll('.tm-detail'), function (d) {
         d.classList.toggle('on', d.dataset.tab === name);
     });
-    if (name === 'cpu') setChart('cpuBig', document.getElementById('cpuChartBig'), hist.cpu, '', drawChart);
-    if (name === 'mem') setChart('memBig', document.getElementById('memChartBig'), hist.mem, '', drawChart);
-    if (name.indexOf('disk:') === 0) {
-        var dn = name.slice(5);
-        setChart2('diskBig' + dn, document.getElementById('diskChart-' + dn),
-                  (histIo[dn] || { rd: [] }).rd, (histIo[dn] || { wr: [] }).wr, drawChartPair);
-    }
+    // 画哪张图由 drawHistories 按 curTab 决定：刚显示出来的详情才有尺寸，
+    // 隐藏时画不了（setChart 会拒绝并留下"没画成"的签名）。
+    drawHistories();
 }
 
 Array.prototype.forEach.call(document.querySelectorAll('.tm-item[data-tab]'), function (b) {
@@ -775,18 +778,20 @@ document.addEventListener('keydown', function (e) {
 });
 
 // ---------- CPU ----------
+// 数据到达只更新"当前值"，历史一律在 advanceHistories() 里按帧推进。
+// 以前历史跟着"这个键到了"推进，而服务端只发变过的键 —— 空闲时那一系列不动，
+// 曲线就停住，看着像卡死。
+var lastCpu = null;
+
 function renderCpu(cpu) {
+    lastCpu = cpu;
     var total = cpu.total || 0;
-    hist.cpu.push(total);
-    if (hist.cpu.length > HISTORY) hist.cpu.shift();
-    var peak = Math.max.apply(null, hist.cpu);
+    var peak = Math.max.apply(null, hist.cpu.concat([total]));
     var lv = level(total, 75, 90);
 
     setText('stkCpuPv', total.toFixed(0) + '%');
-    setChart('cpuSpark', document.getElementById('stkCpuSpark'), hist.cpu, lv, drawSpark);
     setText('cpuUse', total.toFixed(1) + ' %');
     setText('cpuPeak2', peak.toFixed(0) + ' %');
-    setChart('cpuBig', document.getElementById('cpuChartBig'), hist.cpu, lv, drawChart);
 
     var cores = cpu.cores || [];
     var box = document.getElementById('cpuCores');
@@ -807,11 +812,7 @@ function renderCpu(cpu) {
     cores.forEach(function (v, i) {
         var d = box.children[i];
         if (!d) return;
-        var h = hist.cores[i] || (hist.cores[i] = []);
-        h.push(v);
-        if (h.length > HISTORY) h.shift();
         setNodeText(d.querySelector('.v'), 'coretxt' + i, v.toFixed(0) + '%');
-        setChart('coremini' + i, d.querySelector('.mini'), h, level(v, 75, 90), drawMini);
     });
 }
 
@@ -825,15 +826,13 @@ var MEM_PARTS = [
     ['空闲', 'free', '#3a3a3a']
 ];
 
+var lastMem = null;
+
 function renderMemory(m) {
+    lastMem = m;
     var total = m.total || 1;
-    hist.mem.push(m.percent || 0);
-    if (hist.mem.length > HISTORY) hist.mem.shift();
 
     setText('stkMemPv', (m.percent || 0) + '%');
-    setChart('memSpark', document.getElementById('stkMemSpark'), hist.mem, level(m.percent, 80, 92), drawSpark);
-    setChart('memBig', document.getElementById('memChartBig'), hist.mem, level(m.percent, 80, 92), drawChart);
-
     setText('memUsed', fmtBytes(m.used));
     setText('memAvail', fmtBytes(m.available));
     setText('memTotal2', fmtBytes(m.total));
@@ -1161,18 +1160,11 @@ function syncDisks(list) {
     });
 }
 
-// io 每来一拍推一个样本。以前把"刷新磁盘文字"也塞在这里，于是每次慢档刷新
-// （含首帧、含分区变动）都会往历史里多塞一个同值样本，磁盘曲线的时间轴被撑长。
-// 现在分成两个：renderIo 收数据，renderIoLists 只管把 lastIo 画到页面上。
+// io 只更新"当前值"，历史在 advanceHistories() 里按帧推进（见文件后面的说明）。
 function renderIo(io) {
     lastIo = io || {};
     Object.keys(lastIo).forEach(function (k) {
-        var x = lastIo[k];
-        var h = histIo[k] || (histIo[k] = { rd: [], wr: [] });
-        h.rd.push(x.read_bps || 0);
-        h.wr.push(x.write_bps || 0);
-        if (h.rd.length > HISTORY) h.rd.shift();
-        if (h.wr.length > HISTORY) h.wr.shift();
+        if (!histIo[k]) histIo[k] = { rd: [], wr: [] };
     });
     renderIoLists();
 }
@@ -1182,22 +1174,39 @@ function renderIoLists() {
         var n = _disks[name], x = lastIo[name];
         var busy = x ? (x.busy || 0) : 0;
         setNodeText(n.pv, 'diskPv' + name, Math.round(busy) + '%');
-
-        var h = histIo[name] || { rd: [], wr: [] };
-        var total = h.rd.map(function (v, i) { return v + (h.wr[i] || 0); });
-        var peak = Math.max.apply(null, total.concat([1]));
-        var scaled = total.map(function (v) { return Math.min(100, v / peak * 100); });
-        setChart('diskSpark' + name, n.spark, scaled, '', drawSpark);
-
         setNodeText(n.detail.busy, 'diskb' + name, x ? (x.busy || 0).toFixed(0) + ' %' : '-');
         setNodeText(n.detail.rd, 'diskr' + name, x ? fmtRate(x.read_bps) : '-');
         setNodeText(n.detail.wr, 'diskw' + name, x ? fmtRate(x.write_bps) : '-');
         setNodeText(n.detail.iops, 'diski' + name, x
             ? (x.read_iops || 0).toFixed(0) + ' / ' + (x.write_iops || 0).toFixed(0) : '-');
-        if (curTab === 'disk:' + name) {
-            setChart2('diskBig' + name, n.detail.chart, h.rd, h.wr, drawChartPair);
-        }
     });
+}
+
+// ---------- 网络速率（收发） ----------
+var lastNet = {};
+var histNet = {};
+var netIf = '';
+
+function renderNet(map) {
+    lastNet = map || {};
+    Object.keys(lastNet).forEach(function (k) {
+        if (!histNet[k]) histNet[k] = { rx: [], tx: [] };
+    });
+    // 显示哪块网卡：优先无线报上来的那块，否则挑当前流量最大的那块
+    var pick = netIf && lastNet[netIf] ? netIf : '';
+    if (!pick) {
+        var best = -1;
+        Object.keys(lastNet).forEach(function (k) {
+            var v = (lastNet[k].rx_bps || 0) + (lastNet[k].tx_bps || 0);
+            if (v > best) { best = v; pick = k; }
+        });
+    }
+    if (!pick) return;
+    netIf = pick;
+    var x = lastNet[pick] || {};
+    setText('netRx', fmtRate(x.rx_bps || 0));
+    setText('netTx', fmtRate(x.tx_bps || 0));
+    setText('netIfName', pick);
 }
 
 // ---------- 无线网络 ----------
@@ -1429,6 +1438,7 @@ var WRITERS = {
     disks: function (list) { syncDisks(list); renderIoLists(); },
     services: syncServices,
     procs: renderProcs,
+    net: renderNet,
     wifi: renderWifi
 };
 
@@ -1439,15 +1449,101 @@ function applyFrame(d) {
         if (d[k] === undefined) return;
         WRITERS[k](d[k]);
     });
-    if (bootAt) refreshSummary(null, null);
+    pingFrame();
 }
 
 function applyDelta(set) {
     if (!set) return;
+    arrived = {};
     Object.keys(set).forEach(function (k) {
+        arrived[k] = 1;
         var fn = WRITERS[k];
         if (fn) fn(set[k]);
     });
+    pingFrame();
+}
+
+// 这一帧带了哪些键。曲线只按"这一帧真的有这个数据"推进 —— 服务端对
+// cpu/mem/io/net 每秒都带，所以不会断；拿上一帧的值补格是在编数据。
+var arrived = {};
+
+function pingFrame() {
+    if (bootAt) refreshSummary(null, null);
+    advanceHistories();
+}
+
+function pushSample(arr, v) {
+    arr.push(v);
+    if (arr.length > HISTORY) arr.shift();
+}
+
+function advanceHistories() {
+    var i;
+    if (lastCpu && arrived.cpu) {
+        pushSample(hist.cpu, lastCpu.total || 0);
+        var cores = lastCpu.cores || [];
+        for (i = 0; i < cores.length; i++) {
+            if (!hist.cores[i]) hist.cores[i] = [];
+            pushSample(hist.cores[i], cores[i]);
+        }
+    }
+    if (lastMem && arrived.mem) pushSample(hist.mem, lastMem.percent || 0);
+    if (arrived.io) {
+        Object.keys(histIo).forEach(function (k) {
+            var x = lastIo[k] || {};
+            pushSample(histIo[k].rd, x.read_bps || 0);
+            pushSample(histIo[k].wr, x.write_bps || 0);
+        });
+    }
+    if (arrived.net) {
+        Object.keys(histNet).forEach(function (k) {
+            var x = lastNet[k] || {};
+            pushSample(histNet[k].rx, x.rx_bps || 0);
+            pushSample(histNet[k].tx, x.tx_bps || 0);
+        });
+    }
+    drawHistories();
+}
+
+function drawHistories() {
+    if (lastCpu) {
+        var lv = level(lastCpu.total || 0, 75, 90);
+        setChart('cpuSpark', document.getElementById('stkCpuSpark'), hist.cpu, lv, drawSpark);
+        setChart('cpuBig', document.getElementById('cpuChartBig'), hist.cpu, lv, drawChart);
+        var box = document.getElementById('cpuCores');
+        (lastCpu.cores || []).forEach(function (v, i) {
+            var d = box.children[i];
+            if (d) setChart('coremini' + i, d.querySelector('.mini'),
+                            hist.cores[i] || [], level(v, 75, 90), drawMini);
+        });
+    }
+    if (lastMem) {
+        var mlv = level(lastMem.percent, 80, 92);
+        setChart('memSpark', document.getElementById('stkMemSpark'), hist.mem, mlv, drawSpark);
+        setChart('memBig', document.getElementById('memChartBig'), hist.mem, mlv, drawChart);
+    }
+    Object.keys(_disks).forEach(function (name) {
+        var n = _disks[name];
+        var h = histIo[name] || { rd: [], wr: [] };
+        var total = h.rd.map(function (v, i) { return v + (h.wr[i] || 0); });
+        var peak = Math.max.apply(null, total.concat([1]));
+        var scaled = total.map(function (v) { return Math.min(100, v / peak * 100); });
+        setChart('diskSpark' + name, n.spark, scaled, '', drawSpark);
+        if (curTab === 'disk:' + name) {
+            setChart2('diskBig' + name, n.detail.chart, h.rd, h.wr, drawChartPair);
+        }
+    });
+    if (netIf) {
+        var nh = histNet[netIf] || { rx: [], tx: [] };
+        var nsum = nh.rx.map(function (v, i) { return v + (nh.tx[i] || 0); });
+        var npeak = Math.max.apply(null, nsum.concat([1]));
+        setChart('netSpark', document.getElementById('stkNetSpark'),
+                 nsum.map(function (v) { return Math.min(100, v / npeak * 100); }),
+                 '', drawSpark);
+        if (curTab === 'net') {
+            setChart2('netBig', document.getElementById('netChartBig'), nh.rx, nh.tx, drawChartPair);
+        }
+    }
 }
 
 function showReadError(why) {
