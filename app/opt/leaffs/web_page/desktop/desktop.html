@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camphor</title>
+<script>window.__WS_PORT__=parseInt('__WS_PORT_NUM__',10)||8081;
+/* 服务端在吐这一页时把当前状态注进来（无线、电量、设备数）。页面第一帧就该是准的，
+   不该先画一个灰的再等订阅 —— 开机那一秒也不该有"读取中"。
+   没被替换时这里是一个普通字符串，下面 JSON.parse 失败就退回订阅，不炸。 */
+window.__DESK_STATE__='__DESK_STATE_JSON__';</script>
+<style>
+  /* ------------------------------------------------------------------
+     缩放：一个变量，所有尺寸都是它的倍数。
+     scale = clamp(短边 / 780, 1.0, 2.6)，100vmin 就是短边。
+     1080p → 1.38（设计表按 1.4 取整，误差 1%，看不出来）。
+     ------------------------------------------------------------------ */
+  :root {
+    --u: clamp(1px, calc(100vmin / 780), 2.6px);
+    --g: calc(48 * var(--u));                 /* 一格 = 桌面图标块 = 任务栏高 */
+    --bar: calc(48 * var(--u));
+    --inset: calc(9 * var(--u));
+    --green: #34d399;
+    --dim: #a8b2c4;
+    --text: #f2f5fa;
+    --line: rgba(255, 255, 255, 0.10);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    font-family: "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif;
+    color: var(--text);
+    background: #0b0d14;
+    position: relative;
+    /* 桌面是固定的，抓窗口时不要选中文字 */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* ---------- 壁纸层：单独一层，开机画一次，之后不再重建 ---------- */
+  .wall {
+    position: absolute; inset: 0; z-index: 0;
+    background: #0b0d14 url("/static/desktop-bg.jpg") center/cover no-repeat;
+    contain: strict;
+  }
+  .wall::after {                    /* 压暗，保证文字可读 */
+    content: ""; position: absolute; inset: 0;
+    background: rgba(0, 0, 0, 0.42);
+  }
+
+  /* ---------- 桌面：品牌 + 图标 ---------- */
+  .desk { position: absolute; inset: 0; z-index: 1; }
+
+  .brand {
+    position: absolute;
+    left: calc(24 * var(--u)); top: calc(13 * var(--u));
+    text-shadow: 0 calc(1.5 * var(--u)) calc(4 * var(--u)) rgba(0, 0, 0, 0.7);
+  }
+  .brand h1 { font-size: calc(30 * var(--u)); font-weight: 600; letter-spacing: 0.5px; }
+  .brand p { font-size: calc(13 * var(--u)); color: var(--dim); margin-top: calc(3 * var(--u)); }
+
+  .desk-icon {
+    position: absolute;
+    left: calc(24 * var(--u)); top: calc(80 * var(--u));
+    width: var(--g);
+    background: none; border: 0; padding: 0; color: inherit;
+    font: inherit; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .desk-icon .tile {
+    width: var(--g); height: var(--g);
+    border-radius: calc(11 * var(--u));
+    background: rgba(12, 16, 24, 0.72);
+    border: 1px solid rgba(52, 211, 153, 0.45);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .desk-icon:hover .tile { background: rgba(20, 26, 38, 0.86); }
+  .desk-icon img { width: calc(37 * var(--u)); height: auto; display: block; }
+  .desk-icon span {
+    margin-top: calc(6 * var(--u));
+    font-size: calc(12 * var(--u));
+    text-shadow: 0 calc(1.5 * var(--u)) calc(4 * var(--u)) rgba(0, 0, 0, 0.8);
+  }
+
+  .online {
+    position: absolute;
+    right: calc(33 * var(--u));
+    /* 任务栏高 + 上下留白 9+9 + 再 6，摊平成一条 calc（嵌套 calc 在部分引擎里不认） */
+    bottom: calc(var(--bar) + 24 * var(--u));
+    font-size: calc(11 * var(--u));
+    color: var(--dim);
+    z-index: 3;
+  }
+
+  /* ---------- 窗口层：只到这里为止，任务栏永远在上面 ---------- */
+  .wins {
+    position: absolute; z-index: 2;
+    left: 0; right: 0; top: 0;
+    bottom: calc(var(--bar) + var(--inset) * 2);
+  }
+
+  .win {
+    position: absolute;
+    display: flex;
+    border-radius: calc(10 * var(--u));
+  }
+  .win-shadow {                       /* 阴影单独一层：窗口本体要 contain: paint，会把阴影裁掉 */
+    position: absolute; inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 calc(12 * var(--u)) calc(28 * var(--u)) rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+  }
+  .win-body {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    border-radius: inherit;
+    overflow: hidden;
+    background: #0d1018;
+    border: 1px solid var(--line);
+    contain: paint;                   /* 里面的任何变化都不许脏到桌面 */
+  }
+  .win-bar {
+    flex: none;
+    height: calc(32 * var(--u));
+    display: flex; align-items: center; gap: calc(7 * var(--u));
+    padding: 0 calc(10 * var(--u)) 0 calc(11 * var(--u));
+    background: rgba(17, 21, 30, 0.96);
+    border-bottom: 1px solid var(--line);
+    cursor: default;
+  }
+  .win-bar img { width: calc(18 * var(--u)); height: auto; display: block; }
+  .win-title {
+    font-size: calc(13 * var(--u));
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    flex: 1;
+  }
+  .win-close, .win-max {
+    flex: none;
+    width: calc(24 * var(--u)); height: calc(24 * var(--u));
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: 0; border-radius: calc(6 * var(--u));
+    color: var(--dim); cursor: pointer;
+  }
+  .win-close:hover, .win-max:hover { background: rgba(255, 255, 255, 0.10); color: var(--text); }
+  .win-close svg, .win-max svg { width: calc(11 * var(--u)); height: calc(11 * var(--u)); }
+  /* 最大化时只显示「还原」那一个图标 */
+  .win-max .ico-restore { display: none; }
+  .win[data-max="1"] .win-max .ico-max { display: none; }
+  .win[data-max="1"] .win-max .ico-restore { display: block; }
+  /* 最大化之后不给尺寸手柄：拖它没有意义 */
+  .win[data-max="1"] .win-grip { display: none; }
+  /* 铺满的时候四个角都是直角 —— 圆角会在屏幕角上露出壁纸、在任务栏上沿留缺口 */
+  .win[data-max="1"], .win[data-max="1"] .win-body { border-radius: 0; }
+  .win-frame { flex: 1; position: relative; background: #10131b; }
+  .win-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+  /* 拖 / 改尺寸时，iframe 不许吃指针事件，否则光标一进去就丢 */
+  .wins.busy iframe { pointer-events: none; }
+  .wins.busy { cursor: grabbing; }
+  .win.busy { will-change: transform; }
+
+  /* 八向手柄：全部落在窗口内侧，向左上拖也不会跑到窗口外 */
+  .win-grip { position: absolute; z-index: 3; }
+  .win-grip[data-d="n"] { top: 0; left: calc(16 * var(--u)); right: calc(16 * var(--u)); height: calc(6 * var(--u)); cursor: ns-resize; }
+  .win-grip[data-d="s"] { bottom: 0; left: calc(16 * var(--u)); right: calc(16 * var(--u)); height: calc(6 * var(--u)); cursor: ns-resize; }
+  .win-grip[data-d="w"] { left: 0; top: calc(16 * var(--u)); bottom: calc(16 * var(--u)); width: calc(6 * var(--u)); cursor: ew-resize; }
+  .win-grip[data-d="e"] { right: 0; top: calc(16 * var(--u)); bottom: calc(16 * var(--u)); width: calc(6 * var(--u)); cursor: ew-resize; }
+  .win-grip[data-d="nw"] { left: 0; top: 0; width: calc(16 * var(--u)); height: calc(16 * var(--u)); cursor: nwse-resize; }
+  .win-grip[data-d="ne"] { right: 0; top: 0; width: calc(16 * var(--u)); height: calc(16 * var(--u)); cursor: nesw-resize; }
+  .win-grip[data-d="sw"] { left: 0; bottom: 0; width: calc(16 * var(--u)); height: calc(16 * var(--u)); cursor: nesw-resize; }
+  .win-grip[data-d="se"] { right: 0; bottom: 0; width: calc(16 * var(--u)); height: calc(16 * var(--u)); cursor: nwse-resize; }
+
+  /* ---------- 任务栏 ---------- */
+  .taskbar {
+    position: absolute; z-index: 4;
+    left: var(--inset); right: var(--inset); bottom: var(--inset);
+    height: var(--bar);
+    border-radius: calc(13 * var(--u));
+    background: rgba(9, 11, 17, 0.78);
+    border: 1px solid var(--line);
+    backdrop-filter: blur(calc(10 * var(--u)));
+    display: flex; align-items: center;
+    padding: 0 calc(16 * var(--u));
+    gap: calc(7 * var(--u));
+  }
+  /* 有窗口最大化时，任务栏不再悬浮：左右下贴到 0，方角，只留上沿一条细线。
+     窗口区同时长到任务栏上沿，最大化窗口正好压在它上面 —— 两者不可能再有缝。 */
+  body.maxed .taskbar {
+    left: 0; right: 0; bottom: 0;
+    border-radius: 0;
+    border-width: 1px 0 0 0;
+  }
+  body.maxed .wins { bottom: var(--bar); }
+  body.maxed .online { bottom: calc(var(--bar) + 6 * var(--u)); }
+
+  .power {
+    flex: none;
+    width: calc(30 * var(--u)); height: calc(30 * var(--u));
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: 0; border-radius: calc(8 * var(--u));
+    /* 颜色跟电量同步：有电池按电量（绿/红），没有电池是白的 */
+    color: var(--text); cursor: pointer;
+  }
+  .power.ok { color: var(--green); }
+  .power.crit { color: #ef6461; }
+  .power:hover { background: rgba(255, 255, 255, 0.08); }
+  .power svg { width: calc(24 * var(--u)); height: calc(24 * var(--u)); }
+
+  .apps { display: flex; align-items: center; gap: calc(6 * var(--u)); }
+  .app {
+    flex: none;
+    width: calc(32 * var(--u)); height: calc(30 * var(--u));
+    position: relative;
+    display: flex; align-items: center; justify-content: center;
+    background: none; border: 0; border-radius: calc(8 * var(--u));
+    cursor: pointer;
+  }
+  .app:hover { background: rgba(255, 255, 255, 0.08); }
+  .app img { width: calc(20 * var(--u)); height: auto; display: block; }
+  .app.running::after {                 /* 运行指示条 */
+    content: ""; position: absolute; bottom: 0; left: 50%;
+    transform: translateX(-50%);
+    width: calc(23 * var(--u)); height: calc(2 * var(--u));
+    border-radius: calc(1.5 * var(--u)); background: var(--green);
+  }
+
+  .spacer { flex: 1; }
+
+  .tray { display: flex; align-items: center; gap: calc(16 * var(--u)); }
+  .tray .item {
+    position: relative;
+    display: flex; align-items: center; gap: calc(6 * var(--u));
+    background: none; border: 0; padding: 0; color: inherit; font: inherit;
+  }
+  .tray .item svg { display: block; }
+  .tray .label { font-size: calc(11 * var(--u)); color: var(--dim); font-variant-numeric: tabular-nums; }
+  .tray .ok { color: var(--green); }
+  .tray .off { color: #6b7488; }
+  .tray .warn { color: #f5b74e; }
+  .tray .crit { color: #ef6461; }
+  /* 电池：外框跟着 currentColor（暗），只有里面的填充按电量上色 —— 与效果图一致 */
+  .tray .batt-fill { fill: var(--green); }
+  .tray .crit .batt-fill { fill: #ef6461; }
+  .tray .crit .label { color: #ef6461; }
+
+  .clock { text-align: right; line-height: 1.15; cursor: default; }
+  .clock b { font-size: calc(14 * var(--u)); font-variant-numeric: tabular-nums; }
+  .clock i { display: block; font-style: normal; font-size: calc(8 * var(--u)); color: var(--dim); margin-top: calc(1.5 * var(--u)); font-variant-numeric: tabular-nums; }
+
+  /* 悬停提示：贴在图标正上方 */
+  .hint {
+    display: none;
+    position: absolute; bottom: calc(22 * var(--u)); left: 50%;
+    transform: translateX(-50%);
+    background: rgba(18, 22, 32, 0.96);
+    border: 1px solid #46506a; border-radius: calc(6 * var(--u));
+    padding: calc(4 * var(--u)) calc(9 * var(--u));
+    font-size: calc(9 * var(--u)); white-space: nowrap; z-index: 5;
+    color: var(--text);
+  }
+  .hint::after {
+    content: ""; position: absolute; left: 50%; bottom: calc(-3.5 * var(--u));
+    margin-left: calc(-3.5 * var(--u));
+    width: calc(7 * var(--u)); height: calc(7 * var(--u));
+    background: inherit; border-right: 1px solid #46506a; border-bottom: 1px solid #46506a;
+    transform: rotate(45deg);
+  }
+  .tray .item:hover .hint { display: block; }
+</style>
+</head>
+<body>
+
+<!-- 壁纸：单独一层，不参与任何更新 -->
+<div class="wall"></div>
+
+<!-- 桌面 -->
+<main class="desk">
+  <div class="brand">
+    <h1>Camphor</h1>
+    <p>文件服务器</p>
+  </div>
+  <button class="desk-icon" data-app="files" type="button">
+    <span class="tile"><img src="/static/leaf.png" alt=""></span>
+    <span>LeafFS</span>
+  </button>
+</main>
+
+<!-- 窗口层：窗口只活在这里，任务栏永远不被盖住 -->
+<div class="wins" id="wins"></div>
+
+<div class="online" id="online"></div>
+
+<!-- 任务栏 -->
+<nav class="taskbar">
+  <button class="power" id="powerBtn" type="button" title="电源">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.6" stroke-linecap="round" aria-hidden="true">
+      <path d="M12 3v9"/>
+      <path d="M6.4 6.2a8.6 8.6 0 1 0 11.2 0"/>
+    </svg>
+  </button>
+
+  <div class="apps" id="apps"></div>
+
+  <div class="spacer"></div>
+
+  <div class="tray">
+    <!-- 系统状态：三根柱 -->
+    <div class="item" id="traySys">
+      <div class="hint">系统状态</div>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <rect x="3" y="12" width="4" height="9" rx="2"/>
+        <rect x="10" y="4" width="4" height="17" rx="2"/>
+        <rect x="17" y="9" width="4" height="12" rx="2"/>
+      </svg>
+    </div>
+
+    <!-- 无线：已连接 / 未连接（斜杠）。初始按「未连接」画，等推送到了再改 -->
+    <div class="item off" id="trayWifi">
+      <div class="hint" id="wifiHint">无线 · 未知</div>
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+        <path d="M8.54 17 A4 4 0 0 1 15.46 17"/>
+        <path d="M4.90 14.9 A8.2 8.2 0 0 1 19.10 14.9"/>
+        <path d="M1.26 12.8 A12.4 12.4 0 0 1 22.74 12.8"/>
+        <circle cx="12" cy="19.2" r="1.5" fill="currentColor" stroke="none"/>
+        <path id="wifiSlash" d="M3 3 L21 21" stroke-width="2"/>
+      </svg>
+    </div>
+
+    <!-- 电量：只有确实读到一块有电量的电池才出现，其余情况整块不占位 -->
+    <div class="item" id="trayBatt" style="display:none">
+      <div class="hint" id="battHint">电池</div>
+      <svg width="21" height="11" viewBox="0 0 30 16" aria-hidden="true">
+        <rect x="1" y="1" width="25" height="14" rx="4" fill="none"
+              stroke="currentColor" stroke-width="1.6"/>
+        <rect x="27" y="5" width="3" height="6" rx="1.4" fill="currentColor"/>
+        <rect id="battFill" class="batt-fill" x="3.5" y="3.5" width="0" height="9" rx="2.4"/>
+      </svg>
+      <span class="label" id="battPct"></span>
+    </div>
+
+    <div class="clock">
+      <b id="clockTime">--:--</b>
+      <i id="clockDate"></i>
+    </div>
+  </div>
+</nav>
+
+<script>
+"use strict";
+
+/* ====================================================================
+   应用表：这一版只有一个 —— LeafFS。
+   窗口尺寸按格（一格 = 桌面图标那块 = 任务栏高），不写死像素。
+   ==================================================================== */
+var APPS = {
+  files: {
+    title: 'LeafFS',
+    icon: '/static/leaf.png',
+    src: '/',
+    grid: [17, 11],        // 默认 17 格 × 11 格
+    min: [6, 5]            // 最小 6 格 × 5 格
+  }
+};
+
+var WS_PORT = (typeof window.__WS_PORT__ !== 'undefined') ? window.__WS_PORT__ : 8081;
+
+/* 尺寸不自己再算一遍，直接量渲染结果：
+   `getPropertyValue('--u')` 拿到的是 token 串（clamp(...)），不是长度，
+   parseFloat 出来是 0 —— 所以以「一格 = 桌面图标块」的实测宽度为准，
+   缩放规则仍然只写在 CSS 里一处。 */
+var tileEl = document.querySelector('.desk-icon .tile');
+var barEl = document.querySelector('.taskbar');
+
+function gridPx() {
+  var w = tileEl ? tileEl.getBoundingClientRect().width : 0;
+  return w || 48;
+}
+function u() { return gridPx() / 48; }
+function barPx() { return barEl ? barEl.getBoundingClientRect().height : gridPx(); }
+function insetPx() { return 9 * u(); }
+
+/* ====================================================================
+   窗口管理
+   ==================================================================== */
+var winsEl = document.getElementById('wins');
+var appsEl = document.getElementById('apps');
+var zTop = 10;
+var opened = {};              // app id -> <section class="win">
+var openCount = 0;
+
+function winsRect() { return winsEl.getBoundingClientRect(); }
+
+function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+function makeWindow(id) {
+  var spec = APPS[id];
+  var g = gridPx();
+  var area = winsRect();
+  var w = Math.min(spec.grid[0] * g, area.width);
+  var h = Math.min(spec.grid[1] * g, area.height);
+  var off = (openCount % 6) * 28 * u();
+  var left = clamp(area.width * 0.5 - w * 0.5 + off, 0, Math.max(0, area.width - w));
+  var top = clamp(area.height * 0.18 + off, 0, Math.max(0, area.height - h));
+
+  var el = document.createElement('section');
+  el.className = 'win';
+  el.dataset.app = id;
+  el.style.left = left + 'px';
+  el.style.top = top + 'px';
+  el.style.width = w + 'px';
+  el.style.height = h + 'px';
+
+  var shadow = document.createElement('div');
+  shadow.className = 'win-shadow';
+
+  var body = document.createElement('div');
+  body.className = 'win-body';
+
+  var bar = document.createElement('header');
+  bar.className = 'win-bar';
+  bar.innerHTML =
+    '<img src="' + spec.icon + '" alt="">' +
+    '<span class="win-title"></span>' +
+    '<button class="win-max" type="button" aria-label="最大化">' +
+    '<svg class="ico-max" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2.2" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2.5"/></svg>' +
+    '<svg class="ico-restore" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2.2" stroke-linejoin="round">' +
+    '<rect x="3" y="9" width="12" height="12" rx="2.5"/>' +
+    '<path d="M7 9V6a2.5 2.5 0 0 1 2.5-2.5h9A2.5 2.5 0 0 1 21 6v9a2.5 2.5 0 0 1-2.5 2.5h-3"/>' +
+    '</svg>' +
+    '</button>' +
+    '<button class="win-close" type="button" aria-label="关闭">' +
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+    '</button>';
+  bar.querySelector('.win-title').textContent = spec.title;
+
+  var frame = document.createElement('div');
+  frame.className = 'win-frame';
+  var iframe = document.createElement('iframe');
+  iframe.setAttribute('title', spec.title);
+  iframe.setAttribute('src', spec.src);
+  frame.appendChild(iframe);
+
+  body.appendChild(bar);
+  body.appendChild(frame);
+  el.appendChild(shadow);
+  el.appendChild(body);
+
+  ['n', 's', 'w', 'e', 'nw', 'ne', 'sw', 'se'].forEach(function (d) {
+    var grip = document.createElement('div');
+    grip.className = 'win-grip';
+    grip.dataset.d = d;
+    grip.addEventListener('pointerdown', onGripDown);
+    el.appendChild(grip);
+  });
+
+  bar.addEventListener('pointerdown', onBarDown);
+  bar.addEventListener('dblclick', function (e) {
+    if (e.target.closest('button')) return;      // 双击按钮不该当成双击标题栏
+    toggleMax(id);
+  });
+  bar.querySelector('.win-max').addEventListener('click', function (e) {
+    e.stopPropagation();
+    toggleMax(id);
+  });
+  bar.querySelector('.win-close').addEventListener('click', function (e) {
+    e.stopPropagation();
+    closeWindow(id);
+  });
+  el.addEventListener('pointerdown', function () { focusWindow(id); }, true);
+
+  winsEl.appendChild(el);
+  opened[id] = el;
+  openCount += 1;
+  return el;
+}
+
+function addTaskButton(id) {
+  if (appsEl.querySelector('[data-app="' + id + '"]')) return;
+  var b = document.createElement('button');
+  b.className = 'app running';
+  b.type = 'button';
+  b.dataset.app = id;
+  b.title = APPS[id].title;
+  b.innerHTML = '<img src="' + APPS[id].icon + '" alt="">';
+  b.addEventListener('click', function () { focusWindow(id); });
+  appsEl.appendChild(b);
+}
+
+function removeTaskButton(id) {
+  var b = appsEl.querySelector('[data-app="' + id + '"]');
+  if (b) b.remove();
+}
+
+function openApp(id) {
+  if (!APPS[id]) return;
+  if (opened[id]) { focusWindow(id); return; }
+  var el = makeWindow(id);
+  focusWindow(id);
+  addTaskButton(id);
+  if (el) refreshOnline();
+}
+
+function closeWindow(id) {
+  var el = opened[id];
+  if (!el) return;
+  el.remove();                    // 整块摘掉：iframe 跟着卸载，里面的定时器一起停
+  delete opened[id];
+  removeTaskButton(id);
+  syncMaxState();                 // 关掉的是那个最大化的窗口时，任务栏要回到悬浮
+  reclampWindows();
+  refreshOnline();
+}
+
+function focusWindow(id) {
+  var el = opened[id];
+  if (!el) return;
+  el.style.zIndex = ++zTop;
+}
+
+/* ---------- 最大化 / 还原 ----------
+   最大化就是铺满窗口区（任务栏上面那一块），几何记在元素上，还原时按原样写回；
+   视口变小过的话顺手夹一下，别还原到屏幕外面去。
+   有窗口最大化时任务栏改成贴边 —— 悬浮的带子配全屏窗口是两套边距，看着是两个人贴的。
+   ------------------------------------------------------------------ */
+function anyMaxed() {
+  return Object.keys(opened).some(function (id) {
+    return opened[id].dataset.max === '1';
+  });
+}
+
+function syncMaxState() {
+  var on = anyMaxed();
+  if (document.body.classList.contains('maxed') !== on) {
+    document.body.classList.toggle('maxed', on);
+  }
+}
+
+function toggleMax(id) {
+  var el = opened[id];
+  if (!el) return;
+  focusWindow(id);
+  var area;
+
+  if (el.dataset.max === '1') {
+    el.dataset.max = '';
+    syncMaxState();                       // 任务栏先回到悬浮，再按新面积夹还原几何
+    area = winsRect();
+    var r = el._restore || { left: 0, top: 0, width: area.width, height: area.height };
+    var w = Math.min(r.width, area.width);
+    var h = Math.min(r.height, area.height);
+    el.style.width = w + 'px';
+    el.style.height = h + 'px';
+    el.style.left = clamp(r.left, 0, Math.max(0, area.width - w)) + 'px';
+    el.style.top = clamp(r.top, 0, Math.max(0, area.height - h)) + 'px';
+    el._restore = null;
+    return;
+  }
+
+  var cur = el.getBoundingClientRect();
+  var outer = winsRect();
+  el._restore = {
+    left: cur.left - outer.left,
+    top: cur.top - outer.top,
+    width: cur.width,
+    height: cur.height
+  };
+  el.dataset.max = '1';
+  syncMaxState();                          // 任务栏先贴边，窗口区再量（两者差 2×inset）
+  area = winsRect();
+  el.style.transform = '';
+  el.style.left = '0px';
+  el.style.top = '0px';
+  el.style.width = area.width + 'px';
+  el.style.height = area.height + 'px';
+}
+
+/* 视口变了或有窗口关掉之后：最大化的窗口跟着铺满，普通窗口夹回可视区 */
+function reclampWindows() {
+  var area = winsRect();
+  Object.keys(opened).forEach(function (id) {
+    var el = opened[id];
+    if (el.dataset.max === '1') {
+      el.style.width = area.width + 'px';
+      el.style.height = area.height + 'px';
+      return;
+    }
+    var w = parseFloat(el.style.width) || 0;
+    var h = parseFloat(el.style.height) || 0;
+    el.style.left = clamp(parseFloat(el.style.left) || 0, 0,
+                          Math.max(0, area.width - w)) + 'px';
+    el.style.top = clamp(parseFloat(el.style.top) || 0, 0,
+                         Math.max(0, area.height - h)) + 'px';
+  });
+}
+
+window.addEventListener('resize', reclampWindows);
+
+/* ---------- 拖动：移动时只改 transform，松手才写 left/top ---------- */
+var drag = null;
+
+function onBarDown(e) {
+  if (e.button !== 0) return;
+  var el = e.currentTarget.parentNode.parentNode;
+  var id = el.dataset.app;
+  focusWindow(id);
+  if (el.dataset.max === '1') return;      // 最大化的窗口不拖
+  var r = el.getBoundingClientRect();
+  var area = winsRect();
+  drag = {
+    mode: 'move',
+    el: el,
+    sx: e.clientX,
+    sy: e.clientY,
+    left: r.left - area.left,
+    top: r.top - area.top,
+    w: r.width,
+    h: r.height,
+    maxX: area.width - r.width,
+    maxY: area.height - r.height,
+    pid: e.pointerId
+  };
+  el.classList.add('busy');
+  winsEl.classList.add('busy');
+  capturePointer(e.pointerId);
+  e.preventDefault();
+}
+
+/* ---------- 改尺寸：每帧只写一次 width/height ---------- */
+function onGripDown(e) {
+  if (e.button !== 0) return;
+  var el = e.currentTarget.parentNode;
+  var id = el.dataset.app;
+  focusWindow(id);
+  if (el.dataset.max === '1') return;      // 手柄在最大化时本来就是隐藏的
+  var r = el.getBoundingClientRect();
+  var area = winsRect();
+  var spec = APPS[id];
+  var g = gridPx();
+  drag = {
+    mode: 'resize',
+    dir: e.currentTarget.dataset.d,
+    el: el,
+    sx: e.clientX,
+    sy: e.clientY,
+    left: r.left - area.left,
+    top: r.top - area.top,
+    w: r.width,
+    h: r.height,
+    minW: spec.min[0] * g,
+    minH: spec.min[1] * g,
+    maxX: area.width,
+    maxY: area.height,
+    pid: e.pointerId
+  };
+  el.classList.add('busy');
+  winsEl.classList.add('busy');
+  capturePointer(e.pointerId);
+  e.preventDefault();
+  e.stopPropagation();
+}
+
+/* 指针捕获只是为了让移动事件不丢；指针已经抬起时 setPointerCapture 会抛，
+   这不是错误，忽略即可 —— 让它把整次拖动打断才是错的。 */
+function capturePointer(pid) {
+  try { winsEl.setPointerCapture(pid); } catch (err) { /* 指针已失效 */ }
+}
+
+var pendingFrame = 0;
+
+winsEl.addEventListener('pointermove', function (e) {
+  if (!drag || e.pointerId !== drag.pid) return;
+  var dx = e.clientX - drag.sx;
+  var dy = e.clientY - drag.sy;
+
+  if (drag.mode === 'move') {
+    drag.dx = clamp(dx, -drag.left, drag.maxX - drag.left);
+    drag.dy = clamp(dy, -drag.top, drag.maxY - drag.top);
+    drag.el.style.transform = 'translate(' + drag.dx + 'px,' + drag.dy + 'px)';
+    return;
+  }
+
+  // 尺寸每次都先把目标算好存下来，再由 rAF 写一次：
+  // 这样连发多次 pointermove 不会连写布局，而松手前最后一个位置也不会丢。
+  var dir = drag.dir;
+  var nx = drag.left, ny = drag.top, nw = drag.w, nh = drag.h;
+  if (dir.indexOf('e') >= 0) nw = clamp(drag.w + dx, drag.minW, drag.maxX - drag.left);
+  if (dir.indexOf('s') >= 0) nh = clamp(drag.h + dy, drag.minH, drag.maxY - drag.top);
+  if (dir.indexOf('w') >= 0) {
+    nw = clamp(drag.w - dx, drag.minW, drag.left + drag.w);
+    nx = drag.left + drag.w - nw;
+  }
+  if (dir.indexOf('n') >= 0) {
+    nh = clamp(drag.h - dy, drag.minH, drag.top + drag.h);
+    ny = drag.top + drag.h - nh;
+  }
+  drag.next = { x: nx, y: ny, w: nw, h: nh };
+
+  if (pendingFrame) return;
+  pendingFrame = requestAnimationFrame(function () {
+    pendingFrame = 0;
+    if (!drag || !drag.next) return;
+    var r = drag.next;
+    drag.el.style.left = r.x + 'px';
+    drag.el.style.top = r.y + 'px';
+    drag.el.style.width = r.w + 'px';
+    drag.el.style.height = r.h + 'px';
+  });
+});
+
+function endDrag(e) {
+  if (!drag || (e && e.pointerId !== drag.pid)) return;
+  var el = drag.el;
+  if (drag.mode === 'move') {
+    var dx = drag.dx || 0, dy = drag.dy || 0;
+    el.style.transform = '';
+    el.style.left = (drag.left + dx) + 'px';   // 松手才落一次布局
+    el.style.top = (drag.top + dy) + 'px';
+  } else if (drag.next) {
+    var r = drag.next;                          // 补上松手前最后一帧，别丢最后那几像素
+    el.style.left = r.x + 'px';
+    el.style.top = r.y + 'px';
+    el.style.width = r.w + 'px';
+    el.style.height = r.h + 'px';
+  }
+  if (pendingFrame) { cancelAnimationFrame(pendingFrame); pendingFrame = 0; }
+  el.classList.remove('busy');
+  winsEl.classList.remove('busy');
+  drag = null;
+}
+
+winsEl.addEventListener('pointerup', endDrag);
+winsEl.addEventListener('pointercancel', endDrag);
+
+/* ---------- 桌面图标 ---------- */
+document.querySelectorAll('.desk-icon').forEach(function (btn) {
+  btn.addEventListener('click', function () { openApp(btn.dataset.app); });
+});
+
+/* ====================================================================
+   托盘
+   ==================================================================== */
+var trayWifi = document.getElementById('trayWifi');
+var wifiSlash = document.getElementById('wifiSlash');
+var wifiHint = document.getElementById('wifiHint');
+var trayBatt = document.getElementById('trayBatt');
+var battFill = document.getElementById('battFill');
+var battPct = document.getElementById('battPct');
+var battHint = document.getElementById('battHint');
+var onlineEl = document.getElementById('online');
+var powerBtn = document.getElementById('powerBtn');
+
+var wifiState = null;
+
+function applyWifi(w) {
+  if (!w) return;
+  var connected = (w.state === 'COMPLETED') || !!w.ip;
+  var key = connected + '|' + (w.ssid || '') + '|' + (w.ip || '');
+  if (key === wifiState) return;            // 值没变，一个节点都不碰
+  wifiState = key;
+  wifiSlash.style.display = connected ? 'none' : '';
+  trayWifi.className = 'item ' + (connected ? 'ok' : 'off');
+  wifiHint.textContent = connected
+    ? ('无线 · ' + (w.ssid || '已连接') + (w.ip ? ' · ' + w.ip : ''))
+    : '无线 · 未连接';
+}
+
+function applyPower(p) {
+  var b = p && p.battery;
+  // 没读到、或者确认没有电池，都不画电池 —— 一个没有数字的电池图标只会被当成一块没电的电池；
+  // 这时候电源键回到白色：没有电池就没有电量可报。
+  if (!b || !b.present || typeof b.capacity !== 'number') {
+    trayBatt.style.display = 'none';
+    powerBtn.className = 'power';
+    return;
+  }
+  var pct = clamp(b.capacity, 0, 100);
+  var charging = (b.status === 'Charging');
+  var low = pct <= 20;
+  powerBtn.className = 'power ' + (low ? 'crit' : 'ok');   // 电源键与电池同一套颜色
+  trayBatt.style.display = '';
+  trayBatt.className = 'item' + (low ? ' crit' : '');
+  battFill.setAttribute('width', String(22.5 * pct / 100));
+  var s = pct + '%';
+  if (battPct.textContent !== s) battPct.textContent = s;   // 值没变就不写
+  battHint.textContent = '电池 · ' + s + (charging ? ' · 充电中' : '');
+}
+
+/* ---------- 设备在线：一次取一次，开/关窗口时再对一次 ---------- */
+var lastOnline = null;
+
+function refreshOnline() {
+  fetch('/api/connections', { credentials: 'same-origin' })
+    .then(function (r) { if (!r.ok) throw 0; return r.json(); })
+    .then(function (d) {
+      var list = Array.isArray(d) ? d : (d && d.connections) || [];
+      var n = list.length;
+      if (n === lastOnline) return;                 // 没变就不写 DOM
+      lastOnline = n;
+      var s = n ? (n + ' 台设备在线') : '';
+      if (onlineEl.textContent !== s) onlineEl.textContent = s;
+    })
+    .catch(function () { onlineEl.textContent = ''; });
+}
+
+/* ---------- 时钟：对齐到下一分钟才醒一次，不每秒空转 ---------- */
+var clockTime = document.getElementById('clockTime');
+var clockDate = document.getElementById('clockDate');
+
+function pad(n) { return n < 10 ? '0' + n : String(n); }
+
+function paintClock() {
+  var d = new Date();
+  var t = pad(d.getHours()) + ':' + pad(d.getMinutes());
+  if (clockTime.textContent !== t) clockTime.textContent = t;
+  var day = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  if (clockDate.textContent !== day) clockDate.textContent = day;
+}
+
+function scheduleClock() {
+  paintClock();
+  var now = new Date();
+  var ms = (60 - now.getSeconds()) * 1000 - now.getMilliseconds();
+  setTimeout(scheduleClock, ms + 20);
+}
+
+/* ====================================================================
+   WebSocket：只要无线与电量。
+   cpu / mem 那些每秒都变的帧这里收到就丢 —— 桌面不该为它们重绘。
+   ==================================================================== */
+var ws = null;
+var wsRetry = 0;
+
+function wsUrl() {
+  var proto = (location.protocol === 'https:') ? 'wss:' : 'ws:';
+  return proto + '//' + location.hostname + ':' + WS_PORT + '/';
+}
+
+function onFrame(m) {
+  if (!m || typeof m !== 'object') return;
+  if (m.type === 'system_snap') {
+    applyWifi(m.data && m.data.wifi);
+    applyPower(m.data && m.data.power);
+    return;
+  }
+  if (m.type === 'system_delta') {
+    var set = m.set || {};
+    if (set.wifi) applyWifi(set.wifi);          // 只有慢档才碰 DOM
+    if (set.power) applyPower(set.power);
+  }
+}
+
+function connectWs() {
+  try { ws = new WebSocket(wsUrl()); } catch (e) { return retryWs(); }
+  ws.onopen = function () {
+    wsRetry = 0;
+    ws.send(JSON.stringify({ type: 'system-sub' }));
+  };
+  ws.onmessage = function (ev) {
+    var m;
+    try { m = JSON.parse(ev.data); } catch (e) { return; }
+    onFrame(m);
+  };
+  ws.onclose = function () { ws = null; retryWs(); };
+  ws.onerror = function () { try { ws.close(); } catch (e) {} };
+}
+
+function retryWs() {
+  wsRetry = Math.min(wsRetry + 1, 6);
+  setTimeout(connectWs, 1000 * wsRetry);
+}
+
+/* ---------- 电源键 ----------
+   这一版只占位：关机/重启页还没落地，也没有对应的接口。
+   不给它编一个不存在的地址 —— 点下去什么都不发生，比点下去悄悄失败好。
+   ------------------------------------------------------------------ */
+
+/* ---------- 启动 ---------- */
+scheduleClock();
+
+/* 先用服务端注入的状态把第一帧画准；注入不存在才退到订阅。
+   设备数注进来了就不再补一次 /api/connections —— 那是同一份数据。 */
+(function boot() {
+  var st = null;
+  try { st = JSON.parse(window.__DESK_STATE__ || ''); } catch (e) { st = null; }
+  var hasDevices = false;
+  if (st && typeof st === 'object') {
+    if (st.wifi) applyWifi(st.wifi);
+    if (st.power) applyPower(st.power);
+    if (typeof st.devices === 'number') {
+      hasDevices = true;
+      lastOnline = st.devices;
+      onlineEl.textContent = st.devices ? (st.devices + ' 台设备在线') : '';
+    }
+  }
+  if (!hasDevices) refreshOnline();
+})();
+
+connectWs();
+</script>
+</body>
+</html>
