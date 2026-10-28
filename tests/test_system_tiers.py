@@ -13,7 +13,7 @@ import leaffs.system.host as host
 
 
 def test_fast_touches_only_proc(monkeypatch):
-    """fast() 只读 /proc 里的五个小文件，不碰 /sys、不碰 /run/udev。"""
+    """fast() 只读 /proc 里的几个小文件，不碰 /sys、不碰 /run/udev。"""
     seen = []
     real_read = host._read
 
@@ -25,7 +25,8 @@ def test_fast_touches_only_proc(monkeypatch):
     data = host.fast()
 
     assert sorted(data) == ['cpu', 'io', 'load', 'mem', 'net']
-    assert sorted(set(seen)) == ['/proc/diskstats', '/proc/loadavg',
+    # cpuinfo 是每核频率那一次读：N 核走 sysfs 就是 N 次打开，所以宁可按文件抻开
+    assert sorted(set(seen)) == ['/proc/cpuinfo', '/proc/diskstats', '/proc/loadavg',
                                  '/proc/meminfo', '/proc/stat']
 
 

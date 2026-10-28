@@ -339,9 +339,29 @@ def _cpu_rows():
     return rows
 
 
+def cpu_freqs():
+    """每核当前频率（MHz，整数）。取自 `/proc/cpuinfo` 的 `cpu MHz`，一个文件读一次。
+
+    为什么不用 `/sys/.../cpufreq/scaling_cur_freq`：那是每核一个文件，N 核就 N 次
+    打开，而且每秒档说好不碰 /sys。`cpu_info` 里 x86 那行是内核算的**当前**频率，
+    governor 降频时这里跟着掉。
+
+    非 x86 没有这一行 → 返回空表；页面上就不显示频率，而不是编一个数出来。
+    """
+    out = []
+    for line in _read('/proc/cpuinfo').splitlines():
+        if not line.startswith('cpu MHz'):
+            continue
+        try:
+            out.append(int(round(float(line.split(':', 1)[1]))))
+        except (IndexError, ValueError):
+            out.append(None)
+    return out
+
+
 def cpu():
     """总占用与每核占用（0~100）。第一次调用没有基线，返回 0。"""
-    result = {'total': 0.0, 'cores': []}
+    result = {'total': 0.0, 'cores': [], 'cores_mhz': cpu_freqs()}
     with _cpu_lock:
         for name, idle, total in _cpu_rows():
             prev = _last_cpu.get(name)
@@ -596,11 +616,14 @@ def net(now=None):
 
 
 def fast():
-    """每秒档：一次采齐，五个 /proc 文件各读一次。
+    """每秒档：一次采齐，几个 /proc 文件各读一次。
 
-    /proc 没有"一次读打包"这种东西，每个文件各自是一个视图，所以顺序读五个；
+    /proc 没有"一次读打包"这种东西，每个文件各自是一个视图，所以顺序读；
     但一拍之内同一个文件只读一次，而且**所有速率共用一个时刻**（`now`）——
     否则同一帧里磁盘和网卡的间隔起点差几毫秒，两条曲线对不齐。
+
+    目前是 loadavg / stat / meminfo / diskstats / net·dev / cpuinfo 各一次；
+    `cpuinfo` 只为了每核当前频率（每核一个 sysfs 文件就变成 N 次配 N 核）。
     """
     now = time.time()
     load = _read('/proc/loadavg', '').split()

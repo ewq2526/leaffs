@@ -262,6 +262,11 @@ body {
     column-gap: 6rem;
 }
 .tm-core .n { font-size: 10.5rem; color: var(--tm-mute); white-space: nowrap; }
+/* 核名后面的当前频率 */
+.tm-core .n .mhz {
+    margin-left: 7rem; font-weight: 400;
+    color: var(--tm-dim); font-variant-numeric: tabular-nums;
+}
 .tm-core .v {
     font-size: 11.5rem; color: var(--tm-dim); text-align: right;
     font-variant-numeric: tabular-nums;
@@ -891,6 +896,7 @@ function renderCpu(cpu) {
     setText('cpuPeak2', peak.toFixed(0) + ' %');
 
     var cores = cpu.cores || [];
+    var mhz = cpu.cores_mhz || [];
     var box = document.getElementById('cpuCores');
     if (box.children.length !== cores.length) {
         box.innerHTML = '';
@@ -898,20 +904,31 @@ function renderCpu(cpu) {
         cores.forEach(function (v, i) {
             var d = document.createElement('div');
             d.className = 'tm-core';
-            d.innerHTML = '<span class="n">CPU ' + i + '</span><span class="v"></span>' +
+            // 频率贴在核名后面：一行里「CPU 0  2.41 GHz」左边、「41%」右边
+            d.innerHTML = '<span class="n">CPU ' + i + '<b class="mhz"></b></span>' +
+                          '<span class="v"></span>' +
                           '<svg class="mini" viewBox="0 0 100 40" preserveAspectRatio="none"></svg>';
             box.appendChild(d);
             hist.cores.push([]);
         });
         forget('coretxt');
         forget('coremini');
+        forget('corefreq');
         if (cpuMode === 'core') layoutCores();
     }
     cores.forEach(function (v, i) {
         var d = box.children[i];
         if (!d) return;
         setNodeText(d.querySelector('.v'), 'coretxt' + i, v.toFixed(0) + '%');
+        // 没有就留空：读不到频率的机器（非 x86）不编一个数上去
+        setNodeText(d.querySelector('.mhz'), 'corefreq' + i, freqText(mhz[i]));
     });
+}
+
+// 每核频率的写法：读不到就是空串（非 x86 的机器 /proc/cpuinfo 没有这一行）
+function freqText(mhz) {
+    if (!mhz) return '';
+    return mhz >= 1000 ? (mhz / 1000).toFixed(2) + ' GHz' : mhz + ' MHz';
 }
 
 // ---------- 内存 ----------
