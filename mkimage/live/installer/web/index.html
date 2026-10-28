@@ -110,10 +110,25 @@
   .field label { display: block; color: #9aa0a6; font-size: 14px; margin-bottom: 5px; }
   .foot { margin-top: 18px; display: flex; gap: 12px; align-items: center; }
   .hint { color: #7f8790; font-size: 14px; }
-  #step3 .step { font-size: 19px; margin-bottom: 14px; }
+  #step3 { outline: none; }
+  /* 进度条与百分比是这一页的主角：装的人只想知道"还要多久"，
+     不想读安装脚本在干什么 */
+  .prog { display: flex; align-items: center; gap: 18px; margin: 2px 0 12px; }
+  .prog-track { flex: 1 1 auto; height: 20px; border-radius: 10px; overflow: hidden;
+                background: #14141c; border: 1px solid #2c2c38; }
+  /* 不要给宽度加过渡：这一页是装系统时才出现的，动画从 0 起跑，一旦动画
+     时钟没走（无头截图、或者某些合成器下），进度条就永远是空的 —— 数字在动、
+     条不动，比没有条还糟。每次轮询直接跳。 */
+  .prog-fill { display: block; height: 100%; width: 0;
+               background: linear-gradient(90deg, #2f6b45, #8fd18f); }
+  .prog-num { min-width: 104px; text-align: right; color: #e8f3ea;
+              font-size: 30px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stepline { font-size: 18px; margin-bottom: 16px; }
+  .logbox { margin-top: 4px; }
+  .logbox summary { cursor: pointer; color: #8f97a1; font-size: 14px; padding: 6px 0; }
   #step3 pre {
-    margin: 0; padding: 14px 16px; background: #16161c; border: 1px solid #26262e;
-    border-radius: 10px; height: 340px; overflow: auto; color: #b9b9c3;
+    margin: 8px 0 0; padding: 14px 16px; background: #16161c; border: 1px solid #26262e;
+    border-radius: 10px; height: 420px; overflow: auto; color: #b9b9c3;
     font: 13px/1.7 ui-monospace, "DejaVu Sans Mono", monospace; white-space: pre-wrap;
   }
   .err { color: #e08a8a; }
@@ -205,15 +220,22 @@
     </div>
   </div>
 
-  <div class="panel" id="step3">
+  <div class="panel" id="step3" tabindex="-1">
     <h1>正在安装</h1>
     <div class="sub">
       <span class="step-dot">① 分区</span>
       <span class="step-dot">② 账号</span>
       <span class="step-dot on">③ 安装</span>
     </div>
-    <div class="step" id="plabel" aria-live="polite">准备中…</div>
-    <pre id="log" tabindex="-1"></pre>
+    <div class="prog" id="prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+      <div class="prog-track"><i class="prog-fill" id="prog-fill"></i></div>
+      <div class="prog-num" id="prog-pct">0%</div>
+    </div>
+    <div class="stepline" id="plabel" aria-live="polite">准备中…</div>
+    <details class="logbox" id="logbox">
+      <summary>安装过程日志</summary>
+      <pre id="log"></pre>
+    </details>
     <div class="foot">
       <button id="reboot" class="primary" style="display:none">重启</button>
       <span class="hint" id="h3" aria-live="polite"></span>
@@ -607,7 +629,9 @@ function showStep(n) {
   if (n === 2) {
     document.getElementById('user').focus();
   } else if (n === 3) {
-    document.getElementById('log').focus();
+    // 不聚焦日志框：它是只读的，焦点落上去等于把键盘废掉。焦点给这一页本身，
+    // 装完之后由 poll() 交到重启按钮上。
+    document.getElementById('step3').focus();
   } else {
     const b = document.querySelector('.prow.sel') || document.querySelector('.prow');
     if (b) b.focus();
@@ -805,17 +829,26 @@ async function load() {
 async function poll() {
   try {
     const s = await api('/api/progress');
+    const pct = Math.max(0, Math.min(100, Math.round(s.pct || 0)));
+    document.getElementById('prog-fill').style.width = pct + '%';
+    document.getElementById('prog-pct').textContent = pct + '%';
+    document.getElementById('prog').setAttribute('aria-valuenow', String(pct));
     document.getElementById('plabel').textContent = s.step || '准备中…';
-    document.getElementById('log').textContent = (s.lines || []).join('\n');
     const box = document.getElementById('log');
-    box.scrollTop = box.scrollHeight;
+    box.textContent = (s.lines || []).join('\n');
+    // 日志折起来了：只有人自己展开时才跟着滚到底
+    if (document.getElementById('logbox').open) box.scrollTop = box.scrollHeight;
     if (s.done) {
       document.getElementById('reboot').style.display = 'inline-block';
-      document.getElementById('h3').textContent = '装好了，重启进入系统';
+      document.getElementById('h3').textContent = '装完了，重启进入系统';
       clearInterval(timer);
+      // 焦点给重启按钮 —— 以前落在那个只读的日志框上，按回车什么也不会发生
+      document.getElementById('reboot').focus();
     } else if (s.error) {
-      document.getElementById('plabel').className = 'step err';
+      document.getElementById('plabel').className = 'stepline err';
       document.getElementById('h3').textContent = '失败了：' + s.error;
+      // 失败时把日志摊开：这是唯一能看出错在哪的地方
+      document.getElementById('logbox').open = true;
       clearInterval(timer);
     }
   } catch (e) { /* 服务还没起来 */ }
@@ -853,7 +886,21 @@ document.getElementById('go').onclick = async () => {
   poll();
 };
 
+// 重启也要确认：手一抖按下去就重启，装完的机器还没人看过一眼。
+// 只说事实：第一次从盘启动会继续把应用层展开，这一步要等一会儿。不提"屏上会显示
+// 安装进度"—— 桌面在应用层展开之后才起来，那之前没有图形界面可显示进度，写了只是
+// 骗人。
 document.getElementById('reboot').onclick = async () => {
+  const ok = await askConfirm({
+    title: '重启进入装好的系统？',
+    lines: [
+      '系统已经写进硬盘了。',
+      '重启后会从硬盘启动，第一次开机会继续展开应用层，需要等一会儿。',
+    ],
+    okText: '重启',
+    cancelText: '先不重启',
+  });
+  if (!ok) return;
   await api('/api/reboot', {}).catch(() => {});
 };
 

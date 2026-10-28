@@ -16,11 +16,13 @@ MNT=/run/camphor-app
 LIST=/etc/systemd/camphor-units.list
 
 # 进度要打在屏上：这一段要跑一两分钟，什么都不显示就等于死机。
-# /dev/kmsg 里的消息带级别前缀，<6> 是 info；不带前缀时默认级别会被
-# 内核的 loglevel 挡掉，屏上就什么都看不到。
+# /dev/kmsg 里的消息带级别前缀。级别要和启动参数里的 loglevel 对得上：内核只放行
+# 「级别数字 < console_loglevel」的消息，装好的系统给的是 loglevel=6，所以 <6>
+# （info）正好被挡在门外 —— 写了等于没写。用 <5>（notice）：比 info 高一档，
+# loglevel=6 下能上屏，又不至于把整屏刷成调试日志。
 say() {
 	echo "firstboot: $*"
-	printf '<6>firstboot: %s\n' "$*" >/dev/kmsg 2>/dev/null || true
+	printf '<5>firstboot: %s\n' "$*" >/dev/kmsg 2>/dev/null || true
 }
 
 fail() {

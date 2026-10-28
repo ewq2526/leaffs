@@ -29,6 +29,7 @@ STATE = {
     "done": False,
     "error": "",
     "step": "",
+    "pct": 0,
     "lines": [],
 }
 LOCK = threading.Lock()
@@ -60,6 +61,42 @@ def run(cmd, check=True):
     if check and p.returncode != 0:
         raise RuntimeError("%s 失败：%s" % (" ".join(cmd), (p.stderr or p.stdout).strip()[:400]))
     return p.stdout
+
+
+def run_percent(cmd, lo, hi):
+    """跑一条自己会报百分比的命令（unsquashfs -percentage），把它的 0–100
+    换算到 [lo, hi] 这一段进度里。
+
+    展开系统镜像占整个安装的大头。按"第几步"糊出来的进度条在它这里会几十分钟
+    不动，装的人只会以为卡死了 —— 所以这一段读它自己吐出来的数字。
+    """
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    except FileNotFoundError:
+        raise RuntimeError("缺少命令 %s（镜像里没装？）" % cmd[0])
+    buf = b""
+    last = -1
+    while True:
+        chunk = proc.stdout.read1(256)
+        if not chunk:
+            break
+        buf += chunk
+        if b"\r" not in buf and b"\n" not in buf:
+            continue
+        parts = re.split(rb"[\r\n]+", buf)
+        buf = parts.pop()
+        for part in parts:
+            part = part.strip()
+            if not re.fullmatch(rb"\d{1,3}", part):
+                continue
+            v = int(part)
+            if v == last:
+                continue
+            last = v
+            set_state(pct=lo + (hi - lo) * min(v, 100) // 100)
+    code = proc.wait()
+    if code != 0:
+        raise RuntimeError("%s 失败（退出码 %d）" % (" ".join(cmd), code))
 
 
 # GPT 分区类型 GUID 到人类可读名字。用来识别「这块不是普通数据分区，别乱动」。
@@ -711,7 +748,7 @@ def install_removable_fallback():
 
 def install_worker(device, rowid, username="", password=""):
     try:
-        set_state(running=True, done=False, error="", step="读取磁盘布局", lines=[])
+        set_state(running=True, done=False, error="", step="读取磁盘布局", lines=[], pct=2)
         disks, _ = list_disks()
         row = None
         for d in disks:
@@ -783,12 +820,12 @@ def install_worker(device, rowid, username="", password=""):
         if not os.path.exists(root_dev):
             raise RuntimeError("分区设备 %s 不存在" % root_dev)
 
-        set_state(step="格式化 %s" % root_dev)
+        set_state(step="格式化 %s" % root_dev, pct=6)
         unmount_device(root_dev)
         add_line("创建文件系统：%s（ext4）" % root_dev)
         run(["mkfs.ext4", "-F", "-L", "camphor", root_dev])
 
-        set_state(step="挂载到 /target")
+        set_state(step="挂载到 /target", pct=9)
         os.makedirs(TARGET, exist_ok=True)
         run(["mount", "-t", "ext4", root_dev, TARGET])
 
@@ -802,9 +839,9 @@ def install_worker(device, rowid, username="", password=""):
         squash = find_squashfs()
         if not squash:
             raise RuntimeError("找不到 live 的 squashfs 映像")
-        set_state(step="复制系统文件（%s）" % os.path.basename(squash))
+        set_state(step="复制系统文件（%s）" % os.path.basename(squash), pct=12)
         add_line("展开系统镜像：%s → %s" % (squash, TARGET))
-        run(["unsquashfs", "-f", "-no-progress", "-d", TARGET, squash])
+        run_percent(["unsquashfs", "-f", "-percentage", "-d", TARGET, squash], 12, 85)
 
         # ESP 要在解压之后再挂：先挂的话 unsquashfs 会往 ESP 里写，
         # 把一块本来干净的引导分区弄脏。
@@ -812,7 +849,7 @@ def install_worker(device, rowid, username="", password=""):
             os.makedirs(os.path.join(TARGET, "boot/efi"), exist_ok=True)
             run(["mount", "-t", "vfat", esp_dev, os.path.join(TARGET, "boot/efi")])
 
-        set_state(step="写 fstab")
+        set_state(step="写 fstab", pct=87)
         root_uuid = run(["blkid", "-o", "value", "-s", "UUID", root_dev]).strip()
         lines = [
             "# <file system> <mount point> <type> <options> <dump> <pass>",
@@ -860,7 +897,7 @@ def install_worker(device, rowid, username="", password=""):
 
         # 账号：镜像出厂状态里没有任何可登录的用户（root 是锁定的），
         # 不在这里建一个，装完就没人能进系统。用户名与口令由安装界面填。
-        set_state(step="创建账号")
+        set_state(step="创建账号", pct=90)
         bind_mounts()
         if username:
             add_line("创建用户：%s" % username)
@@ -881,11 +918,11 @@ def install_worker(device, rowid, username="", password=""):
 
         # 盘上系统不该带着介质那一层的组件。放在装引导之前：这一步要重打 initrd，
         # 慢十几秒，进度能先出现在页面上。
-        set_state(step="移除 live 组件")
+        set_state(step="移除 live 组件", pct=92)
         purge_live_packages()
 
         if esp_dev:
-            set_state(step="安装引导")
+            set_state(step="安装引导", pct=95)
             add_line("安装引导程序：grub-efi（bootloader-id=camphor）")
             env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
             p = subprocess.run(
@@ -925,7 +962,7 @@ def install_worker(device, rowid, username="", password=""):
             install_removable_fallback()
             add_line("引导程序安装完成")
 
-        set_state(step="完成", running=False, done=True)
+        set_state(step="完成", running=False, done=True, pct=100)
         add_line("安装完成")
         # 第一阶段到此结束：删掉目标系统里的安装器入口。
         # 它会拦着第二阶段的脚本（那个单元的条件是「这个文件不存在」）。
