@@ -301,9 +301,10 @@ def serve_desktop(handler, BASE_DIR, get_session, get_session_username):
         return
     cookie = handler.headers.get('Cookie', '')
     role, sid = get_session(cookie, handler.client_address[0])
-    # 这一页只认这两个占位符：状态（第一帧就要准）与 WS 端口。
+    # 这一页认三个占位符：状态（第一帧就要准）、WS 端口、当前角色（决定显示哪几个图标）。
     # 它不引站内的 style.css / app.js，自己的配色与缩放在页面里。
     html = html.replace('__DESK_STATE_JSON__', _desk_state_json())
+    html = html.replace('__DESK_ROLE_JSON__', role or '')
     html = _inject_ws_port(html)
     data = html.encode('utf-8')
     handler.send_response(200)

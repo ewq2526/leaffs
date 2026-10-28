@@ -8,7 +8,10 @@
 /* 服务端在吐这一页时把当前状态注进来（无线、电量、设备数）。页面第一帧就该是准的，
    不该先画一个灰的再等订阅 —— 开机那一秒也不该有"读取中"。
    没被替换时这里是一个普通字符串，下面 JSON.parse 失败就退回订阅，不炸。 */
-window.__DESK_STATE__='__DESK_STATE_JSON__';</script>
+window.__DESK_STATE__='__DESK_STATE_JSON__';
+/* 当前角色：决定桌面上出现哪几个图标（系统页要 super_admin，下载/管理要 admin）。
+   没被替换时是空串，roleAtLeast('admin') 为假 —— 只留 LeafFS，不会点进去 403。 */
+window.__DESK_ROLE__='__DESK_ROLE_JSON__';</script>
 <style>
   /* ------------------------------------------------------------------
      缩放：一个变量，所有尺寸都是它的倍数。
@@ -59,9 +62,15 @@ window.__DESK_STATE__='__DESK_STATE_JSON__';</script>
   .brand h1 { font-size: calc(30 * var(--u)); font-weight: 600; letter-spacing: 0.5px; }
   .brand p { font-size: calc(13 * var(--u)); color: var(--dim); margin-top: calc(3 * var(--u)); }
 
-  .desk-icon {
+  /* 图标从左上角往下排，一格一个 —— 位置由 --u 算，不写死像素 */
+  .desk-icon-row {
     position: absolute;
     left: calc(24 * var(--u)); top: calc(80 * var(--u));
+    display: flex; flex-direction: column;
+    gap: calc(10 * var(--u));
+  }
+  .desk-icon {
+    position: relative;
     width: var(--g);
     background: none; border: 0; padding: 0; color: inherit;
     font: inherit; cursor: pointer;
@@ -76,6 +85,11 @@ window.__DESK_STATE__='__DESK_STATE_JSON__';</script>
   }
   .desk-icon:hover .tile { background: rgba(20, 26, 38, 0.86); }
   .desk-icon img { width: calc(37 * var(--u)); height: auto; display: block; }
+  .desk-icon svg {
+    width: calc(30 * var(--u)); height: calc(30 * var(--u));
+    fill: none; stroke: var(--green); stroke-width: 1.7;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
   .desk-icon span {
     margin-top: calc(6 * var(--u));
     font-size: calc(12 * var(--u));
@@ -97,12 +111,17 @@ window.__DESK_STATE__='__DESK_STATE_JSON__';</script>
     position: absolute; z-index: 2;
     left: 0; right: 0; top: 0;
     bottom: calc(var(--bar) + var(--inset) * 2);
+    /* 整层铺满但只在窗口所在处接管点击：不给这一行，桌面图标与空白处
+       的点击全被这层吞掉，看起来就是"什么都点不动"。
+       拖拽不受影响 —— 拖动时指针被 capture 到这一层，事件照样送到它身上。 */
+    pointer-events: none;
   }
 
   .win {
     position: absolute;
     display: flex;
     border-radius: calc(10 * var(--u));
+    pointer-events: auto;
   }
   .win-shadow {                       /* 阴影单独一层：窗口本体要 contain: paint，会把阴影裁掉 */
     position: absolute; inset: 0;
@@ -129,6 +148,11 @@ window.__DESK_STATE__='__DESK_STATE_JSON__';</script>
     cursor: default;
   }
   .win-bar img { width: calc(18 * var(--u)); height: auto; display: block; }
+  .win-bar .win-ico {
+    width: calc(18 * var(--u)); height: calc(18 * var(--u));
+    fill: none; stroke: currentColor; stroke-width: 1.7;
+    stroke-linecap: round; stroke-linejoin: round;
+  }
   .win-title {
     font-size: calc(13 * var(--u));
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -279,10 +303,7 @@ window.__DESK_STATE__='__DESK_STATE_JSON__';</script>
     <h1>Camphor</h1>
     <p>文件服务器</p>
   </div>
-  <button class="desk-icon" data-app="files" type="button">
-    <span class="tile"><img src="/static/leaf.png" alt=""></span>
-    <span>LeafFS</span>
-  </button>
+  <div class="desk-icon-row" id="icons"></div>
 </main>
 
 <!-- 窗口层：窗口只活在这里，任务栏永远不被盖住 -->
@@ -351,30 +372,90 @@ window.__DESK_STATE__='__DESK_STATE_JSON__';</script>
 "use strict";
 
 /* ====================================================================
-   应用表：这一版只有一个 —— LeafFS。
-   窗口尺寸按格（一格 = 桌面图标那块 = 任务栏高），不写死像素。
+   应用表：每一条就是一个站内页面，在自己窗口里用 iframe 打开。
+   新增一项只要写 route / 图标 / 默认格数，窗口、任务栏、拖拽都是共用的。
+   need 是打开它需要的角色：roles 不含当前角色时图标不出现。
    ==================================================================== */
+var ROLE = (typeof window.__DESK_ROLE__ === 'string') ? window.__DESK_ROLE__ : '';
+var ROLE_RANK = { guest: 0, user: 1, admin: 2, super_admin: 3 };
+function roleAtLeast(need) {
+  if (!need) return true;
+  return (ROLE_RANK[ROLE] || 0) >= (ROLE_RANK[need] || 0);
+}
+
 var APPS = {
   files: {
     title: 'LeafFS',
-    icon: '/static/leaf.png',
-    src: '/',
+    route: '/',
+    img: '/static/leaf.png',
     grid: [17, 11],        // 默认 17 格 × 11 格
     min: [6, 5]            // 最小 6 格 × 5 格
+  },
+  system: {
+    title: '系统',
+    route: '/system',
+    need: 'super_admin',
+    // 三根柱：与任务栏那个「系统状态」同一个图形
+    svg: '<rect x="4" y="13" width="3.4" height="7" rx="1.4"/>'
+       + '<rect x="10.3" y="6" width="3.4" height="14" rx="1.4"/>'
+       + '<rect x="16.6" y="10" width="3.4" height="10" rx="1.4"/>',
+    grid: [16, 10],
+    min: [6, 5]
+  },
+  download: {
+    title: '下载',
+    route: '/url-download',
+    need: 'admin',
+    svg: '<path d="M12 4 v10"/><path d="M8 10.5 L12 14.5 L16 10.5"/>'
+       + '<path d="M5 17.5 h14"/>',
+    grid: [13, 9],
+    min: [6, 5]
+  },
+  admin: {
+    title: '管理',
+    route: '/admin',
+    need: 'admin',
+    svg: '<circle cx="12" cy="9" r="3.4"/>'
+       + '<path d="M5.5 19.5 c0-3.2 2.9-5 6.5-5 s6.5 1.8 6.5 5"/>',
+    grid: [12, 9],
+    min: [6, 5]
   }
 };
+
+var iconsEl = document.getElementById('icons');
+
+/* 图标：有 img 就用图，没有就用内联 svg（不额外带图片文件） */
+function buildIcons() {
+  iconsEl.innerHTML = '';
+  Object.keys(APPS).forEach(function (id) {
+    var spec = APPS[id];
+    if (!roleAtLeast(spec.need)) return;
+    var b = document.createElement('button');
+    b.className = 'desk-icon';
+    b.type = 'button';
+    b.dataset.app = id;
+    var html = spec.img
+      ? '<img src="' + spec.img + '" alt="">'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true">' + spec.svg + '</svg>';
+    b.innerHTML = '<span class="tile">' + html + '</span><span>' + spec.title + '</span>';
+    b.addEventListener('click', function () { openApp(id); });
+    iconsEl.appendChild(b);
+  });
+}
 
 var WS_PORT = (typeof window.__WS_PORT__ !== 'undefined') ? window.__WS_PORT__ : 8081;
 
 /* 尺寸不自己再算一遍，直接量渲染结果：
    `getPropertyValue('--u')` 拿到的是 token 串（clamp(...)），不是长度，
    parseFloat 出来是 0 —— 所以以「一格 = 桌面图标块」的实测宽度为准，
-   缩放规则仍然只写在 CSS 里一处。 */
-var tileEl = document.querySelector('.desk-icon .tile');
+   缩放规则仍然只写在 CSS 里一处。图标是后建的，所以这里每次现查。 */
 var barEl = document.querySelector('.taskbar');
 
+function tileEl() { return document.querySelector('.desk-icon .tile'); }
+
 function gridPx() {
-  var w = tileEl ? tileEl.getBoundingClientRect().width : 0;
+  var el = tileEl();
+  var w = el ? el.getBoundingClientRect().width : 0;
   return w || 48;
 }
 function u() { return gridPx() / 48; }
@@ -420,8 +501,11 @@ function makeWindow(id) {
 
   var bar = document.createElement('header');
   bar.className = 'win-bar';
+  var badge = spec.img
+    ? '<img src="' + spec.img + '" alt="">'
+    : '<svg class="win-ico" viewBox="0 0 24 24" aria-hidden="true">' + spec.svg + '</svg>';
   bar.innerHTML =
-    '<img src="' + spec.icon + '" alt="">' +
+    badge +
     '<span class="win-title"></span>' +
     '<button class="win-max" type="button" aria-label="最大化">' +
     '<svg class="ico-max" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
@@ -442,7 +526,7 @@ function makeWindow(id) {
   frame.className = 'win-frame';
   var iframe = document.createElement('iframe');
   iframe.setAttribute('title', spec.title);
-  iframe.setAttribute('src', spec.src);
+  iframe.setAttribute('src', spec.route);
   frame.appendChild(iframe);
 
   body.appendChild(bar);
@@ -875,9 +959,9 @@ function retryWs() {
 
 /* ---------- 启动 ---------- */
 scheduleClock();
+buildIcons();          // 图标按角色生成，必须在量尺寸（gridPx）之前
 
-/* 先用服务端注入的状态把第一帧画准；注入不存在才退到订阅。
-   设备数注进来了就不再补一次 /api/connections —— 那是同一份数据。 */
+/* 先用服务端注入的状态把第一帧画准；注入不存在才退到订阅。 */
 (function boot() {
   var st = null;
   try { st = JSON.parse(window.__DESK_STATE__ || ''); } catch (e) { st = null; }

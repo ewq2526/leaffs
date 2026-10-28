@@ -79,8 +79,14 @@ def test_placeholders_are_replaced():
     """桌面页里那几个占位符一个都不许留在响应里。"""
     h, html = _serve()
     assert h.status == 200
-    for ph in ('__DESK_STATE_JSON__', '__WS_PORT_NUM__'):
+    for ph in ('__DESK_STATE_JSON__', '__WS_PORT_NUM__', '__DESK_ROLE_JSON__'):
         assert ph not in html, '%s 没被替换' % ph
+
+
+def test_role_is_injected():
+    """角色决定桌面上出现哪几个图标：注入成字符串，页面才好比较。"""
+    _h, html = _serve()
+    assert "window.__DESK_ROLE__='super_admin'" in html
 
 
 def test_state_json_is_parseable():
