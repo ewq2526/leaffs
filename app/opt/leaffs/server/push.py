@@ -37,10 +37,17 @@ _gallery_lock = threading.Lock()
 _system_subscribers = set()    # 系统页订阅：本机状态增量
 _system_lock = threading.Lock()
 
-# 慢档（分区/服务/无线/温度/电池）不会一秒一变：兜底周期 30 秒，
-# 事件（udev / systemd / wpa_supplicant）到来时用 `_slow_dirty` 提前这一次。
+# 慢档（分区/服务/温度/电池）不会一秒一变：兜底周期 30 秒，
+# 事件（udev / systemd）到来时用 `_slow_dirty` 提前这一次。
 _SLOW_INTERVAL = 30.0
 _slow_dirty = threading.Event()
+
+# 无线不在这两档里：它由 wpa_supplicant 的事件驱动 —— 关联、断开、换 AP 都会推
+# `CTRL-EVENT-*` 过来，收到就现读一次，值真的变了才发一帧（见 wifi_changed）。
+# 没有事件就没有开销，也不需要任何定时器。
+_wifi_lock = threading.Lock()
+_wifi_cache = {}
+_wifi_key = None
 
 _main_loop = None
 _main_loop_lock = threading.Lock()
@@ -257,6 +264,53 @@ def system_snapshot_payload():
             'back': int((time.perf_counter() - t0) * 1000)}
 
 
+def _wifi_state_key(w):
+    """托盘与系统页认的那三样：状态、SSID、地址。"""
+    return '%s|%s|%s' % (w.get('state'), w.get('ssid'), w.get('ip'))
+
+
+def _read_wifi():
+    try:
+        return _sys_host.wifi()
+    except Exception:
+        return None
+
+
+def wifi_changed():
+    """无线状态变了（wpa_supplicant 的事件，或者我们刚动过连接）：读一次就推一帧。
+
+    只在值变化时推：一次关联会连着来好几条事件（关联、拿到地址、扫描结果……），
+    每条都发一帧是白花流量。值没变就什么都不做。
+    """
+    global _wifi_key
+    t0 = time.perf_counter()
+    w = _read_wifi()
+    if not w:
+        return
+    key = _wifi_state_key(w)
+    with _wifi_lock:
+        if key == _wifi_key:
+            return
+        _wifi_key = key
+        _wifi_cache['wifi'] = w
+    with _system_lock:
+        targets = list(_system_subscribers)
+    if not targets:
+        return
+    text = json.dumps({'type': 'system_delta', 'set': {'wifi': w}, 't': time.time(),
+                       'back': int((time.perf_counter() - t0) * 1000)})
+    for ws in targets:
+        if not _schedule_send(ws, text):
+            with _system_lock:
+                _system_subscribers.discard(ws)
+
+
+def wifi_watch_loop():
+    """挂在 wpa_supplicant 上等事件，事件到了就交给 wifi_changed。"""
+    from leaffs.system import wifi as _wifi
+    _wifi.watch(wifi_changed)
+
+
 def system_push_loop():
     """每秒一整帧：把当前所有监控值原样发出去，不做"变没变"的过滤。
 
@@ -265,14 +319,17 @@ def system_push_loop():
     拿上一拍补一格，上一拍是 100 MB/s、这一拍盘没动，补上去就是假的 100 MB/s。
     监视器要的是每秒一条真实样本，省这点流量的做法本身就是错的。
 
-    慢档（分区、服务、无线、温度、进程榜）仍然 30 秒才采一次 —— 那是**采集**的
+    慢档（分区、服务、温度、进程榜）仍然 30 秒才采一次 —— 那是**采集**的
     成本，不是发送的成本；没到采集点就在帧里带上一次采到的值（它确实还没变）。
+    无线也一样：它只在 wpa_supplicant 推事件时重采（`wifi_changed`），帧里带的是
+    上一次采到的值。没有事件就一直不重采，也不额外开定时器。
 
     三条硬约束不变：
     * 没有订阅者时什么都不采，循环体只剩一次 sleep；
     * 帧里的值是整块（不做深合并），页面据此整块替换；
     * 帧自带 `t` 与 `back`（这一帧采集花的毫秒数）。
     """
+    global _wifi_key
     last_slow = 0.0
     slow_data = {}
     while True:
@@ -292,11 +349,15 @@ def system_push_loop():
                 last_slow = now
                 slow_data = _sys_host.slow()
             data.update(slow_data)
-            # 在线设备数：桌面任务栏要它。数一下连接字典的大小，没有额外开销。
-            try:
-                data['devices'] = len(_cfg.get_connections())
-            except Exception:
-                data['devices'] = 0
+            # 无线：帧里带缓存值，缓存由 wpa_supplicant 的事件刷新（wifi_changed）。
+            # 还没收到过事件时先在第一次发布时读一次，别让帧里缺这个键。
+            if not _wifi_cache:
+                w = _read_wifi()
+                if w:
+                    with _wifi_lock:
+                        _wifi_cache['wifi'] = w
+                        _wifi_key = _wifi_state_key(w)
+            data.update(_wifi_cache)
             back = int((time.perf_counter() - t0) * 1000)
             text = json.dumps({'type': 'system_delta', 'set': data,
                                't': time.time(), 'back': back})

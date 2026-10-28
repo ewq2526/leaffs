@@ -151,6 +151,8 @@ def start_server():
     threading.Thread(target=_push.admin_push_loop, daemon=True).start()
     # 启动本机状态推送线程（每秒一帧增量，同样只在有订阅者时才采集）
     threading.Thread(target=_push.system_push_loop, daemon=True).start()
+    # 盯 wpa_supplicant 的事件：无线状态变了就立刻推一帧，不轮询
+    threading.Thread(target=_push.wifi_watch_loop, daemon=True).start()
     # 冻结看门狗（疑似卡死自动抓全线程栈，见 _wd_loop 说明）
     threading.Thread(target=_wd_loop, daemon=True).start()
     # 后台启动 aria2c RPC 守护进程（不再阻塞服务器启动），结束后记录日志并通知下载页

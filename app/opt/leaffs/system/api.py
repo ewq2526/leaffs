@@ -86,6 +86,10 @@ def wifi_connect(handler):
     except Exception as e:
         handler.send_json({'error': str(e)}, 400)
         return
+    # 一次连接只等"关联完成"，地址是之后才由 DHCP 拿到的：事件那一刻读到的往往
+    # 还没有 ip。这里连完再喊一次，让推送帧带上真正的地址。
+    from leaffs.server import push as _push
+    _push.wifi_changed()
     handler.send_json(result)
 
 

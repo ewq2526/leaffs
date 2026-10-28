@@ -680,16 +680,26 @@ def fast():
     }
 
 
-def slow():
-    """状态档：分区与挂载、服务、无线、温度、电池、进程榜。"""
+def wifi():
+    """无线状态。托盘那个图标只要这一条，而它的变化是事件驱动的：wpa_supplicant
+    关联/断开时会推 `CTRL-EVENT-*`，push 收到就调这里读一次（见 `wifi_changed`）。
+    所以它不挂在 `slow()` 的 30 秒档里 —— 那档是"没人推、那就定期看一眼"的东西。"""
     import leaffs.system.wifi as _wifi
+    return _wifi.status()
+
+
+def slow():
+    """状态档：分区与挂载、服务、温度、电池、进程榜。
+
+    不含无线：那一条由事件驱动（见 `wifi()`），要整份的地方用 `snapshot()`，
+    它会把无线一起带上。
+    """
     return {
         'temp': temperatures(),
         'power': power(),
         'disks': disks(),
         'services': services(),
         'procs': processes(),
-        'wifi': _wifi.status(),
     }
 
 
@@ -717,4 +727,5 @@ def snapshot(scope='full'):
     data.update(fast())
     if scope != 'fast':
         data.update(slow())
+        data['wifi'] = wifi()          # 无线不在 slow() 里（事件驱动），整份要带上
     return data

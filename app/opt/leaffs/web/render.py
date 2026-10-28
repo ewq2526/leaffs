@@ -290,7 +290,7 @@ def serve_desktop(handler, BASE_DIR, get_session, get_session_username):
     """桌面页：kiosk 的入口外壳。窗口里装的是站内页面（iframe）。
 
     服务端把当前状态（无线、电源）注进页面，第一帧就是准的 —— 开机那一秒不该先
-    画一个灰的再等订阅。设备数不在这里注：它走 /api/connections，页面自己补一次。
+    画一个灰的再等订阅。
     """
     filepath = os.path.join(BASE_DIR, 'web_page', 'desktop', 'desktop.html')
     try:
@@ -334,12 +334,7 @@ def _desk_state_json():
     except Exception:
         power = {}
     try:
-        import leaffs.config.core as _cfg2
-        devices = len(_cfg2.get_connections())
-    except Exception:
-        devices = 0
-    try:
-        text = _json.dumps({'wifi': wifi, 'power': power, 'devices': devices},
+        text = _json.dumps({'wifi': wifi, 'power': power},
                            ensure_ascii=False)
     except Exception:
         return '{}'

@@ -138,6 +138,45 @@ def status():
     return data
 
 
+def watch(on_event):
+    """挂着等 wpa_supplicant 的事件，来一条就回调一次（不轮询）。
+
+    控制接口支持 ATTACH：挂上去之后，关联、断开、换 AP、扫描结果这些
+    `CTRL-EVENT-*` 都是 wpa_supplicant 自己推过来的。`wpa_cli` 的交互模式做的就是
+    "ATTACH 上去，把事件一行行打出来"，所以这里读它的 stdout，一行一条。
+    没有事件的时候这里什么都不做，不占 CPU，也不需要谁定时来问。
+
+    wpa_cli 会自己退出（网卡被拔、wpa_supplicant 重启、控制套接字重建），
+    退出后隔一会儿再挂 —— 那是重连，不是轮询。
+    """
+    while True:
+        iface = _iface()
+        if not iface:
+            time.sleep(2.0)
+            continue
+        try:
+            p = subprocess.Popen([CLI, '-p', CTRL_DIR, '-i', iface],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL,
+                                 text=True, bufsize=1)
+        except OSError:
+            time.sleep(2.0)
+            continue
+        try:
+            for line in p.stdout:
+                if line[:1] == '<':                       # <3>CTRL-EVENT-CONNECTED ...
+                    on_event()
+        except Exception:
+            pass
+        finally:
+            try:
+                p.terminate()
+                p.wait(timeout=3)
+            except (OSError, subprocess.SubprocessError):
+                pass
+        time.sleep(2.0)
+
+
 def _scan_raw():
     """scan_results → {bssid: 条目}。隐藏网络（空 SSID）跳过。"""
     nets = {}
