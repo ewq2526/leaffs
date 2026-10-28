@@ -87,6 +87,11 @@
   }
   input[type=number] { width: 132px; }
   input[type=text], input[type=password] { width: 260px; }
+  /* 口令框右边挂一个"显示"开关：装机器上只有键盘时，看不清自己敲了什么
+     就只能重来一遍 */
+  .pw { display: flex; gap: 8px; align-items: center; max-width: 368px; }
+  .pw input { flex: 1 1 auto; width: auto; min-width: 0; }
+  .reveal { padding: 8px 14px; font-size: 14px; }
 
   button {
     font: inherit; padding: 9px 18px; border-radius: 7px; cursor: pointer;
@@ -181,11 +186,17 @@
     </div>
     <div class="field">
       <label for="pass">口令</label>
-      <input id="pass" type="password" autocomplete="new-password">
+      <div class="pw">
+        <input id="pass" type="password" autocomplete="new-password">
+        <button type="button" class="reveal" data-for="pass" aria-pressed="false">显示</button>
+      </div>
     </div>
     <div class="field">
       <label for="pass2">再输一次</label>
-      <input id="pass2" type="password" autocomplete="new-password">
+      <div class="pw">
+        <input id="pass2" type="password" autocomplete="new-password">
+        <button type="button" class="reveal" data-for="pass2" aria-pressed="false">显示</button>
+      </div>
     </div>
     <div class="foot">
       <button id="back">返回</button>
@@ -690,8 +701,17 @@ document.addEventListener('keydown', function (e) {
       const next = document.getElementById('next');
       if (!next.disabled) { e.preventDefault(); next.click(); }
     } else if (shown('step2') && e.target.tagName === 'INPUT') {
-      const go = document.getElementById('go');
-      if (!go.disabled) { e.preventDefault(); go.click(); }
+      // Enter 逐个下移，不是一路开到底：在"再输一次"里按回车只把焦点送到
+      // 开始安装，装不装还得再按一次
+      e.preventDefault();
+      const order = ['user', 'pass', 'pass2'];
+      const i = order.indexOf(e.target.id);
+      if (i >= 0 && i < order.length - 1) {
+        document.getElementById(order[i + 1]).focus();
+      } else {
+        const go = document.getElementById('go');
+        if (!go.disabled) go.focus();
+      }
     } else if (shown('step3')) {
       const rb = document.getElementById('reboot');
       if (rb.style.display !== 'none') { e.preventDefault(); rb.click(); }
@@ -723,6 +743,18 @@ function checkForm() {
   }
   go.disabled = !!why;
   h2.textContent = why || '确认无误后开始安装';
+}
+// 口令框的"显示/隐藏"。切回 password 时会保留已输入的内容。
+for (const id of ['pass', 'pass2']) {
+  const btn = document.querySelector(`.reveal[data-for="${id}"]`);
+  btn.onclick = () => {
+    const input = document.getElementById(id);
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.textContent = show ? '隐藏' : '显示';
+    btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+    input.focus();
+  };
 }
 for (const id of ['user', 'pass', 'pass2']) {
   document.getElementById(id).addEventListener('input', checkForm);
@@ -789,13 +821,32 @@ async function poll() {
   } catch (e) { /* 服务还没起来 */ }
 }
 
+// 点"开始安装"也不当场动手：先让人看一眼要装到哪儿、会清掉什么、用哪个账号。
+// 一旦开始，这一页就只剩进度条能看了 —— 这一步以后没有后悔的机会。
 document.getElementById('go').onclick = async () => {
   if (document.getElementById('go').disabled) return;
+  const r = picked.row;
+  const user = document.getElementById('user').value.trim();
+  const ok = await askConfirm({
+    title: '现在开始装系统？',
+    lines: [
+      `装到：${targetText()}`,
+      r.free
+        ? '会先在这块未分配空间上新建一个分区，再把系统写进去。'
+        : { text: '会清空这个分区，再把系统写进去。分区里原来的数据全部丢失。', danger: true },
+      `登录账号：${user}`,
+      '装的过程中不要断电。装完会提示重启。',
+    ],
+    okText: '开始安装',
+    cancelText: '再检查一下',
+    danger: true,
+  });
+  if (!ok) return;
   showStep(3);
   await api('/api/install', {
     device: picked.device,
     rowid: picked.row.rowid,
-    username: document.getElementById('user').value.trim(),
+    username: user,
     password: document.getElementById('pass').value,
   }).catch(() => {});
   timer = setInterval(poll, 800);
