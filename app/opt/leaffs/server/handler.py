@@ -817,7 +817,9 @@ class HTTPHandler(BaseHTTPRequestHandler):
         self._sec_headers_sent = True
         try:
             self.send_header('X-Content-Type-Options', 'nosniff')
-            self.send_header('X-Frame-Options', 'DENY')
+            # 桌面与站内页面同源：桌面拿 iframe 装浏览页，所以只拦外站嵌入。
+            # 与 CSP 的 frame-ancestors 'self' 是同一条规矩的两种写法（老浏览器看这个）。
+            self.send_header('X-Frame-Options', 'SAMEORIGIN')
             self.send_header('Referrer-Policy', 'no-referrer')
             if csp:
                 self.send_header('Content-Security-Policy', csp)
@@ -2151,6 +2153,17 @@ def _g_system(h, path, role):
                    BASE_DIR, _ac.get_session, _ac.get_session_username)
 
 
+def _g_desktop(h, path, role):
+    """桌面：kiosk 的入口页，窗口里装的是站内页面。
+
+    只要登录就能看 —— 里面能打开什么由被嵌入的页面自己判（/system 仍然要 super_admin）。
+    """
+    if not role:
+        h.redirect('/login')
+        return
+    _wm.serve_desktop(h, BASE_DIR, _ac.get_session, _ac.get_session_username)
+
+
 def _g_api_system(h, path, role):
     # 权限由分派层的 _SUPER_ADMIN_ONLY_GET 统一判，这里只负责输出。
     # scope=fast 只出现在 WS 断开后的兜底轮询里：只要每秒档，慢档连采都不采。
@@ -2593,6 +2606,7 @@ GET_ROUTES = (
     (('in', ('/admin/advanced', '/admin/deep', '/log')), _g_admin_pages),
     (('=', '/me'), _g_me),
     (('=', '/system'), _g_system),
+    (('=', '/desktop'), _g_desktop),
     (('=', '/share'), _g_share_page),
     (('prefix', '/p/'), _g_p_share),
     (('or', (('=', '/'), ('prefix', '/browse/'), ('=', '/gallery'))), _g_browse_page),

@@ -269,7 +269,7 @@ def page_csp(handler):
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob:; "
         f"connect-src {connect}; "
-        "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+        "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
     )
 
 
@@ -284,6 +284,61 @@ def _inject_upload_limit(html):
     except Exception:
         val = 0
     return html.replace('__UPLOAD_MAX_BYTES__', str(val))
+
+
+def serve_desktop(handler, BASE_DIR, get_session, get_session_username):
+    """桌面页：kiosk 的入口外壳。窗口里装的是站内页面（iframe）。
+
+    服务端把当前状态（无线、电源）注进页面，第一帧就是准的 —— 开机那一秒不该先
+    画一个灰的再等订阅。设备数不在这里注：它走 /api/connections，页面自己补一次。
+    """
+    filepath = os.path.join(BASE_DIR, 'web_page', 'desktop', 'desktop.html')
+    try:
+        with open(filepath, 'rb') as f:
+            html = f.read().decode('utf-8')
+    except Exception:
+        handler.send_error(404)
+        return
+    cookie = handler.headers.get('Cookie', '')
+    role, sid = get_session(cookie, handler.client_address[0])
+    # 这一页只认这两个占位符：状态（第一帧就要准）与 WS 端口。
+    # 它不引站内的 style.css / app.js，自己的配色与缩放在页面里。
+    html = html.replace('__DESK_STATE_JSON__', _desk_state_json())
+    html = _inject_ws_port(html)
+    data = html.encode('utf-8')
+    handler.send_response(200)
+    handler.send_header('Content-Type', 'text/html; charset=utf-8')
+    handler.send_header('Content-Length', str(len(data)))
+    handler.send_header('Cache-Control', 'no-store')
+    handler.end_headers()
+    handler.wfile.write(data)
+
+
+def _desk_state_json():
+    """桌面第一帧要的那点状态，读不出来就给空对象（页面会退回订阅）。
+
+    返回值要塞进页面里的一段**单引号 JS 字符串**，所以引号、反斜杠与 `</` 都得转义 ——
+    SSID 里带一个撇号就足以把整段脚本拆坏。
+    """
+    import json as _json
+    wifi, power = {}, {}
+    try:
+        import leaffs.system.wifi as _wifi
+        wifi = _wifi.status()
+    except Exception:
+        wifi = {}
+    try:
+        import leaffs.system.host as _host
+        power = _host.power()
+    except Exception:
+        power = {}
+    try:
+        text = _json.dumps({'wifi': wifi, 'power': power}, ensure_ascii=False)
+    except Exception:
+        return '{}'
+    return (text.replace('\\', '\\\\').replace("'", "\\'")
+                .replace('\n', '\\n').replace('\r', '\\r')
+                .replace('</', '<\\/'))
 
 
 def serve_file(handler, filename, content_type, BASE_DIR,

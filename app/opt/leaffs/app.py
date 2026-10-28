@@ -431,10 +431,10 @@ def _start_webview_window():
         _ltok = _lt.get_current() or _lt.read_file()
         if _ltok:
             url += '?leaf=' + _ltok
-        # kiosk 是设备面板形态：开机直接落在「系统」页，而不是文件浏览页。
-        # 登录后跳哪由服务端的 next= 参数决定（只接受站内路径）。
+        # kiosk 是桌面形态：开机落在桌面，窗口自己开；不要直接落到文件浏览页，
+        # 那样这台机器看起来就只是一台文件服务器。
         if os.environ.get('LEAFFS_KIOSK') == '1':
-            url += ('&' if _ltok else '?') + 'next=%2Fsystem'
+            url += ('&' if _ltok else '?') + 'next=/desktop'
         return url
     if not sys.platform.startswith('win'):
         ver = _webkit_gtk_version()
