@@ -8,9 +8,11 @@
 # 与 mkimage/packages.app.txt、mkimage/packages.installer.txt 三份合起来才是整套系统。
 
 # ── 内核与固件 ──────────────────────────────────────────────
-# 内核按具体版本写：构建用本地包仓库，里面只有这一份 deb，没有 meta 包。
-# 换内核时同时改这里与仓库里的 deb。
-# 模块树是裁过的（850 个，33 MB）：网卡蓝牙整棵保留，声音、媒体、InfiniBand 不要。
+# 内核按具体版本写，不写 meta 包：Debian 13（trixie）的官方签名内核，由 apt 从
+# Debian 源装进来 —— 本地 deb 仓库里没有这一份，也不从任何现成镜像里拷 vmlinuz
+# 与模块。换内核时改这一行，并确认源里有对应版本。
+# 模块树是完整的（4230 个 .ko，约 108 MB）：没有裁剪步骤，声音、媒体、InfiniBand
+# 都还在。要裁就先确认哪些模块不能去掉，再单独做一份裁过的内核 deb。
 linux-image-6.12.113+deb13-amd64
 initramfs-tools            # 生成 initrd，配置用仓库的 /etc/initramfs-tools
 zstd                       # 那份配置里 COMPRESS=zstd，重做 initrd 时要用
