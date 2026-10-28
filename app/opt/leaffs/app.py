@@ -592,8 +592,11 @@ def _start_webview_window():
         # 缩放自己起一个线程，不依赖它。
         if _kiosk:
             threading.Thread(target=_apply_kiosk_zoom, daemon=True).start()
-        # 会话 Cookie 要落盘：kiosk 每次开机都会重新拉起窗口，若 Cookie 不持久，
-        # 每次都会用一次性令牌新建一个会话，账号的"登录设备"列表就会一天多一条。
+        # 浏览器侧的 Cookie 要跨重启：kiosk 每次开机重新拉窗口，Cookie 留着就不用
+        # 重新登录，账号的"登录设备"列表也不会一天多一条。
+        # 这一份里唯一频繁写盘的是 hsts/ 那个 sqlite（页面每秒轮询可能每秒提交一次），
+        # 那个子目录由 camphor-kiosk 单元在启动时用 tmpfs 盖住（camphor-kiosk-cache.sh），
+        # 于是 Cookie 落盘、HSTS 留内存。
         _store = os.path.join(PROJECT_DIR, '.cache', 'webview')
         try:
             os.makedirs(_store, exist_ok=True)
