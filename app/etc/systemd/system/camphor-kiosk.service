@@ -19,6 +19,11 @@ Environment=LEAFFS_KIOSK=1
 Environment=LEAFFS_ATTACH=1
 Environment=LEAFFS_PROJECT_ROOT=/srv/leaffs
 Environment=PYTHONUNBUFFERED=1
+# WebKit 的网络缓存、favicon 之类默认落在 ~/.cache，会一直往盘上写。
+# XDG_CACHE_HOME 指到 /run 下的 tmpfs，这些写就留在内存里，重启自动清空。
+# XDG_DATA_HOME 不动：localStorage 与 IndexedDB 在它下面，主题与偏好要跨重启保留。
+RuntimeDirectory=camphor-cache
+Environment=XDG_CACHE_HOME=/run/camphor-cache
 # 部分核显上 WebKit 的加速合成会画出灰白一片（窗口在、内容不出现）。
 # 关掉合成走软件绘制：这一屏就是一页网页，软件绘制完全够用。
 Environment=WEBKIT_DISABLE_COMPOSITING_MODE=1

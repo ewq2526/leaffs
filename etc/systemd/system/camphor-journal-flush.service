@@ -1,0 +1,18 @@
+[Unit]
+Description=Camphor: write the in-RAM journal to disk before shutdown
+Documentation=man:journalctl(1)
+DefaultDependencies=no
+# journald 先起着，我们才停得早：After= 在停止时是反过来的
+After=systemd-journald.service local-fs.target
+Before=shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+# 关机时把 /run/log/journal 里的东西搬到 /var/log/journal（journalctl --flush）
+ExecStop=/usr/bin/journalctl --flush
+
+[Install]
+WantedBy=multi-user.target

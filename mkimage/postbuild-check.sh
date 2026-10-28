@@ -59,6 +59,21 @@ if [ -f "$T/fs.squashfs" ]; then
 		&& bad "network-online.target.wants 里还有 wait-online（屏蔽不生效）" \
 		|| ok "wait-online 不在 network-online.target.wants 里"
 
+	# 定时器屏蔽。钩子里原来用 systemctl mask，在这个 chroot 里它不干活，
+	# 失败又被吞掉、日志照写"已屏蔽"，于是镜像里每天都在空跑。
+	for t in apt-daily.timer apt-daily-upgrade.timer dpkg-db-backup.timer logrotate.timer; do
+		if grep -q "squashfs-root/etc/systemd/system/$t -> /dev/null" "$T/sq.list"; then
+			ok "$t 已屏蔽"
+		else
+			bad "$t 没有屏蔽（每天空跑一次，写盘并联网）"
+		fi
+		if grep -q "squashfs-root/etc/systemd/system/timers.target.wants/$t$" "$T/sq.list"; then
+			bad "timers.target.wants 里还有 $t"
+		else
+			ok "$t 不在 timers.target.wants 里"
+		fi
+	done
+
 	# 启用链接要指向真实单元文件。手工 ln 成 /etc/systemd/system/<单元> 时，
 	# 单元在 /usr/lib/systemd/system/ 下的（networkd）就是条空链，服务起不来，
 	# 而且 systemctl enable 之后也不会纠正它。

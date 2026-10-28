@@ -96,7 +96,7 @@ done < /etc/systemd/camphor-units.list
 # 两个一次性入口单独启用。它们不写进上面的清单：那份清单同时是
 # camphor-firstboot.sh 的启动名单，入口混在里面会被当成服务 start，
 # 而 camphor-firstboot.service 就是正在跑那个脚本的单元，start 它会等自己。
-for one in camphor-installer.service camphor-firstboot.service; do
+for one in camphor-installer.service camphor-firstboot.service camphor-journal-flush.service; do
 	[ -f "/etc/systemd/system/$one" ] || continue
 	systemctl enable "$one"
 done
@@ -105,7 +105,40 @@ done
 # ifupdown 的 networking.service 里没有任何 iface（/etc/network/interfaces 只有
 # source 一行），是空跑；系统自带的 wpa_supplicant.service 也是空跑，而且它的
 # 控制目录跟 camphor-wifi 抢同一个 /run/wpa_supplicant。
-systemctl disable networking.service wpa_supplicant.service >/dev/null 2>&1 || true
+# 这个 chroot 里没有跑 systemd，systemctl 改不了状态（见下面定时器那段），
+# 所以直接摘掉启用链接。
+for unit in networking.service wpa_supplicant.service; do
+	rm -f /etc/systemd/system/*.wants/"$unit"
+	if ls /etc/systemd/system/*.wants/"$unit" >/dev/null 2>&1; then
+		echo "camphor: $unit 仍被启用" >&2
+		exit 1
+	fi
+	echo "camphor: 已关闭 $unit"
+done
+
+# 这几个定时器在成品系统上没有用处，屏蔽掉：
+#   apt-daily / apt-daily-upgrade  界面里不装包，它每天自己联网拉一次索引 ——
+#                                  走热点时那是白花的流量，还会重写 /var/lib/apt/lists
+#   dpkg-db-backup                 每天把 /var/lib/dpkg 打包到 /var/backups；
+#                                  系统坏了是重装，不是拿它修
+#   logrotate                      它只管 /var/log 下的普通文件，而服务日志都在 journal，
+#                                  journal 自己按上限滚动；剩下那几条规则对应的文件
+#                                  在成品机上几乎不增长，跑了也是空转
+# fstrim.timer 留着：SSD 定期 TRIM 有用。
+#
+# 屏蔽就是把它指向 /dev/null。不用 systemctl mask：这个 chroot 里没有运行中的
+# systemd，那条命令会失败；失败一旦被吞掉，日志写着"已屏蔽"、镜像里还是启用状态。
+# 写完逐条读回来确认，对不上就让构建停在这里。
+for timer in apt-daily.timer apt-daily-upgrade.timer dpkg-db-backup.timer logrotate.timer; do
+	[ -e "/usr/lib/systemd/system/$timer" ] || continue
+	ln -sfn /dev/null "/etc/systemd/system/$timer"
+	rm -f /etc/systemd/system/timers.target.wants/"$timer"
+	if [ ! -L "/etc/systemd/system/$timer" ] || [ "$(readlink "/etc/systemd/system/$timer")" != /dev/null ]; then
+		echo "camphor: 屏蔽 $timer 失败" >&2
+		exit 1
+	fi
+	echo "camphor: 已屏蔽 $timer"
+done
 
 # networkd 不写 /etc/resolv.conf —— 那是 systemd-resolved 的活。把这份文件指到
 # resolved 的 stub（127.0.0.53），DHCP 给的 DNS 才有地方落地。
