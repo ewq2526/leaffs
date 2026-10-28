@@ -134,6 +134,15 @@ body {
 }
 .tm-item .pv.small { font-size: 12rem; font-weight: 500; }
 .tm-item .spark { grid-column: 1 / -1; width: 100%; height: 20rem; display: block; margin-top: 2rem; }
+/* 磁盘条目多一行：类型 + 型号。型号只在盘自己报得出来、且不是设备名的时候才写，
+   否则等于把 "sda" 又抄一遍。 */
+.tm-item.disk { height: 78rem; grid-template-rows: auto auto 1fr; }
+.tm-item .sub {
+    grid-column: 1 / -1; grid-row: 2;
+    font-size: 10.5rem; color: var(--tm-mute);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-top: 1rem;
+}
 /* 没有曲线的条目（无线 / 电池 / 服务）：一行字在整条里居中，否则字全挤在顶上，
    下面空出半条，看着像少画了什么。 */
 .tm-item.plain { grid-template-rows: auto; align-content: center; }
@@ -1135,13 +1144,30 @@ function fmtRate(bps) {
 // ---------- 磁盘：一块盘一个条目 + 一份详情 ----------
 var _disks = {}, _diskPlaceholder = false;
 
+// 盘的类型。USB 盘要单独认出来：很多 U 盘把 queue/rotational 报成 1，
+// 只看那个字段会把它写成"机械盘"（后端按设备路径判，见 host._disk_bus）。
+function diskKind(d) {
+    if (d.usb) return 'USB 盘';
+    if (d.removable) return '移动盘';
+    var kind = d.rotational ? '机械盘' : '固态盘';
+    if ((d.name || '').indexOf('nvme') === 0) kind += ' · NVMe';
+    return kind;
+}
+
+// 条目上那行小字：类型 + 型号（型号只在盘自己报得出来、且不是设备名时才写）
+function diskSub(d) {
+    var model = (d.model || '').trim();
+    return diskKind(d) + (model && model !== d.name ? ' · ' + model : '');
+}
+
 function diskItem(name, label) {
     var b = document.createElement('button');
-    b.className = 'tm-item';
+    b.className = 'tm-item disk';
     b.type = 'button';
     b.dataset.tab = 'disk:' + name;
     b.dataset.disk = name;
     b.innerHTML = '<span class="nm"></span><span class="pv">-</span>' +
+                  '<span class="sub"></span>' +
                   '<svg class="spark" viewBox="0 0 100 22" preserveAspectRatio="none"></svg>';
     b.querySelector('.nm').textContent = label;
     b.addEventListener('click', function () { selectTab('disk:' + name); });
@@ -1222,15 +1248,17 @@ function syncDisks(list) {
             var item = diskItem(d.name, label);
             stackBox.appendChild(item);
             n = _disks[d.name] = { item: item, pv: item.querySelector('.pv'),
+                                   sub: item.querySelector('.sub'),
                                    spark: item.querySelector('.spark') };
             n.detail = diskDetail(d.name, label);
         }
         n.item.querySelector('.nm').textContent = label;
+        setNodeText(n.sub, 'dsub' + d.name, diskSub(d));
 
         var parts = d.partitions || [];
         setNodeText(n.detail.mdl, 'dmdl' + d.name, d.model || '-');
         setNodeText(n.detail.cap, 'dcap' + d.name, fmtBytes(d.size));
-        setNodeText(n.detail.kind, 'dkind' + d.name, d.rotational ? '机械盘' : '固态盘');
+        setNodeText(n.detail.kind, 'dkind' + d.name, diskKind(d));
 
         var pseen = {};
         parts.forEach(function (p) {

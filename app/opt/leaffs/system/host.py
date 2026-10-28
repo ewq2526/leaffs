@@ -99,11 +99,28 @@ def _udev_fs_type(major_minor):
     return ''
 
 
+def _disk_bus(name):
+    """这块盘挂在什么总线上：('usb', 是否可移动)。
+
+    `queue/rotational` 对 U 盘**不可信**：很多 U 盘把它报成 1（内核按
+    "不是 SSD" 一刀切），于是页面上把 U 盘写成"机械盘"。真正的判据是设备路径 ——
+    `/sys/block/sdb` 软链到的那串里带不带 `/usb`（移动硬盘、U 盘、读卡器都在 USB 下）。
+    `removable` 只作补充：SD 卡那种非 USB 的可移动介质也算移动盘。
+    """
+    try:
+        real = os.path.realpath(os.path.join('/sys/block', name))
+    except OSError:
+        real = ''
+    removable = _read(os.path.join('/sys/block', name, 'removable')).strip() == '1'
+    return ('usb' in real.split('/'), removable)
+
+
 def disks():
     """按物理盘枚举，而不是按挂载点。
 
     以前只列"已挂载的文件系统"，于是没挂的盘（启动盘的 ESP、内置盘的分区）完全不出现，
-    也看不出"哪块盘在读写"。现在每块盘给出型号、容量、是否机械盘，下面挂它的分区与用量。
+    也看不出"哪块盘在读写"。现在每块盘给出型号、容量、总线（USB / 内置）、是否机械盘，
+    下面挂它的分区与用量。
     """
     mounts = {}
     for m in _read_mounts():
@@ -124,6 +141,7 @@ def disks():
             size = 0
         model = _read(os.path.join(base, 'device', 'model')).strip() or name
         rotational = _read(os.path.join(base, 'queue', 'rotational')) == '1'
+        usb, removable = _disk_bus(name)
         parts = []
         try:
             entries = sorted(os.listdir(base))
@@ -155,6 +173,8 @@ def disks():
             'model': model,
             'size': size,
             'rotational': rotational,
+            'usb': usb,
+            'removable': removable,
             'partitions': parts,
         })
     out.sort(key=lambda d: d['name'])
