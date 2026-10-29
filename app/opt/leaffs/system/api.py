@@ -102,13 +102,9 @@ _POWER_ACTIONS = ('poweroff', 'reboot')
 def power_action(handler):
     """POST /api/power {action: poweroff|reboot} —— 关机 / 重启这台机器。
 
-    只认**本机一次性令牌**建立的会话（与"服务端本机弹选择框"同一口径，见
-    `share_pick_mount`）：这是"人坐在机器前"的能力，不跟账号走 —— 远程管理员
-    一律 403。CSRF 由 do_POST 的统一同源校验兜住。
+    权限判在分派层（`_SUPER_ADMIN_ONLY_POST`）：只给超级管理员，这里不重复判，
+    也不问"请求是不是从这台机器发出来的"。CSRF 由 do_POST 的统一同源校验兜住。
     """
-    if not handler._is_local_token_session():
-        handler.send_json({'error': '关机只能在机器本机上操作'}, 403)
-        return
     body = handler._read_json()
     if body is None:
         return

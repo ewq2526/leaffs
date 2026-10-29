@@ -1347,8 +1347,8 @@ wfScanBtn.addEventListener('click', function (e) { e.stopPropagation(); scanWifi
 wifiPanel.addEventListener('click', function (e) { e.stopPropagation(); });
 
 /* ---------- 电源菜单 ----------
-   关机 / 重启都调 /api/power，服务端按"本机一次性令牌会话"判：只有坐在机器前
-   打开的这一页能关，远程管理员一律 403。 */
+   关机 / 重启都调 /api/power，服务端只认超级管理员（判在分派层）：远程登录的超管
+   同样能关，不按"是不是本机"分。 */
 var powerMenu = document.getElementById('powerMenu');
 var powerState = document.getElementById('powerState');
 
