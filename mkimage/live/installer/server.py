@@ -968,6 +968,70 @@ def install_removable_fallback():
     add_line("写入兜底引导：EFI/BOOT/BOOTX64.EFI")
 
 
+# 提示摆在启动菜单右上角，一个白框三行白字。字号就跟着菜单走（unicode.pf2 那份
+# 16 像素），靠框把它跟底图分开，够看清。
+WINDOWS_MENU_HINTS = (
+    "由于安全限制，",
+    "选择从该菜单启动 Windows 会导致 PIN 码重置一次。",
+    "为了数据安全请在从此菜单启动前将 BitLocker 关掉。",
+)
+HINT_FONT = "Unifont Regular 16"
+HINT_PAD = 16
+HINT_PITCH = 22
+HINT_CELL = 8         # 16 像素字体里一个半角字符格宽
+HINT_ROW = 16         # 一整格高
+HINT_WIDTH = 408      # 最长那行在 16 像素下的宽度
+# 上下各留 12 像素，再凑成整格：竖列是整格的块字符，高度不是整格数就接不住横线。
+HINT_HEIGHT = ((2 * 12 + HINT_PITCH * len(WINDOWS_MENU_HINTS) + HINT_ROW - 1)
+               // HINT_ROW * HINT_ROW)
+
+
+def _hint_label(left, top, text):
+    return ("\n+ label {\n"
+            "\tleft = %s\n"
+            "\ttop = %s\n"
+            '\ttext = "%s"\n'
+            '\talign = "left"\n'
+            '\tcolor = "#ffffff"\n'
+            '\tfont = "%s"\n'
+            "}\n" % (left, top, text, HINT_FONT))
+
+
+def install_windows_hints(target):
+    """ESP 上有 Windows 时，在装好系统的启动菜单右上角加一个提示框。返回是否写入。
+
+    只写 `/boot/grub/themes/camphor/theme.txt`（装好的系统用这一份）：介质上的菜单里
+    没有 Windows 项，提示放上去只会让人莫名其妙。主题文件不在就什么都不做。
+    """
+    bootmgfw = os.path.join(target, "boot/efi/EFI/Microsoft/Boot/bootmgfw.efi")
+    theme = os.path.join(target, "boot/grub/themes/camphor/theme.txt")
+    if not os.path.exists(bootmgfw) or not os.path.exists(theme):
+        return False
+    with open(theme, encoding="utf-8") as f:
+        body = f.read()
+    if WINDOWS_MENU_HINTS[0] in body:
+        return False
+    box = HINT_WIDTH + 2 * HINT_PAD
+    left = "100%%-%d" % (box + HINT_PAD)
+    right = "100%%-%d" % (HINT_PAD + HINT_CELL)
+    # 框是块字符拼的：左右各一列全块（宽 8、高一格 16），上下各一行半块（高 8）。
+    # 竖列从框顶铺到框底，跟两条横线重叠一格，角上不留缝；不贴图，也不铺底。
+    blocks = []
+    for k in range(HINT_HEIGHT // HINT_ROW):
+        y = "5%%+%d" % (k * HINT_ROW)
+        for x in (left, right):
+            blocks.append(_hint_label(x, y, "█"))
+    blocks.append(_hint_label(left, "5%", "▀" * (box // HINT_CELL)))
+    blocks.append(_hint_label(left, "5%%+%d" % (HINT_HEIGHT - HINT_ROW),
+                              "▄" * (box // HINT_CELL)))
+    for i, text in enumerate(WINDOWS_MENU_HINTS):
+        blocks.append(_hint_label("100%%-%d" % box, "5%%+%d" % (12 + i * HINT_PITCH), text))
+    with open(theme, "a", encoding="utf-8") as f:
+        f.write("".join(blocks))
+    add_line("菜单右上角写明从菜单启动 Windows 的代价与前提")
+    return True
+
+
 def install_worker(device, rowid, username="", password=""):
     global USAGE_ENABLED
     try:
@@ -1185,6 +1249,8 @@ def install_worker(device, rowid, username="", password=""):
                         "GRUB_THEME=/boot/grub/themes/camphor/theme.txt\n"
                     )
                 add_line("生成 /etc/default/grub")
+            # 主题要在 update-grub 之前改：grub.cfg 里引的是盘上那份 theme.txt。
+            install_windows_hints(TARGET)
             run(["chroot", TARGET, "update-grub"], check=False)
             install_removable_fallback()
             add_line("引导程序安装完成")
