@@ -169,6 +169,14 @@ fi
 : > /etc/machine-id
 rm -f /etc/ssh/ssh_host_*
 
+# 硬件时钟按本地时间读写。
+#
+# 一台机器只有一块硬件时钟。母本里的 /etc/adjtime 是 UTC：关机时按 UTC 把时钟写回，
+# 而 Windows 按本地时间读同一块时钟 —— 双系统来回切，进 Windows 后时间就差一个时区
+# （Asia/Shanghai 是 8 小时）。两边用同一种解释才不会互相改时间，所以这里改成 LOCAL。
+printf '0.0 0 0.0\n0\nLOCAL\n' > /etc/adjtime
+echo "camphor: 硬件时钟按本地时间读写（/etc/adjtime = LOCAL）"
+
 # 出厂状态里也不该有「构建过程」：pip 的 HTTP 缓存、安装日志、
 # 旧解释器留下的字节码。它们不指向哪台机器，但能把构建做过什么说得很清楚，
 # 而用户系统里这些东西没有任何用处。
